@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions  FocusSession[]
+  goals     Goal[]
+  tasks     Task[]
+}
+
+model FocusSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  label     String?
+  duration  Int      // minutes
+  startedAt DateTime
+  endedAt   DateTime
+  createdAt DateTime @default(now())
+}
+
+model Goal {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  title      String
+  totalUnits Int      // e.g., 30 lessons
+  deadline   DateTime
+  unitName   String   // "lessons", "chapters"
+  createdAt  DateTime @default(now())
+
+  tasks      Task[]
+}
+
+model Task {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+
+  goalId       String?
+  goal         Goal?    @relation(fields: [goalId], references: [id])
+
+  title        String
+  estimatedMin Int?
+  status       String   @default("todo") // todo | doing | done
+  dueDate      DateTime?
+  createdAt    DateTime @default(now())
+}
