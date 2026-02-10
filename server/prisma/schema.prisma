@@ -54,5 +54,6 @@ model Task {
   estimatedMin Int?
   status       String   @default("todo") // todo | doing | done
   dueDate      DateTime?
+  completedAt  DateTime?
   createdAt    DateTime @default(now())
 }
