@@ -4,53 +4,38 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import Link from "next/link";
-import { useRouter} from "next/navigation";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 
 export default function DashboardPage() {
   const [goals, setGoals] = useState<any[]>([]);
+  const [goalsError, setGoalsError] = useState<string | null>(null);
 
   useEffect(() => {
     const token = getToken();
     if (!token) return;
 
+    setGoalsError(null);
     api("/goals", {
       headers: {
         Authorization: `Bearer ${token}`,
       },
-    }).then(setGoals).catch(console.error);
+    })
+      .then(setGoals)
+      .catch((err) => {
+        console.error(err);
+        setGoalsError(err instanceof Error ? err.message : "Failed to load goals");
+      });
   }, []);
 
   return (
     <div className="min-h-screen bg-white text-black flex flex-col">
-      {/* NAVBAR */}
-      <header>
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="text-black/50 tracking-[0.22em]">FOCUSFLOW</div>
-
-          <nav className="flex gap-6 text-sm text-gray-600">
-            <NavLink href="/dashboard" label="Dashboard" />
-            <NavLink href="/goals" label="Goals" />
-            <NavLink href="/tasks" label="Tasks" />
-            <NavLink href="/focus" label="Focus" />
-            <NavLink href="/analytics" label="Analytics" />
-            <NavLink href="/journal" label="Journal" />
-            <NavLink href="/settings" label="Settings" />
-          </nav>
-
-          <div className="flex items-center gap-3">
-            <Link
-              href="/settings"
-              className="w-8 h-8 rounded-full border flex items-center justify-center text-sm hover:bg-gray-50"
-            >
-              JS
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* MAIN */}
       <main className="max-w-6xl mx-auto px-6 pt-10 pb-20 space-y-10">
+        {goalsError && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {goalsError}
+          </div>
+        )}
         {/* HERO */}
         <section className="border rounded-2xl p-10 flex items-center justify-between">
           <div className="max-w-xl space-y-4">
@@ -84,10 +69,10 @@ export default function DashboardPage() {
           {/* Illustration placeholder (black & white only) */}
           <Image
             src="/illustrations/dashboardImage.png"
-            alt=""
+            alt="Focus and plan your day"
             width={300}
             height={200}
-            className="opacity-90 grayscale -translate-x-30"
+            className="opacity-90 grayscale md:-translate-x-4 object-contain"
           />
 
         </section>
@@ -96,10 +81,10 @@ export default function DashboardPage() {
         <section className="grid grid-cols-3 gap-6">
           {/* TODAY'S PLAN */}
           <div className="col-span-2 border rounded-2xl p-6">
-            <h2 className="font-medium mb-4">Today’s Plan</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Today’s Plan</h2>
 
             <div className="space-y-3 text-sm">
-              <PlanItem href="/tasks"time="9:00 AM" label="Lessons 1–2 (30 Days of JS)" />
+              <PlanItem href="/tasks" time="9:00 AM" label="Lessons 1–2 (30 Days of JS)" />
               <PlanItem href="/tasks" time="9:30 AM" label="Workout: Lower body" status="Doing" />
               <PlanItem href="/tasks" time="8:30 PM" label="Review notes (15 min)" />
             </div>
@@ -116,7 +101,7 @@ export default function DashboardPage() {
 
           {/* PROGRESS */}
           <div className="border rounded-2xl p-6 space-y-5">
-            <h2 className="font-medium">Your Progress</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Your Progress</h2>
 
             <div>
               <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -208,7 +193,8 @@ export default function DashboardPage() {
           </button>
 
           {/* Journal Entry */}
-          <button
+          <Link
+            href="/journal"
             className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
           >
             <div className="flex items-center gap-3">
@@ -223,7 +209,7 @@ export default function DashboardPage() {
             <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
               Capture one win + one lesson
             </span>
-          </button>
+          </Link>
         </div>
       </section>
       </main>

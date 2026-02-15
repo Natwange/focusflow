@@ -1,3 +1,577 @@
-export default function Page() {
-    return <div className="p-10">Coming Soon!</div>;
+"use client";
+
+import React, { useEffect, useState, useCallback } from "react";
+import { api } from "@/lib/api";
+import { getToken } from "@/lib/auth";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Circle,
+  CircleCheck,
+  Loader2,
+  Trash2,
+} from "lucide-react";
+
+type ViewMode = "week" | "month" | "day";
+type TaskStatus = "todo" | "doing" | "done";
+
+type Task = {
+  id: string;
+  userId: string;
+  goalId: string | null;
+  title: string;
+  estimatedMin: number | null;
+  status: TaskStatus;
+  dueDate: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+// ——— Date helpers ———
+function startOfWeek(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day; // Monday = 0
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfWeek(d: Date): Date {
+  const s = startOfWeek(d);
+  const e = new Date(s);
+  e.setDate(e.getDate() + 6);
+  e.setHours(23, 59, 59, 999);
+  return e;
+}
+
+function startOfMonth(d: Date): Date {
+  const date = new Date(d);
+  date.setDate(1);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfMonth(d: Date): Date {
+  const date = new Date(d);
+  date.setMonth(date.getMonth() + 1);
+  date.setDate(0);
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
+function startOfDay(d: Date): Date {
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfDay(d: Date): Date {
+  const date = new Date(d);
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
+function toISODate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function formatShort(d: Date): string {
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function formatDayNum(d: Date): string {
+  return d.getDate().toString();
+}
+
+function getWeekDays(weekStart: Date): Date[] {
+  const days: Date[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+function getMonthDays(monthStart: Date): Date[] {
+  const days: Date[] = [];
+  const end = endOfMonth(monthStart);
+  const d = new Date(monthStart);
+  while (d <= end) {
+    days.push(new Date(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+
+// Pad month grid to start on Monday (0 = Sunday in getDay, so Monday = 1)
+function getMonthGrid(monthStart: Date): (Date | null)[][] {
+  const first = new Date(monthStart);
+  const firstDay = first.getDay();
+  const pad = firstDay === 0 ? 6 : firstDay - 1; // blanks before first day (Monday week)
+  const days = getMonthDays(monthStart);
+  const total = pad + days.length;
+  const rows = Math.ceil(total / 7);
+  const grid: (Date | null)[][] = [];
+  let idx = 0;
+  for (let r = 0; r < rows; r++) {
+    const row: (Date | null)[] = [];
+    for (let c = 0; c < 7; c++) {
+      if (r === 0 && c < pad) {
+        row.push(null);
+      } else if (idx < days.length) {
+        row.push(days[idx++]);
+      } else {
+        row.push(null);
+      }
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
+export default function TasksPage() {
+  const [view, setView] = useState<ViewMode>("week");
+  const [cursor, setCursor] = useState(() => new Date());
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [statusLoading, setStatusLoading] = useState<string | null>(null);
+
+  const getRange = useCallback(() => {
+    if (view === "week") {
+      const start = startOfWeek(cursor);
+      const end = endOfWeek(cursor);
+      return { start, end };
+    }
+    if (view === "month") {
+      const start = startOfMonth(cursor);
+      const end = endOfMonth(cursor);
+      return { start, end };
+    }
+    const start = startOfDay(cursor);
+    const end = endOfDay(cursor);
+    return { start, end };
+  }, [view, cursor]);
+
+  const fetchTasks = useCallback(async () => {
+    const token = getToken();
+    if (!token) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const { start, end } = getRange();
+    try {
+      const data = await api(
+        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setTasks(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setTasks([]);
+      setError(e?.message || "Failed to load tasks");
+    } finally {
+      setLoading(false);
+    }
+  }, [getRange]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  const createTask = async () => {
+    const title = newTitle.trim();
+    if (!title) return;
+    const token = getToken();
+    if (!token) return;
+    setCreateLoading(true);
+    setError(null);
+    const { start, end } = getRange();
+    let dueDate: string | null = null;
+    if (view === "day") dueDate = cursor.toISOString();
+    else if (view === "week" || view === "month") {
+      const today = new Date();
+      dueDate = today >= start && today <= end ? today.toISOString() : start.toISOString();
+    }
+    try {
+      const created = await api("/tasks", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title, dueDate: dueDate || undefined }),
+      });
+      setTasks((prev) => [created, ...prev]);
+      setNewTitle("");
+    } catch (e: any) {
+      setError(e?.message || "Failed to create task");
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const updateStatus = async (id: string, status: TaskStatus) => {
+    const token = getToken();
+    if (!token) return;
+    setStatusLoading(id);
+    try {
+      const updated = await api(`/tasks/${id}/status`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, ...updated } : t))
+      );
+    } catch (e: any) {
+      setError(e?.message || "Failed to update");
+    } finally {
+      setStatusLoading(null);
+    }
+  };
+
+  const deleteTask = async (id: string) => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      await api(`/tasks/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    } catch (e: any) {
+      setError(e?.message || "Failed to delete");
+    }
+  };
+
+  const goPrev = () => {
+    const d = new Date(cursor);
+    if (view === "week") d.setDate(d.getDate() - 7);
+    else if (view === "month") d.setMonth(d.getMonth() - 1);
+    else d.setDate(d.getDate() - 1);
+    setCursor(d);
+  };
+
+  const goNext = () => {
+    const d = new Date(cursor);
+    if (view === "week") d.setDate(d.getDate() + 7);
+    else if (view === "month") d.setMonth(d.getMonth() + 1);
+    else d.setDate(d.getDate() + 1);
+    setCursor(d);
+  };
+
+  const goToday = () => setCursor(new Date());
+
+  const tasksByDate = (() => {
+    const map = new Map<string, Task[]>();
+    for (const t of tasks) {
+      if (!t.dueDate) continue;
+      const key = toISODate(new Date(t.dueDate));
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(t);
+    }
+    return map;
+  })();
+
+  const baseBtn =
+    "rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-2.5 text-sm font-medium transition hover:border-gray-300 hover:shadow-sm";
+  const activeBtn = "border-black bg-black text-white hover:bg-black/90";
+
+  return (
+    <div className="min-h-screen bg-white text-black">
+      <main className="mx-auto max-w-6xl px-6 py-6 space-y-6">
+        {/* Header card — same theme as dashboard/journal */}
+        <section className="border rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+            <p className="text-gray-600 text-sm mt-0.5">
+              View and manage tasks by week, month, or day.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={goToday}
+              className="rounded-full border border-black/25 px-4 py-2 text-sm font-medium hover:bg-black/[0.06] transition"
+            >
+              Today
+            </button>
+          </div>
+        </section>
+
+        {/* View switcher + nav */}
+        <section className="rounded-2xl border border-black/25 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex rounded-2xl border border-gray-200 bg-[#F9F9F9] p-1">
+              {(["week", "month", "day"] as ViewMode[]).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={`capitalize ${baseBtn} ${view === v ? activeBtn : "border-transparent bg-transparent"}`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={goPrev}
+                aria-label="Previous"
+                className="rounded-full p-2 border border-black/25 hover:bg-black/[0.06] transition"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <span className="min-w-[180px] text-center text-sm font-medium">
+                {view === "week" &&
+                  `${formatShort(startOfWeek(cursor))} – ${formatShort(endOfWeek(cursor))}`}
+                {view === "month" &&
+                  cursor.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+                {view === "day" && formatShort(cursor)}
+              </span>
+              <button
+                type="button"
+                onClick={goNext}
+                aria-label="Next"
+                className="rounded-full p-2 border border-black/25 hover:bg-black/[0.06] transition"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Week view: day strip + task list */}
+        {view === "week" && (
+          <section className="rounded-2xl border border-black/25 bg-white p-4">
+            <div className="grid grid-cols-7 gap-2 mb-4">
+              {getWeekDays(startOfWeek(cursor)).map((d) => {
+                const key = toISODate(d);
+                const isToday = toISODate(d) === toISODate(new Date());
+                const dayTasks = tasksByDate.get(key) || [];
+                return (
+                  <div
+                    key={key}
+                    className={`rounded-xl border p-3 text-center ${isToday ? "border-black bg-black/[0.04]" : "border-gray-200 bg-[#F9F9F9]"}`}
+                  >
+                    <div className="text-[11px] uppercase text-gray-500">
+                      {d.toLocaleDateString(undefined, { weekday: "short" })}
+                    </div>
+                    <div className="text-lg font-semibold mt-0.5">{formatDayNum(d)}</div>
+                    <div className="text-xs text-gray-500 mt-1">{dayTasks.length} tasks</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="border-t border-gray-200 pt-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Tasks this week</h2>
+              {loading ? (
+                <div className="flex items-center gap-2 text-gray-500 py-6">
+                  <Loader2 size={18} className="animate-spin" />
+                  Loading…
+                </div>
+              ) : (
+                <TaskList
+                  tasks={tasks}
+                  onStatus={updateStatus}
+                  onDelete={deleteTask}
+                  statusLoading={statusLoading}
+                />
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Month view: grid + task list for selected range */}
+        {view === "month" && (
+          <section className="rounded-2xl border border-black/25 bg-white p-4">
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
+                <div key={w} className="text-center text-[11px] font-medium text-gray-500 py-1">
+                  {w}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {getMonthGrid(startOfMonth(cursor)).flat().map((d, i) => {
+                if (!d) return <div key={`empty-${i}`} className="min-h-[72px] rounded-lg bg-gray-50/50" />;
+                const key = toISODate(d);
+                const isToday = key === toISODate(new Date());
+                const dayTasks = tasksByDate.get(key) || [];
+                return (
+                  <div
+                    key={key}
+                    className={`min-h-[72px] rounded-lg border p-2 ${isToday ? "border-black bg-black/[0.04]" : "border-gray-200 bg-[#F9F9F9]"}`}
+                  >
+                    <span className="text-sm font-medium">{formatDayNum(d)}</span>
+                    {dayTasks.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-0.5">
+                        {dayTasks.slice(0, 3).map((t) => (
+                          <span
+                            key={t.id}
+                            className="inline-block max-w-full truncate rounded bg-black/10 px-1.5 py-0.5 text-[10px]"
+                            title={t.title}
+                          >
+                            {t.title}
+                          </span>
+                        ))}
+                        {dayTasks.length > 3 && (
+                          <span className="text-[10px] text-gray-500">+{dayTasks.length - 3}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="border-t border-gray-200 mt-4 pt-4">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Tasks this month</h2>
+              {loading ? (
+                <div className="flex items-center gap-2 text-gray-500 py-6">
+                  <Loader2 size={18} className="animate-spin" />
+                  Loading…
+                </div>
+              ) : (
+                <TaskList
+                  tasks={tasks}
+                  onStatus={updateStatus}
+                  onDelete={deleteTask}
+                  statusLoading={statusLoading}
+                />
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Day view */}
+        {view === "day" && (
+          <section className="rounded-2xl border border-black/25 bg-white p-4">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Tasks for {formatShort(cursor)}
+            </h2>
+            {loading ? (
+              <div className="flex items-center gap-2 text-gray-500 py-6">
+                <Loader2 size={18} className="animate-spin" />
+                Loading…
+              </div>
+            ) : (
+              <TaskList
+                tasks={tasks}
+                onStatus={updateStatus}
+                onDelete={deleteTask}
+                statusLoading={statusLoading}
+              />
+            )}
+          </section>
+        )}
+
+        {/* Add task */}
+        <section className="rounded-2xl border border-black/25 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Add task</h2>
+          {error && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {error}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Task title…"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && createTask()}
+              className="flex-1 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-black/40 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={createTask}
+              disabled={createLoading || !newTitle.trim()}
+              className="rounded-full bg-black text-white px-5 py-2.5 text-sm font-medium hover:bg-black/90 transition disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            >
+              {createLoading ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Plus size={18} />
+              )}
+              Add
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Task will be due on the current {view} view date.
+          </p>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function TaskList({
+  tasks,
+  onStatus,
+  onDelete,
+  statusLoading,
+}: {
+  tasks: Task[];
+  onStatus: (id: string, status: TaskStatus) => void;
+  onDelete: (id: string) => void;
+  statusLoading: string | null;
+}) {
+  if (tasks.length === 0) {
+    return (
+      <p className="text-sm text-gray-500 py-4">No tasks in this range. Add one below.</p>
+    );
+  }
+  return (
+    <ul className="space-y-2">
+      {tasks.map((t) => (
+        <li
+          key={t.id}
+          className="flex items-center gap-3 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 group"
+        >
+          <button
+            type="button"
+            onClick={() => onStatus(t.id, t.status === "done" ? "todo" : "done")}
+            disabled={statusLoading === t.id}
+            className="text-left flex-1 min-w-0 flex items-center gap-3"
+            aria-label={t.status === "done" ? "Mark not done" : "Mark done"}
+          >
+            {statusLoading === t.id ? (
+              <Loader2 size={20} className="shrink-0 animate-spin text-gray-400" />
+            ) : t.status === "done" ? (
+              <CircleCheck size={22} className="shrink-0 text-green-600" />
+            ) : (
+              <Circle size={22} className="shrink-0 text-gray-400" />
+            )}
+            <span
+              className={`text-sm ${t.status === "done" ? "text-gray-500 line-through" : "font-medium"}`}
+            >
+              {t.title}
+            </span>
+            {t.dueDate && (
+              <span className="text-xs text-gray-500 shrink-0">
+                {new Date(t.dueDate).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(t.id)}
+            aria-label="Delete task"
+            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+          >
+            <Trash2 size={16} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
 }

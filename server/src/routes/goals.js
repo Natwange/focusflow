@@ -88,7 +88,10 @@ router.post("/", async (req, res) => {
 // GET /goals
 router.get("/", async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
 
     const goals = await prisma.goal.findMany({
       where: { userId },
@@ -97,6 +100,71 @@ router.get("/", async (req, res) => {
     });
 
     return res.json(goals);
+  } catch (err) {
+    console.error(err);
+    const message =
+      err.code === "ETIMEDOUT" || err.code === "P1001"
+        ? "Database connection failed. Check that your database is running and DATABASE_URL is correct."
+        : "Internal server error";
+    return res.status(500).json({ error: message });
+  }
+});
+
+// PUT /goals/:id (update a goal)
+router.put("/:id", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+    const { title, totalUnits, unitName, deadline } = req.body;
+
+    const goal = await prisma.goal.findFirst({
+      where: { id: goalId, userId },
+    });
+
+    if (!goal) return res.status(404).json({ error: "Goal not found" });
+
+    const updated = await prisma.goal.update({
+      where: { id: goalId },
+      data: {
+        ...(title && { title }),
+        ...(totalUnits !== undefined && { totalUnits: Number(totalUnits) }),
+        ...(unitName && { unitName }),
+        ...(deadline && { deadline: new Date(deadline) }),
+      },
+      include: { tasks: true },
+    });
+
+    return res.json(updated);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /goals/:id (delete a goal and its tasks)
+router.delete("/:id", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+
+    const goal = await prisma.goal.findFirst({
+      where: { id: goalId, userId },
+      select: { id: true },
+    });
+
+    if (!goal) return res.status(404).json({ error: "Goal not found" });
+
+    // Delete tasks first (cascade)
+    await prisma.task.deleteMany({
+      where: { userId, goalId },
+    });
+
+    // Delete the goal
+    await prisma.goal.delete({
+      where: { id: goalId },
+    });
+
+    return res.json({ ok: true, goalId });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });

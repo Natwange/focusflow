@@ -42,18 +42,29 @@ router.post("/", async (req, res) => {
 });
 
 // GET /tasks
+// Query: status, goalId, startDate, endDate (ISO strings; filter by dueDate inclusive)
 router.get("/", async (req, res) => {
   try {
     const userId = req.user.id;
-    const { status, goalId } = req.query;
+    const { status, goalId, startDate, endDate } = req.query;
 
     const where = { userId };
     if (status) where.status = String(status);
     if (goalId) where.goalId = String(goalId);
 
+    if (startDate || endDate) {
+      where.dueDate = {};
+      if (startDate) where.dueDate.gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        where.dueDate.lte = end;
+      }
+    }
+
     const tasks = await prisma.task.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
     });
 
     return res.json(tasks);
@@ -79,6 +90,46 @@ router.delete("/:id", async (req, res) => {
     await prisma.task.delete({ where: { id: taskId } });
 
     return res.json({ ok: true, deletedTaskId: taskId });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /tasks/:id — update task (title, dueDate, estimatedMin, goalId, status)
+router.patch("/:id", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = req.params.id;
+    const { title, dueDate, estimatedMin, goalId, status } = req.body;
+
+    const task = await prisma.task.findFirst({
+      where: { id: taskId, userId },
+      select: { id: true },
+    });
+
+    if (!task) return res.status(404).json({ error: "Task not found" });
+
+    const data = {};
+    if (title !== undefined) data.title = String(title);
+    if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
+    if (estimatedMin !== undefined) data.estimatedMin = estimatedMin != null ? Number(estimatedMin) : null;
+    if (goalId !== undefined) data.goalId = goalId || null;
+    if (status !== undefined) {
+      const allowed = new Set(["todo", "doing", "done"]);
+      if (!allowed.has(status)) {
+        return res.status(400).json({ error: "status must be todo, doing, or done" });
+      }
+      data.status = status;
+      data.completedAt = status === "done" ? new Date() : null;
+    }
+
+    const updated = await prisma.task.update({
+      where: { id: taskId },
+      data,
+    });
+
+    return res.json(updated);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });

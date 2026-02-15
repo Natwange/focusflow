@@ -12,15 +12,38 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Keep app light; remove if you want system dark mode later
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
   }
 }
+*/
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Paper background: subtle warm paper + faint lines (monochrome) */
+.paper-bg {
+  background-color: #fbfaf7;
+  background-image:
+    linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px);
+  background-size: 100% 28px;
+}
+
+/* Ink text effect */
+.ink-text {
+  color: rgba(0,0,0,0.88);
+  text-shadow: 0 0 0.4px rgba(0,0,0,0.35);
+}
+
+/* Fonts: pick three that actually look like pen. 
+   Import these in your layout/head (Google Fonts) or with next/font.
+*/
+.font-journal-playful { font-family: "Patrick Hand", system-ui, sans-serif; }
+.font-journal-balanced { font-family: "Kalam", system-ui, sans-serif; }
+.font-journal-pro { font-family: "Nanum Pen Script", system-ui, sans-serif; }
