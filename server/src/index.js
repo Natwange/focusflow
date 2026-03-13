@@ -8,6 +8,7 @@ const goalRoutes = require("./routes/goals");
 const taskRoutes = require("./routes/tasks");
 const analyticsRoutes = require("./routes/analytics");
 const journalRoutes = require("./routes/journal");
+const focusRoutes = require("./routes/focus");
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.use("/goals", auth, goalRoutes);
 app.use("/tasks", auth, taskRoutes);
 app.use("/analytics", auth, analyticsRoutes);
 app.use("/journal", auth, journalRoutes);
+app.use("/focus", auth, focusRoutes);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });

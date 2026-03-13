@@ -11,10 +11,21 @@ import {
   CircleCheck,
   Loader2,
   Trash2,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 
 type ViewMode = "week" | "month" | "day";
 type TaskStatus = "todo" | "doing" | "done";
+type TaskPriority = "low" | "medium" | "high" | "urgent";
+
+const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
+  { value: "low", label: "Low", color: "bg-gray-200 text-gray-700" },
+  { value: "medium", label: "Medium", color: "bg-blue-100 text-blue-700" },
+  { value: "high", label: "High", color: "bg-orange-100 text-orange-700" },
+  { value: "urgent", label: "Urgent", color: "bg-red-100 text-red-700" },
+];
 
 type Task = {
   id: string;
@@ -22,6 +33,7 @@ type Task = {
   goalId: string | null;
   title: string;
   estimatedMin: number | null;
+  priority: TaskPriority;
   status: TaskStatus;
   dueDate: string | null;
   completedAt: string | null;
@@ -74,7 +86,10 @@ function endOfDay(d: Date): Date {
 }
 
 function toISODate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatShort(d: Date): string {
@@ -140,6 +155,9 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [newPriority, setNewPriority] = useState<TaskPriority>("medium");
+  const [newDueDate, setNewDueDate] = useState(() => toISODate(new Date()));
+  const [newDueTime, setNewDueTime] = useState("");
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
 
   const getRange = useCallback(() => {
@@ -193,21 +211,26 @@ export default function TasksPage() {
     if (!token) return;
     setCreateLoading(true);
     setError(null);
-    const { start, end } = getRange();
     let dueDate: string | null = null;
-    if (view === "day") dueDate = cursor.toISOString();
-    else if (view === "week" || view === "month") {
-      const today = new Date();
-      dueDate = today >= start && today <= end ? today.toISOString() : start.toISOString();
+    if (newDueDate) {
+      const dateStr = newDueTime ? `${newDueDate}T${newDueTime}` : `${newDueDate}T00:00`;
+      dueDate = new Date(dateStr).toISOString();
     }
     try {
       const created = await api("/tasks", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ title, dueDate: dueDate || undefined }),
+        body: JSON.stringify({
+          title,
+          priority: newPriority,
+          dueDate: dueDate || undefined,
+        }),
       });
       setTasks((prev) => [created, ...prev]);
       setNewTitle("");
+      setNewPriority("medium");
+      setNewDueDate(toISODate(new Date()));
+      setNewDueTime("");
     } catch (e: any) {
       setError(e?.message || "Failed to create task");
     } finally {
@@ -246,6 +269,24 @@ export default function TasksPage() {
       setTasks((prev) => prev.filter((t) => t.id !== id));
     } catch (e: any) {
       setError(e?.message || "Failed to delete");
+    }
+  };
+
+  const editTask = async (
+    id: string,
+    updates: { title?: string; priority?: TaskPriority; dueDate?: string | null }
+  ) => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const updated = await api(`/tasks/${id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify(updates),
+      });
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updated } : t)));
+    } catch (e: any) {
+      setError(e?.message || "Failed to update task");
     }
   };
 
@@ -381,6 +422,7 @@ export default function TasksPage() {
                   tasks={tasks}
                   onStatus={updateStatus}
                   onDelete={deleteTask}
+                  onEdit={editTask}
                   statusLoading={statusLoading}
                 />
               )}
@@ -442,6 +484,7 @@ export default function TasksPage() {
                   tasks={tasks}
                   onStatus={updateStatus}
                   onDelete={deleteTask}
+                  onEdit={editTask}
                   statusLoading={statusLoading}
                 />
               )}
@@ -465,6 +508,7 @@ export default function TasksPage() {
                 tasks={tasks}
                 onStatus={updateStatus}
                 onDelete={deleteTask}
+                onEdit={editTask}
                 statusLoading={statusLoading}
               />
             )}
@@ -479,49 +523,152 @@ export default function TasksPage() {
               {error}
             </div>
           )}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Task title…"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && createTask()}
-              className="flex-1 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-black/40 focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={createTask}
-              disabled={createLoading || !newTitle.trim()}
-              className="rounded-full bg-black text-white px-5 py-2.5 text-sm font-medium hover:bg-black/90 transition disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
-            >
-              {createLoading ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                <Plus size={18} />
-              )}
-              Add
-            </button>
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Task title…"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && createTask()}
+                className="flex-1 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-black/40 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={createTask}
+                disabled={createLoading || !newTitle.trim()}
+                className="rounded-full bg-black text-white px-5 py-2.5 text-sm font-medium hover:bg-black/90 transition disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+              >
+                {createLoading ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Plus size={18} />
+                )}
+                Add
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label htmlFor="new-priority" className="text-xs font-medium text-gray-500">Priority</label>
+                <div className="flex rounded-lg border border-gray-200 bg-[#F9F9F9] p-0.5">
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => setNewPriority(p.value)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                        newPriority === p.value ? p.color : "text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="new-due-date" className="text-xs font-medium text-gray-500">Due</label>
+                <input
+                  id="new-due-date"
+                  type="date"
+                  value={newDueDate}
+                  onChange={(e) => setNewDueDate(e.target.value)}
+                  className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="new-due-time" className="text-xs font-medium text-gray-500">Time</label>
+                <input
+                  id="new-due-time"
+                  type="time"
+                  value={newDueTime}
+                  onChange={(e) => setNewDueTime(e.target.value)}
+                  className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
+                />
+                {newDueTime && (
+                  <button
+                    type="button"
+                    onClick={() => setNewDueTime("")}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    clear
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Task will be due on the current {view} view date.
-          </p>
         </section>
       </main>
     </div>
   );
 }
 
+function priorityColor(p: TaskPriority): string {
+  return PRIORITY_OPTIONS.find((o) => o.value === p)?.color ?? "bg-gray-200 text-gray-700";
+}
+
+function formatDueDateTime(iso: string): string {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const h = d.getHours();
+  const m = d.getMinutes();
+  if (h === 0 && m === 0) return date;
+  return `${date}, ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
+
+function parseDueDate(iso: string | null): { date: string; time: string } {
+  if (!iso) return { date: "", time: "" };
+  const d = new Date(iso);
+  const date = toISODate(d);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const time = h === 0 && m === 0 ? "" : `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  return { date, time };
+}
+
 function TaskList({
   tasks,
   onStatus,
   onDelete,
+  onEdit,
   statusLoading,
 }: {
   tasks: Task[];
   onStatus: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
+  onEdit: (id: string, updates: { title?: string; priority?: TaskPriority; dueDate?: string | null }) => Promise<void>;
   statusLoading: string | null;
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editPriority, setEditPriority] = useState<TaskPriority>("medium");
+  const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = (t: Task) => {
+    setEditingId(t.id);
+    setEditTitle(t.title);
+    setEditPriority(t.priority);
+    const { date, time } = parseDueDate(t.dueDate);
+    setEditDate(date);
+    setEditTime(time);
+  };
+
+  const cancelEdit = () => setEditingId(null);
+
+  const saveEdit = async (id: string) => {
+    if (!editTitle.trim()) return;
+    setSaving(true);
+    let dueDate: string | null = null;
+    if (editDate) {
+      const dateStr = editTime ? `${editDate}T${editTime}` : `${editDate}T00:00`;
+      dueDate = new Date(dateStr).toISOString();
+    }
+    await onEdit(id, { title: editTitle.trim(), priority: editPriority, dueDate });
+    setSaving(false);
+    setEditingId(null);
+  };
+
   if (tasks.length === 0) {
     return (
       <p className="text-sm text-gray-500 py-4">No tasks in this range. Add one below.</p>
@@ -529,49 +676,140 @@ function TaskList({
   }
   return (
     <ul className="space-y-2">
-      {tasks.map((t) => (
-        <li
-          key={t.id}
-          className="flex items-center gap-3 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 group"
-        >
-          <button
-            type="button"
-            onClick={() => onStatus(t.id, t.status === "done" ? "todo" : "done")}
-            disabled={statusLoading === t.id}
-            className="text-left flex-1 min-w-0 flex items-center gap-3"
-            aria-label={t.status === "done" ? "Mark not done" : "Mark done"}
+      {tasks.map((t) => {
+        const isEditing = editingId === t.id;
+
+        if (isEditing) {
+          return (
+            <li
+              key={t.id}
+              className="rounded-xl border border-black/30 bg-white px-4 py-3 space-y-3"
+            >
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveEdit(t.id); if (e.key === "Escape") cancelEdit(); }}
+                  className="flex-1 rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => saveEdit(t.id)}
+                  disabled={saving || !editTitle.trim()}
+                  className="rounded-lg bg-black text-white px-3 py-1.5 text-xs font-medium hover:bg-black/90 transition disabled:opacity-60 inline-flex items-center gap-1"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition inline-flex items-center gap-1"
+                >
+                  <X size={14} />
+                  Cancel
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500">Priority</span>
+                  <div className="flex rounded-lg border border-gray-200 bg-[#F9F9F9] p-0.5">
+                    {PRIORITY_OPTIONS.map((p) => (
+                      <button
+                        key={p.value}
+                        type="button"
+                        onClick={() => setEditPriority(p.value)}
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                          editPriority === p.value ? p.color : "text-gray-400 hover:text-gray-600"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500">Due</span>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1 text-sm focus:border-black/40 focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500">Time</span>
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1 text-sm focus:border-black/40 focus:outline-none"
+                  />
+                  {editTime && (
+                    <button type="button" onClick={() => setEditTime("")} className="text-xs text-gray-400 hover:text-gray-600">
+                      clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        }
+
+        return (
+          <li
+            key={t.id}
+            className="flex items-center gap-3 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 group"
           >
-            {statusLoading === t.id ? (
-              <Loader2 size={20} className="shrink-0 animate-spin text-gray-400" />
-            ) : t.status === "done" ? (
-              <CircleCheck size={22} className="shrink-0 text-green-600" />
-            ) : (
-              <Circle size={22} className="shrink-0 text-gray-400" />
-            )}
+            <button
+              type="button"
+              onClick={() => onStatus(t.id, t.status === "done" ? "todo" : "done")}
+              disabled={statusLoading === t.id}
+              className="shrink-0"
+              aria-label={t.status === "done" ? "Mark not done" : "Mark done"}
+            >
+              {statusLoading === t.id ? (
+                <Loader2 size={20} className="animate-spin text-gray-400" />
+              ) : t.status === "done" ? (
+                <CircleCheck size={22} className="text-green-600" />
+              ) : (
+                <Circle size={22} className="text-gray-400" />
+              )}
+            </button>
             <span
-              className={`text-sm ${t.status === "done" ? "text-gray-500 line-through" : "font-medium"}`}
+              className={`flex-1 min-w-0 text-sm ${t.status === "done" ? "text-gray-500 line-through" : "font-medium"}`}
             >
               {t.title}
             </span>
+            <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${priorityColor(t.priority)}`}>
+              {t.priority}
+            </span>
             {t.dueDate && (
               <span className="text-xs text-gray-500 shrink-0">
-                {new Date(t.dueDate).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })}
+                {formatDueDateTime(t.dueDate)}
               </span>
             )}
-          </button>
-          <button
-            type="button"
-            onClick={() => onDelete(t.id)}
-            aria-label="Delete task"
-            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
-          >
-            <Trash2 size={16} />
-          </button>
-        </li>
-      ))}
+            <button
+              type="button"
+              onClick={() => startEdit(t)}
+              aria-label="Edit task"
+              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition"
+            >
+              <Pencil size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(t.id)}
+              aria-label="Delete task"
+              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+            >
+              <Trash2 size={16} />
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -7,13 +7,17 @@ const router = express.Router();
 router.post("/", async (req, res) => {
   try {
     const userId = req.user.id;
-    const { title, goalId, estimatedMin, dueDate } = req.body;
+    const { title, goalId, estimatedMin, dueDate, priority } = req.body;
 
     if (!title) {
       return res.status(400).json({ error: "title is required" });
     }
 
-    // If goalId provided, ensure it belongs to this user
+    const allowedPriorities = new Set(["low", "medium", "high", "urgent"]);
+    if (priority && !allowedPriorities.has(priority)) {
+      return res.status(400).json({ error: "priority must be low, medium, high, or urgent" });
+    }
+
     if (goalId) {
       const goal = await prisma.goal.findFirst({
         where: { id: goalId, userId },
@@ -30,6 +34,7 @@ router.post("/", async (req, res) => {
         goalId: goalId || null,
         title,
         estimatedMin: estimatedMin != null ? Number(estimatedMin) : null,
+        priority: priority || "medium",
         dueDate: dueDate ? new Date(dueDate) : null,
       },
     });
@@ -101,7 +106,7 @@ router.patch("/:id", async (req, res) => {
   try {
     const userId = req.user.id;
     const taskId = req.params.id;
-    const { title, dueDate, estimatedMin, goalId, status } = req.body;
+    const { title, dueDate, estimatedMin, goalId, status, priority } = req.body;
 
     const task = await prisma.task.findFirst({
       where: { id: taskId, userId },
@@ -115,6 +120,13 @@ router.patch("/:id", async (req, res) => {
     if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
     if (estimatedMin !== undefined) data.estimatedMin = estimatedMin != null ? Number(estimatedMin) : null;
     if (goalId !== undefined) data.goalId = goalId || null;
+    if (priority !== undefined) {
+      const allowedPriorities = new Set(["low", "medium", "high", "urgent"]);
+      if (!allowedPriorities.has(priority)) {
+        return res.status(400).json({ error: "priority must be low, medium, high, or urgent" });
+      }
+      data.priority = priority;
+    }
     if (status !== undefined) {
       const allowed = new Set(["todo", "doing", "done"]);
       if (!allowed.has(status)) {

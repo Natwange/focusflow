@@ -64,6 +64,7 @@ model Task {
 
   title        String
   estimatedMin Int?
+  priority     String   @default("medium") // low | medium | high | urgent
   status       String   @default("todo") // todo | doing | done
   dueDate      DateTime?
   completedAt  DateTime?

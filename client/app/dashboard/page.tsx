@@ -1,15 +1,74 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { Circle, CircleCheck, Loader2, X } from "lucide-react";
+
+type TaskStatus = "todo" | "doing" | "done";
+type TaskPriority = "low" | "medium" | "high" | "urgent";
+
+type Task = {
+  id: string;
+  title: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  dueDate: string | null;
+};
+
+const PRIORITY_COLORS: Record<TaskPriority, string> = {
+  low: "bg-gray-200 text-gray-700",
+  medium: "bg-blue-100 text-blue-700",
+  high: "bg-orange-100 text-orange-700",
+  urgent: "bg-red-100 text-red-700",
+};
 
 export default function DashboardPage() {
   const [goals, setGoals] = useState<any[]>([]);
   const [goalsError, setGoalsError] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [statusLoading, setStatusLoading] = useState<string | null>(null);
+  const [showPlan, setShowPlan] = useState(false);
+
+  const fetchTodayTasks = useCallback(async () => {
+    const token = getToken();
+    if (!token) { setTasksLoading(false); return; }
+    setTasksLoading(true);
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(start);
+    end.setHours(23, 59, 59, 999);
+    try {
+      const data = await api(
+        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setTasks(Array.isArray(data) ? data : []);
+    } catch {
+      setTasks([]);
+    } finally {
+      setTasksLoading(false);
+    }
+  }, []);
+
+  const toggleStatus = async (id: string, current: TaskStatus) => {
+    const token = getToken();
+    if (!token) return;
+    const next = current === "done" ? "todo" : "done";
+    setStatusLoading(id);
+    try {
+      const updated = await api(`/tasks/${id}/status`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status: next }),
+      });
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updated } : t)));
+    } catch { /* silent */ }
+    finally { setStatusLoading(null); }
+  };
 
   useEffect(() => {
     const token = getToken();
@@ -17,16 +76,20 @@ export default function DashboardPage() {
 
     setGoalsError(null);
     api("/goals", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     })
       .then(setGoals)
       .catch((err) => {
         console.error(err);
         setGoalsError(err instanceof Error ? err.message : "Failed to load goals");
       });
-  }, []);
+
+    fetchTodayTasks();
+  }, [fetchTodayTasks]);
+
+  const doneCount = tasks.filter((t) => t.status === "done").length;
+  const totalCount = tasks.length;
+  const progressPct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-white text-black flex flex-col">
@@ -51,22 +114,22 @@ export default function DashboardPage() {
             </p>
 
             <div className="flex gap-3 pt-2">
-            <Link
-              href="/focus"
-              className="bg-black text-white px-5 py-2 rounded-lg text-sm inline-flex items-center justify-center"
-            >
-              Start focus session
-            </Link>
-            <Link
-              href="/plans/today"
-              className="border px-5 py-2 rounded-lg text-sm inline-flex items-center justify-center"
-            >
-              View today’s plan
-            </Link>
+              <Link
+                href="/focus"
+                className="bg-black text-white px-5 py-2 rounded-lg text-sm inline-flex items-center justify-center"
+              >
+                Start focus session
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowPlan(true)}
+                className="border px-5 py-2 rounded-lg text-sm inline-flex items-center justify-center hover:bg-gray-50 transition"
+              >
+                View today&#39;s plan
+              </button>
             </div>
           </div>
 
-          {/* Illustration placeholder (black & white only) */}
           <Image
             src="/illustrations/dashboardImage.png"
             alt="Focus and plan your day"
@@ -74,28 +137,71 @@ export default function DashboardPage() {
             height={200}
             className="opacity-90 grayscale md:-translate-x-4 object-contain"
           />
-
         </section>
 
         {/* GRID */}
         <section className="grid grid-cols-3 gap-6">
-          {/* TODAY'S PLAN */}
+          {/* TODAY'S TASKS */}
           <div className="col-span-2 border rounded-2xl p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Today’s Plan</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Today&#39;s Tasks</h2>
 
-            <div className="space-y-3 text-sm">
-              <PlanItem href="/tasks" time="9:00 AM" label="Lessons 1–2 (30 Days of JS)" />
-              <PlanItem href="/tasks" time="9:30 AM" label="Workout: Lower body" status="Doing" />
-              <PlanItem href="/tasks" time="8:30 PM" label="Review notes (15 min)" />
+            <div className="space-y-2 mt-3 text-sm">
+              {tasksLoading ? (
+                <div className="flex items-center gap-2 text-gray-500 py-4">
+                  <Loader2 size={18} className="animate-spin" /> Loading…
+                </div>
+              ) : tasks.length === 0 ? (
+                <p className="text-gray-500 py-4">No tasks for today. Add one from the tasks page.</p>
+              ) : (
+                tasks.map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex items-center gap-3 rounded-xl p-2 -mx-2 hover:bg-gray-50 transition"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleStatus(t.id, t.status)}
+                      disabled={statusLoading === t.id}
+                      aria-label={t.status === "done" ? "Mark not done" : "Mark done"}
+                      className="shrink-0"
+                    >
+                      {statusLoading === t.id ? (
+                        <Loader2 size={20} className="animate-spin text-gray-400" />
+                      ) : t.status === "done" ? (
+                        <CircleCheck size={20} className="text-green-600" />
+                      ) : (
+                        <Circle size={20} className="text-gray-400" />
+                      )}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm ${t.status === "done" ? "text-gray-400 line-through" : ""}`}>
+                        {t.title}
+                      </p>
+                      {t.dueDate && (() => {
+                        const d = new Date(t.dueDate);
+                        if (d.getHours() === 0 && d.getMinutes() === 0) return null;
+                        return (
+                          <p className="text-xs text-gray-500">
+                            {d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                          </p>
+                        );
+                      })()}
+                    </div>
+                    <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_COLORS[t.priority] ?? ""}`}>
+                      {t.priority}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
 
             <div className="flex gap-3 mt-6">
-              <button className="bg-black text-white px-4 py-2 rounded-lg text-sm">
+              <Link href="/focus" className="bg-black text-white px-4 py-2 rounded-lg text-sm">
                 Start focus session
-              </button>
-              <button className="border px-4 py-2 rounded-lg text-sm">
+              </Link>
+              <Link href="/tasks" className="border px-4 py-2 rounded-lg text-sm">
                 Add task
-              </button>
+              </Link>
             </div>
           </div>
 
@@ -105,9 +211,12 @@ export default function DashboardPage() {
 
             <div>
               <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-black w-2/5" />
+                <div
+                  className="h-full bg-black transition-all duration-300"
+                  style={{ width: `${progressPct}%` }}
+                />
               </div>
-              <p className="text-sm mt-2">2 / 5 tasks</p>
+              <p className="text-sm mt-2">{doneCount} / {totalCount} tasks</p>
             </div>
 
             <div className="flex justify-between text-sm">
@@ -122,179 +231,209 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-xs text-gray-500">
-              You finish more tasks in the evening.
-              Plan heavier work after 4 PM.
+              {totalCount > 0 && doneCount === totalCount
+                ? "All tasks done — great work today!"
+                : "Keep going — every completed task builds momentum."}
             </p>
           </div>
         </section>
 
         {/* QUICK ACTIONS */}
-      <section className="bg-white border border-gray-200 rounded-3xl p-6 mt-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold tracking-tight">Quick Actions</h2>
-          <span className="text-xs uppercase tracking-[0.18em] text-gray-400">
-            Today
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Create Goal */}
-          <button
-            className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs font-medium">
-                G
-              </div>
-              <div>
-                <p className="text-sm font-medium">Create Goal</p>
-                <p className="text-xs text-gray-500">Plan a deadline</p>
-              </div>
-            </div>
-            <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
-              Set a north star for your work
+        <section className="bg-white border border-gray-200 rounded-3xl p-6 mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold tracking-tight">Quick Actions</h2>
+            <span className="text-xs uppercase tracking-[0.18em] text-gray-400">
+              Today
             </span>
-          </button>
+          </div>
 
-          {/* Generate Plan */}
-          <button
-            className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs font-medium">
-                P
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Create Goal */}
+            <button
+              className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs font-medium">
+                  G
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Create Goal</p>
+                  <p className="text-xs text-gray-500">Plan a deadline</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium">Generate Plan</p>
-                <p className="text-xs text-gray-500">Split work into days</p>
-              </div>
-            </div>
-            <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
-              Auto-create tasks from your goal
-            </span>
-          </button>
+              <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
+                Set a north star for your work
+              </span>
+            </button>
 
-          {/* Start Focus */}
-          <button
-            className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs font-medium">
-                ⏱
+            {/* Generate Plan */}
+            <button
+              className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs font-medium">
+                  P
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Generate Plan</p>
+                  <p className="text-xs text-gray-500">Split work into days</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium">Start Focus</p>
-                <p className="text-xs text-gray-500">Track a deep-work block</p>
-              </div>
-            </div>
-            <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
-              Log a 25–60 minute session
-            </span>
-          </button>
+              <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
+                Auto-create tasks from your goal
+              </span>
+            </button>
 
-          {/* Journal Entry */}
-          <Link
-            href="/journal"
-            className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs font-medium">
-                ✎
+            {/* Start Focus */}
+            <button
+              className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs font-medium">
+                  ⏱
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Start Focus</p>
+                  <p className="text-xs text-gray-500">Track a deep-work block</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium">Journal Entry</p>
-                <p className="text-xs text-gray-500">What worked today?</p>
+              <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
+                Log a 25–60 minute session
+              </span>
+            </button>
+
+            {/* Journal Entry */}
+            <Link
+              href="/journal"
+              className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-xs font-medium">
+                  ✎
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Journal Entry</p>
+                  <p className="text-xs text-gray-500">What worked today?</p>
+                </div>
               </div>
-            </div>
-            <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
-              Capture one win + one lesson
-            </span>
-          </Link>
-        </div>
-      </section>
+              <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
+                Capture one win + one lesson
+              </span>
+            </Link>
+          </div>
+        </section>
       </main>
-      {/*
-      //Footer 
-      <footer className="fixed bottom-0 left-0 w-full bg-black text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between text-sm">
-          <span className="font-medium tracking-wide">FOCUSFLOW</span>
-          <span className="opacity-70">
-            © 2026 · Stay consistent. Finish what you start.
-          </span>
+
+      {/* Today's Plan Sheet Overlay */}
+      {showPlan && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowPlan(false)}
+        >
+          {/* Blurred backdrop */}
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+
+          {/* Paper sheet */}
+          <div
+            className="relative w-full max-w-lg max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-8 pt-8 pb-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-xl font-semibold tracking-tight">Today&#39;s Plan</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPlan(false)}
+                className="rounded-full p-2 hover:bg-gray-100 transition text-gray-400 hover:text-black"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Task list */}
+            <div className="flex-1 overflow-y-auto px-8 py-6">
+              {tasksLoading ? (
+                <div className="flex items-center justify-center gap-2 text-gray-500 py-10">
+                  <Loader2 size={20} className="animate-spin" /> Loading…
+                </div>
+              ) : tasks.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-gray-400 text-sm">No tasks for today.</p>
+                  <Link
+                    href="/tasks"
+                    className="inline-block mt-3 text-sm font-medium text-black underline underline-offset-2 hover:text-gray-700"
+                    onClick={() => setShowPlan(false)}
+                  >
+                    Add a task
+                  </Link>
+                </div>
+              ) : (
+                <ul className="space-y-1">
+                  {tasks.map((t) => (
+                    <li key={t.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggleStatus(t.id, t.status)}
+                        disabled={statusLoading === t.id}
+                        className="w-full flex items-start gap-3 rounded-xl px-3 py-3 text-left hover:bg-gray-50 transition"
+                      >
+                        <span className="shrink-0 mt-0.5">
+                          {statusLoading === t.id ? (
+                            <Loader2 size={20} className="animate-spin text-gray-400" />
+                          ) : t.status === "done" ? (
+                            <CircleCheck size={20} className="text-green-600" />
+                          ) : (
+                            <Circle size={20} className="text-gray-300" />
+                          )}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm leading-snug ${t.status === "done" ? "text-gray-400 line-through" : "text-black"}`}>
+                            {t.title}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_COLORS[t.priority] ?? ""}`}>
+                              {t.priority}
+                            </span>
+                            {t.dueDate && (() => {
+                              const d = new Date(t.dueDate);
+                              if (d.getHours() === 0 && d.getMinutes() === 0) return null;
+                              return (
+                                <span className="text-[11px] text-gray-400">
+                                  {d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-8 py-4 border-t border-gray-100 flex items-center justify-between">
+              <p className="text-xs text-gray-400">
+                {doneCount} of {totalCount} completed
+              </p>
+              <Link
+                href="/tasks"
+                className="text-xs font-medium text-black hover:underline"
+                onClick={() => setShowPlan(false)}
+              >
+                Open Tasks page
+              </Link>
+            </div>
+          </div>
         </div>
-      </footer>*/}
+      )}
     </div>
   );
 }
-
-/* ---------- Helpers ---------- */
-
-function PlanItem({
-  href,
-  time,
-  label,
-  status,
-}: {
-  href: string;
-  time: string;
-  label: string;
-  status?: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center justify-between rounded-xl p-2 -m-2 hover:bg-gray-50 transition"
-    >
-      <div className="flex items-center gap-3">
-        <div className="w-4 h-4 border rounded-full" />
-        <div>
-          <p className="text-sm">{label}</p>
-          <p className="text-xs text-gray-500">{time}</p>
-        </div>
-      </div>
-      {status && <span className="text-xs text-gray-500">{status}</span>}
-    </Link>
-  );
-}
-
-function QuickAction({
-  href,
-  title,
-  subtitle,
-}: {
-  href: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="border rounded-xl p-4 hover:bg-gray-50 transition block"
-    >
-      <p className="font-medium text-sm">{title}</p>
-      <p className="text-xs text-gray-500">{subtitle}</p>
-    </Link>
-  );
-}
-
-import { usePathname } from "next/navigation";
-
-function NavLink({ href, label }: { href: string; label: string }) {
-  const pathname = usePathname();
-  const active = pathname === href;
-
-  return (
-    <Link
-      href={href}
-      className={
-        active
-          ? "text-black border-b border-black pb-1"
-          : "hover:text-black"
-      }
-    >
-      {label}
-    </Link>
-  );
-}
-
-
