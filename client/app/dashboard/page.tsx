@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import { getToken } from "@/lib/auth";
 import Link from "next/link";
 import Image from "next/image";
 import { Circle, CircleCheck, Loader2, X } from "lucide-react";
@@ -16,6 +15,8 @@ type Task = {
   priority: TaskPriority;
   status: TaskStatus;
   dueDate: string | null;
+  goalId?: string | null;
+  completedAt?: string | null;
 };
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
@@ -32,10 +33,10 @@ export default function DashboardPage() {
   const [tasksLoading, setTasksLoading] = useState(true);
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
   const [showPlan, setShowPlan] = useState(false);
+  const [streak, setStreak] = useState<number | null>(null);
+  const [todayFocusMinutes, setTodayFocusMinutes] = useState<number | null>(null);
 
   const fetchTodayTasks = useCallback(async () => {
-    const token = getToken();
-    if (!token) { setTasksLoading(false); return; }
     setTasksLoading(true);
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -43,10 +44,42 @@ export default function DashboardPage() {
     end.setHours(23, 59, 59, 999);
     try {
       const data = await api(
-        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true`
       );
-      setTasks(Array.isArray(data) ? data : []);
+      const nextTasks: Task[] = Array.isArray(data) ? data : [];
+
+      // If a goal-generated task is overdue, refresh that goal plan so remaining work
+      // is re-distributed up to the deadline (inclusive).
+      const overdueGoalIds = Array.from(
+        new Set(
+          nextTasks
+            .filter((t) => {
+              if (!t.goalId) return false;
+              if (t.status === "done") return false;
+              if (!t.dueDate) return false;
+              return new Date(t.dueDate).getTime() < start.getTime();
+            })
+            .map((t) => t.goalId as string)
+        )
+      );
+
+      if (overdueGoalIds.length > 0) {
+        await Promise.all(
+          overdueGoalIds.map((gid) =>
+            api(`/goals/${gid}/plan/refresh`, {
+              method: "POST",
+            }).catch(() => {})
+          )
+        );
+
+        // Re-fetch tasks after re-balancing
+        const refreshed = await api(
+          `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true`
+        );
+        setTasks(Array.isArray(refreshed) ? refreshed : []);
+      } else {
+        setTasks(nextTasks);
+      }
     } catch {
       setTasks([]);
     } finally {
@@ -55,14 +88,11 @@ export default function DashboardPage() {
   }, []);
 
   const toggleStatus = async (id: string, current: TaskStatus) => {
-    const token = getToken();
-    if (!token) return;
     const next = current === "done" ? "todo" : "done";
     setStatusLoading(id);
     try {
       const updated = await api(`/tasks/${id}/status`, {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status: next }),
       });
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updated } : t)));
@@ -71,13 +101,8 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-
     setGoalsError(null);
-    api("/goals", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    api("/goals")
       .then(setGoals)
       .catch((err) => {
         console.error(err);
@@ -87,9 +112,64 @@ export default function DashboardPage() {
     fetchTodayTasks();
   }, [fetchTodayTasks]);
 
-  const doneCount = tasks.filter((t) => t.status === "done").length;
-  const totalCount = tasks.length;
-  const progressPct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
+  useEffect(() => {
+    const tzOffsetMinutes = new Date().getTimezoneOffset();
+    api(`/focus/summary?tzOffsetMinutes=${tzOffsetMinutes}`)
+      .then((data) => {
+        if (typeof data?.streak === "number") setStreak(data.streak);
+        if (typeof data?.todayMinutes === "number") setTodayFocusMinutes(data.todayMinutes);
+      })
+      .catch(() => {
+        setStreak(null);
+        setTodayFocusMinutes(null);
+      });
+  }, []);
+
+  const formatFocusTime = (mins: number | null) => {
+    if (mins == null) return "—";
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h <= 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}m`;
+  };
+
+  const todayStart = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+  const todayEnd = new Date(todayStart);
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const relevantTasks = tasks.filter((t) => {
+    if (!t.dueDate) return false;
+    const dueMs = new Date(t.dueDate).getTime();
+    return dueMs <= todayEnd.getTime();
+  });
+
+  const completedTodayCount = relevantTasks.filter((t) => {
+    if (t.status !== "done") return false;
+    if (!t.completedAt) return false;
+    const completedAt = new Date(t.completedAt);
+    return isSameDay(completedAt, todayStart);
+  }).length;
+
+  const incompleteTodayAndOverdueCount = relevantTasks.filter(
+    (t) => t.status !== "done"
+  ).length;
+
+  const progressPct =
+    incompleteTodayAndOverdueCount > 0
+      ? (completedTodayCount / incompleteTodayAndOverdueCount) * 100
+      : relevantTasks.length > 0
+        ? 100
+        : 0;
+
+  const activeTasks = tasks.filter((t) => t.status !== "done");
+  const doneCount = completedTodayCount;
+  const totalCount = incompleteTodayAndOverdueCount;
 
   return (
     <div className="min-h-screen bg-white text-black flex flex-col">
@@ -100,7 +180,7 @@ export default function DashboardPage() {
           </div>
         )}
         {/* HERO */}
-        <section className="border rounded-2xl p-10 flex items-center justify-between">
+        <section className="border border-gray-200 rounded-2xl p-10 flex items-center justify-between">
           <div className="max-w-xl space-y-4">
             <h1 className="text-3xl font-semibold leading-tight">
               Stay consistent. Finish
@@ -123,7 +203,7 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={() => setShowPlan(true)}
-                className="border px-5 py-2 rounded-lg text-sm inline-flex items-center justify-center hover:bg-gray-50 transition"
+                className="border border-gray-200 px-5 py-2 rounded-lg text-sm inline-flex items-center justify-center hover:bg-gray-50 transition"
               >
                 View today&#39;s plan
               </button>
@@ -142,7 +222,7 @@ export default function DashboardPage() {
         {/* GRID */}
         <section className="grid grid-cols-3 gap-6">
           {/* TODAY'S TASKS */}
-          <div className="col-span-2 border rounded-2xl p-6">
+          <div className="col-span-2 border border-black rounded-2xl p-6">
             <h2 className="text-lg font-semibold tracking-tight">Today&#39;s Tasks</h2>
 
             <div className="space-y-2 mt-3 text-sm">
@@ -150,10 +230,10 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2 text-gray-500 py-4">
                   <Loader2 size={18} className="animate-spin" /> Loading…
                 </div>
-              ) : tasks.length === 0 ? (
+              ) : activeTasks.length === 0 ? (
                 <p className="text-gray-500 py-4">No tasks for today. Add one from the tasks page.</p>
               ) : (
-                tasks.map((t) => (
+                activeTasks.map((t) => (
                   <div
                     key={t.id}
                     className="flex items-center gap-3 rounded-xl p-2 -mx-2 hover:bg-gray-50 transition"
@@ -186,6 +266,11 @@ export default function DashboardPage() {
                           </p>
                         );
                       })()}
+                      {t.dueDate && new Date(t.dueDate).getTime() < todayStart.getTime() && (
+                        <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-red-100 text-red-700 uppercase">
+                          Overdue
+                        </span>
+                      )}
                     </div>
                     <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_COLORS[t.priority] ?? ""}`}>
                       {t.priority}
@@ -199,14 +284,14 @@ export default function DashboardPage() {
               <Link href="/focus" className="bg-black text-white px-4 py-2 rounded-lg text-sm">
                 Start focus session
               </Link>
-              <Link href="/tasks" className="border px-4 py-2 rounded-lg text-sm">
+              <Link href="/tasks" className="border border-gray-200 px-4 py-2 rounded-lg text-sm">
                 Add task
               </Link>
             </div>
           </div>
 
           {/* PROGRESS */}
-          <div className="border rounded-2xl p-6 space-y-5">
+          <div className="border border-black rounded-2xl p-6 space-y-5">
             <h2 className="text-lg font-semibold tracking-tight">Your Progress</h2>
 
             <div>
@@ -216,24 +301,30 @@ export default function DashboardPage() {
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
-              <p className="text-sm mt-2">{doneCount} / {totalCount} tasks</p>
+              <p className="text-sm mt-2">
+                {doneCount} completed today / {totalCount} remaining (today + overdue)
+              </p>
             </div>
 
             <div className="flex justify-between text-sm">
               <div>
                 <p className="text-gray-500">Streak</p>
-                <p className="font-medium">3 days</p>
+                <p className="font-medium">
+                  {streak == null ? "—" : streak === 1 ? "1 day" : `${streak} days`}
+                </p>
               </div>
               <div>
                 <p className="text-gray-500">Focus time</p>
-                <p className="font-medium">1h 25m</p>
+                <p className="font-medium">{formatFocusTime(todayFocusMinutes)}</p>
               </div>
             </div>
 
             <p className="text-xs text-gray-500">
-              {totalCount > 0 && doneCount === totalCount
-                ? "All tasks done — great work today!"
-                : "Keep going — every completed task builds momentum."}
+              {totalCount === 0
+                ? "No incomplete tasks due today (including overdue)."
+                : doneCount === totalCount
+                  ? "All your tasks for today (including overdue) are completed — great work!"
+                  : "Keep going — every completed task builds momentum."}
             </p>
           </div>
         </section>
@@ -375,7 +466,7 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <ul className="space-y-1">
-                  {tasks.map((t) => (
+                  {activeTasks.map((t) => (
                     <li key={t.id}>
                       <button
                         type="button"
@@ -409,6 +500,11 @@ export default function DashboardPage() {
                                 </span>
                               );
                             })()}
+                            {t.dueDate && new Date(t.dueDate).getTime() < todayStart.getTime() && (
+                              <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-red-100 text-red-700 uppercase">
+                                Overdue
+                              </span>
+                            )}
                           </div>
                         </div>
                       </button>
@@ -421,7 +517,7 @@ export default function DashboardPage() {
             {/* Footer */}
             <div className="px-8 py-4 border-t border-gray-100 flex items-center justify-between">
               <p className="text-xs text-gray-400">
-                {doneCount} of {totalCount} completed
+                {doneCount} completed today / {totalCount} remaining
               </p>
               <Link
                 href="/tasks"

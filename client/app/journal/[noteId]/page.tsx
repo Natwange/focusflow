@@ -4,7 +4,6 @@ import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { getToken } from "@/lib/auth";
 import { MoreHorizontal, ArrowLeft, Trash2, Save } from "lucide-react";
 
 type FontStyle = "playful" | "balanced" | "professional";
@@ -77,15 +76,12 @@ export default function JournalNotePage() {
         : "font-journal-balanced";
 
   useEffect(() => {
-    const token = getToken();
-    if (!token || !noteId) {
+    if (!noteId) {
       setLoading(false);
-      setError("Missing note or not signed in.");
+      setError("Missing note.");
       return;
     }
-    api(`/journal/notes/${noteId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    api(`/journal/notes/${noteId}`)
       .then((data: JournalNote) => {
         setNote(data);
         setDraftTitle(data.title ?? "");
@@ -97,13 +93,11 @@ export default function JournalNotePage() {
   }, [noteId]);
 
   const debouncedSave = useDebouncedCallback(async (payload: Partial<JournalNote>) => {
-    const token = getToken();
-    if (!token || !noteId) return;
+    if (!noteId) return;
     setSaveStatus("saving");
     try {
       const updated = await api(`/journal/notes/${noteId}`, {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           ...(payload.title !== undefined && { title: payload.title }),
           ...(payload.content !== undefined && { content: payload.content }),
@@ -126,12 +120,10 @@ export default function JournalNotePage() {
   }
 
   async function handleDelete() {
-    const token = getToken();
-    if (!token || !noteId) return;
+    if (!noteId) return;
     try {
       await api(`/journal/notes/${noteId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       router.replace("/journal");
     } catch {

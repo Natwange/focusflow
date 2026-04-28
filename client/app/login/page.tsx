@@ -4,9 +4,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-// Helper functions for talking to the backend and storing the auth token
 import { api } from "@/lib/api";
-import { setToken } from "@/lib/auth";
 
 // Small reusable component that shows the "eye" / "eye-off" icon
 // We pass in whether the password is currently visible, and it draws the right SVG
@@ -82,13 +80,12 @@ export default function LoginPage() {
 
     try {
       // Call our shared API helper, which will POST to http://localhost:4000/auth/login
-      const data = await api("/auth/login", {
+      await api("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
 
-      // The backend responds with { token }; we save it so the user stays logged in
-      setToken(data.token);
+      // Session is stored in an HttpOnly cookie by the API
 
       // After a successful login, send the user to the main dashboard
       router.push("/dashboard");

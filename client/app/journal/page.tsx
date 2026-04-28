@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import { api } from "@/lib/api";
-import { getToken } from "@/lib/auth";
 import { Plus } from "lucide-react";
 
 type FontStyle = "playful" | "balanced" | "professional";
@@ -34,23 +33,16 @@ export default function JournalPage() {
     (async () => {
       setLoading(true);
       setLoadError(null);
-      const token = getToken();
-      if (!token) {
-        setNotes([]);
-        setLoadError("Sign in to see and create notes.");
-        setLoading(false);
-        return;
-      }
       try {
-        const data = await api("/journal/notes", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const data = await api("/journal/notes");
         setNotes(Array.isArray(data) ? data : []);
       } catch (e: any) {
         setNotes([]);
         const msg = e?.message || String(e);
         if (msg.includes("NEXT_PUBLIC_API_URL")) {
           setLoadError("API URL not set. Add NEXT_PUBLIC_API_URL=http://localhost:4000 to client/.env.local");
+        } else if (msg === "Authentication required") {
+          setLoadError("Sign in to see and create notes.");
         } else if (msg.includes("401")) {
           setLoadError("Session expired or invalid. Try signing in again.");
         } else {
@@ -67,16 +59,9 @@ export default function JournalPage() {
   async function createNote() {
     setCreateNoteError(null);
     setCreateNoteLoading(true);
-    const token = getToken();
-    if (!token) {
-      setCreateNoteError("Sign in to create notes.");
-      setCreateNoteLoading(false);
-      return;
-    }
     try {
       const newNote = await api("/journal/notes", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({ title: "", content: "", font_style: "balanced" }),
       });
       setNotes((prev) => [newNote, ...prev]);

@@ -51,7 +51,7 @@ router.post("/", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const userId = req.user.id;
-    const { status, goalId, startDate, endDate } = req.query;
+    const { status, goalId, startDate, endDate, includeOverdue } = req.query;
 
     const where = { userId };
     if (status) where.status = String(status);
@@ -59,12 +59,16 @@ router.get("/", async (req, res) => {
 
     if (startDate || endDate) {
       where.dueDate = {};
+      const includeOver = String(includeOverdue) === "true";
       if (startDate) where.dueDate.gte = new Date(startDate);
       if (endDate) {
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
         where.dueDate.lte = end;
       }
+      // If includeOverdue is enabled, ignore the gte filter and only respect lte.
+      // This is used to show overdue tasks in the "today" list.
+      if (includeOver) delete where.dueDate.gte;
     }
 
     const tasks = await prisma.task.findMany({

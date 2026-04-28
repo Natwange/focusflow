@@ -47,6 +47,7 @@ function EyeIcon({ open }: { open: boolean }) {
 export default function SignupPage() {
   const router = useRouter();
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -58,6 +59,7 @@ export default function SignupPage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const canSubmit =
+    name.trim().length > 0 &&
     email.trim().length > 0 &&
     password.length >= 8 &&
     confirmPassword === password;
@@ -67,7 +69,7 @@ export default function SignupPage() {
     setErr(null);
     setSuccess(null);
 
-    if (!email || !password || !confirmPassword) {
+    if (!name.trim() || !email || !password || !confirmPassword) {
       setErr("Please fill in all fields.");
       return;
     }
@@ -85,12 +87,11 @@ export default function SignupPage() {
       // backend endpoint: POST /auth/register
       await api("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ name: name.trim(), email, password }),
       });
 
-      setSuccess("Account created. You can sign in now.");
-      // tiny delay is optional; you can remove it
-      setTimeout(() => router.push("/login"), 600);
+      setSuccess("Account created. Redirecting…");
+      setTimeout(() => router.push("/dashboard"), 600);
     } catch (e: any) {
       setErr(e.message || "Signup failed.");
     } finally {
@@ -113,6 +114,18 @@ export default function SignupPage() {
             </p>
 
             <form onSubmit={onSubmit} className="mt-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm text-black/70">Name</label>
+                <input
+                  className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none transition focus:border-black/30 focus:ring-2 focus:ring-black/10"
+                  type="text"
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                />
+              </div>
+
               <div className="space-y-2">
                 <label className="text-sm text-black/70">Email</label>
                 <input

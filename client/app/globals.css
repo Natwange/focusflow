@@ -3,47 +3,105 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --muted-foreground: #6b7280;
+  --card: #ffffff;
+  --card-muted: #f9fafb;
+  --border: #e5e7eb;
+  --input: #ffffff;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --muted-foreground: #a3a3a3;
+  --card: #171717;
+  --card-muted: #141414;
+  --border: #404040;
+  --input: #171717;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-muted: var(--card-muted);
+  --color-border: var(--border);
+  --color-input: var(--input);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-/* Keep app light; remove if you want system dark mode later
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  border-top: 0 !important;
+  border-top-width: 0 !important;
+  border-top-style: none !important;
+  outline: none;
+  box-shadow: none;
+  background-color: var(--background);
 }
-*/
 
 body {
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  border-top: 0 !important;
+  border-top-width: 0 !important;
+  border-top-style: none !important;
+  outline: none;
+  box-shadow: none;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
-/* Paper background: subtle warm paper + faint lines (monochrome) */
+header {
+  border-top-width: 0 !important;
+  border-top-style: none !important;
+  outline: none;
+  box-shadow: none;
+}
+
+/* Paper background: subtle warm paper + faint lines */
 .paper-bg {
   background-color: #fbfaf7;
-  background-image:
-    linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px);
+  background-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.06) 1px,
+    transparent 1px
+  );
   background-size: 100% 28px;
+}
+
+.dark .paper-bg {
+  background-color: #141414;
+  background-image: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.06) 1px,
+    transparent 1px
+  );
 }
 
 /* Ink text effect */
 .ink-text {
-  color: rgba(0,0,0,0.88);
-  text-shadow: 0 0 0.4px rgba(0,0,0,0.35);
+  color: rgba(0, 0, 0, 0.88);
+  text-shadow: 0 0 0.4px rgba(0, 0, 0, 0.35);
 }
 
-/* Fonts: pick three that actually look like pen. 
-   Import these in your layout/head (Google Fonts) or with next/font.
-*/
-.font-journal-playful { font-family: "Patrick Hand", system-ui, sans-serif; }
-.font-journal-balanced { font-family: "Kalam", system-ui, sans-serif; }
-.font-journal-pro { font-family: "Nanum Pen Script", system-ui, sans-serif; }
+.dark .ink-text {
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 0 0.4px rgba(255, 255, 255, 0.2);
+}
+
+.font-journal-playful {
+  font-family: "Patrick Hand", system-ui, sans-serif;
+}
+.font-journal-balanced {
+  font-family: "Kalam", system-ui, sans-serif;
+}
+.font-journal-pro {
+  font-family: "Nanum Pen Script", system-ui, sans-serif;
+}

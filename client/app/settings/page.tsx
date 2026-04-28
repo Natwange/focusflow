@@ -1,3 +1,5 @@
-export default function Page() {
-    return <div className="p-10">Coming Soon!</div>;
+import { redirect } from "next/navigation";
+
+export default function SettingsPage() {
+  redirect("/dashboard");
 }

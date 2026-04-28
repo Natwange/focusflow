@@ -2,10 +2,10 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import { getToken } from "@/lib/auth";
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Plus,
   Circle,
   CircleCheck,
@@ -159,6 +159,7 @@ export default function TasksPage() {
   const [newDueDate, setNewDueDate] = useState(() => toISODate(new Date()));
   const [newDueTime, setNewDueTime] = useState("");
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const getRange = useCallback(() => {
     if (view === "week") {
@@ -177,28 +178,56 @@ export default function TasksPage() {
   }, [view, cursor]);
 
   const fetchTasks = useCallback(async () => {
-    const token = getToken();
-    if (!token) {
-      setTasks([]);
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(null);
     const { start, end } = getRange();
+    const isDayViewToday =
+      view === "day" && toISODate(startOfDay(cursor)) === toISODate(new Date());
+    const includeOverdue = isDayViewToday ? "true" : "false";
     try {
       const data = await api(
-        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=${includeOverdue}`
       );
-      setTasks(Array.isArray(data) ? data : []);
+      let nextTasks: Task[] = Array.isArray(data) ? data : [];
+
+      if (isDayViewToday) {
+        const overdueGoalIds = Array.from(
+          new Set(
+            nextTasks
+              .filter((t) => {
+                if (!t.goalId) return false;
+                if (t.status === "done") return false;
+                if (!t.dueDate) return false;
+                return new Date(t.dueDate).getTime() < start.getTime();
+              })
+              .map((t) => t.goalId as string)
+          )
+        );
+
+        if (overdueGoalIds.length > 0) {
+          await Promise.all(
+            overdueGoalIds.map((gid) =>
+              api(`/goals/${gid}/plan/refresh`, {
+                method: "POST",
+              }).catch(() => {})
+            )
+          );
+
+          const refreshed = await api(
+            `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=${includeOverdue}`
+          );
+          nextTasks = Array.isArray(refreshed) ? refreshed : [];
+        }
+      }
+
+      setTasks(nextTasks);
     } catch (e: any) {
       setTasks([]);
       setError(e?.message || "Failed to load tasks");
     } finally {
       setLoading(false);
     }
-  }, [getRange]);
+  }, [getRange, view, cursor]);
 
   useEffect(() => {
     fetchTasks();
@@ -207,8 +236,6 @@ export default function TasksPage() {
   const createTask = async () => {
     const title = newTitle.trim();
     if (!title) return;
-    const token = getToken();
-    if (!token) return;
     setCreateLoading(true);
     setError(null);
     let dueDate: string | null = null;
@@ -219,7 +246,6 @@ export default function TasksPage() {
     try {
       const created = await api("/tasks", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           title,
           priority: newPriority,
@@ -239,13 +265,10 @@ export default function TasksPage() {
   };
 
   const updateStatus = async (id: string, status: TaskStatus) => {
-    const token = getToken();
-    if (!token) return;
     setStatusLoading(id);
     try {
       const updated = await api(`/tasks/${id}/status`, {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status }),
       });
       setTasks((prev) =>
@@ -259,12 +282,9 @@ export default function TasksPage() {
   };
 
   const deleteTask = async (id: string) => {
-    const token = getToken();
-    if (!token) return;
     try {
       await api(`/tasks/${id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       setTasks((prev) => prev.filter((t) => t.id !== id));
     } catch (e: any) {
@@ -276,12 +296,9 @@ export default function TasksPage() {
     id: string,
     updates: { title?: string; priority?: TaskPriority; dueDate?: string | null }
   ) => {
-    const token = getToken();
-    if (!token) return;
     try {
       const updated = await api(`/tasks/${id}`, {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify(updates),
       });
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updated } : t)));
@@ -318,6 +335,13 @@ export default function TasksPage() {
     }
     return map;
   })();
+
+  const activeTasks = tasks.filter((t) => t.status !== "done");
+  const completedTasks = tasks.filter((t) => t.status === "done");
+
+  const todayStart = startOfDay(new Date());
+  const showOverdue = view === "day" && toISODate(startOfDay(cursor)) === toISODate(new Date());
+  const overdueCutoffMs = todayStart.getTime();
 
   const baseBtn =
     "rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-2.5 text-sm font-medium transition hover:border-gray-300 hover:shadow-sm";
@@ -419,11 +443,13 @@ export default function TasksPage() {
                 </div>
               ) : (
                 <TaskList
-                  tasks={tasks}
+                  tasks={activeTasks}
                   onStatus={updateStatus}
                   onDelete={deleteTask}
                   onEdit={editTask}
                   statusLoading={statusLoading}
+                  showOverdue={showOverdue}
+                  overdueCutoffMs={overdueCutoffMs}
                 />
               )}
             </div>
@@ -481,11 +507,13 @@ export default function TasksPage() {
                 </div>
               ) : (
                 <TaskList
-                  tasks={tasks}
+                  tasks={activeTasks}
                   onStatus={updateStatus}
                   onDelete={deleteTask}
                   onEdit={editTask}
                   statusLoading={statusLoading}
+                  showOverdue={showOverdue}
+                  overdueCutoffMs={overdueCutoffMs}
                 />
               )}
             </div>
@@ -505,15 +533,68 @@ export default function TasksPage() {
               </div>
             ) : (
               <TaskList
-                tasks={tasks}
+                tasks={activeTasks}
                 onStatus={updateStatus}
                 onDelete={deleteTask}
                 onEdit={editTask}
                 statusLoading={statusLoading}
+                  showOverdue={showOverdue}
+                  overdueCutoffMs={overdueCutoffMs}
               />
             )}
           </section>
         )}
+
+        {/* Completed tasks dropdown */}
+        <section className="rounded-2xl border border-black/25 bg-white p-4">
+          <button
+            type="button"
+            onClick={() => setShowCompleted((v) => !v)}
+            className="flex w-full items-center justify-between text-sm font-medium text-gray-700"
+          >
+            <div className="flex items-center gap-2">
+              <ChevronDown
+                size={16}
+                className={`transition-transform ${showCompleted ? "rotate-180" : ""}`}
+              />
+              <span>Completed tasks</span>
+            </div>
+            <span className="text-xs text-gray-500">
+              {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
+            </span>
+          </button>
+          {showCompleted && (
+            <div className="mt-3">
+              {completedTasks.length === 0 ? (
+                <p className="text-xs text-gray-500">No completed tasks yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {completedTasks.map((t) => (
+                    <li
+                      key={t.id}
+                      className="flex items-center gap-3 rounded-xl border border-gray-200 bg-[#F3F3F3] px-4 py-3 text-sm text-gray-600"
+                    >
+                      <span className="line-through flex-1 min-w-0">{t.title}</span>
+                      {t.dueDate && (
+                        <span className="text-[11px] text-gray-400 shrink-0">
+                          {formatDueDateTime(t.dueDate)}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => deleteTask(t.id)}
+                        aria-label="Delete completed task"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
 
         {/* Add task */}
         <section className="rounded-2xl border border-black/25 bg-white p-4">
@@ -631,12 +712,16 @@ function TaskList({
   onDelete,
   onEdit,
   statusLoading,
+  showOverdue,
+  overdueCutoffMs,
 }: {
   tasks: Task[];
   onStatus: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
   onEdit: (id: string, updates: { title?: string; priority?: TaskPriority; dueDate?: string | null }) => Promise<void>;
   statusLoading: string | null;
+  showOverdue: boolean;
+  overdueCutoffMs: number;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -789,6 +874,11 @@ function TaskList({
             {t.dueDate && (
               <span className="text-xs text-gray-500 shrink-0">
                 {formatDueDateTime(t.dueDate)}
+              </span>
+            )}
+            {showOverdue && t.dueDate && new Date(t.dueDate).getTime() < overdueCutoffMs && (
+              <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-red-100 text-red-700 uppercase">
+                Overdue
               </span>
             )}
             <button

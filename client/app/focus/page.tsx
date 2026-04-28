@@ -2,10 +2,17 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
-import { getToken } from "@/lib/auth";
-import { Pause, Play, RotateCcw, Square, Volume2, VolumeX } from "lucide-react";
+import {
+  readFocusTimerFromStorage,
+  writeFocusTimerToStorage,
+  clearFocusTimerStorage,
+  type FocusTimerPersisted,
+  type FocusMode,
+  type RestoredFocusTimer,
+} from "@/lib/focusTimerStorage";
+import { Pause, RotateCcw, Square, Volume2, VolumeX } from "lucide-react";
 
-type Mode = "focus" | "short" | "long";
+type Mode = FocusMode;
 
 const DEFAULT_DURATIONS: Record<Mode, number> = {
   focus: 25 * 60,
@@ -25,12 +32,51 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/** Seconds remaining from wall-clock end (ceil = friendlier countdown) */
+function remainingSecondsFromEnd(endMs: number): number {
+  return Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+}
+
+function buildPersisted(args: {
+  mode: Mode;
+  totalDuration: number;
+  timeLeft: number;
+  running: boolean;
+  endWallTimeMs: number | null;
+  sessionStart: Date | null;
+}): FocusTimerPersisted {
+  return {
+    v: 1,
+    mode: args.mode,
+    totalDuration: args.totalDuration,
+    timeLeft: args.timeLeft,
+    running: args.running,
+    endWallTimeMs: args.endWallTimeMs,
+    sessionStartIso: args.sessionStart?.toISOString() ?? null,
+  };
+}
+
 export default function FocusPage() {
-  const [mode, setMode] = useState<Mode>("focus");
-  const [totalDuration, setTotalDuration] = useState(DEFAULT_DURATIONS.focus);
-  const [timeLeft, setTimeLeft] = useState(DEFAULT_DURATIONS.focus);
-  const [running, setRunning] = useState(false);
-  const [sessionStart, setSessionStart] = useState<Date | null>(null);
+  /** Snapshot once per mount (avoid reading sessionStorage every render). */
+  const [initialRestore] = useState<RestoredFocusTimer | null>(() =>
+    readFocusTimerFromStorage()
+  );
+
+  const [mode, setMode] = useState<Mode>(() => initialRestore?.mode ?? "focus");
+  const [totalDuration, setTotalDuration] = useState(
+    () => initialRestore?.totalDuration ?? DEFAULT_DURATIONS.focus
+  );
+  const [timeLeft, setTimeLeft] = useState(
+    () => initialRestore?.timeLeft ?? DEFAULT_DURATIONS.focus
+  );
+  const [running, setRunning] = useState(() => initialRestore?.running ?? false);
+  const [sessionStart, setSessionStart] = useState<Date | null>(
+    () => initialRestore?.sessionStart ?? null
+  );
+  const [expiredWhileAway, setExpiredWhileAway] = useState(
+    () => initialRestore?.expiredWhileAway ?? false
+  );
+
   const [totalSessions, setTotalSessions] = useState(0);
   const [streak, setStreak] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -39,10 +85,13 @@ export default function FocusPage() {
   const [editMinutes, setEditMinutes] = useState("");
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const endTimeRef = useRef<number | null>(null);
+  const endTimeRef = useRef<number | null>(initialRestore?.endWallTimeMs ?? null);
   const totalDurationRef = useRef(totalDuration);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlocked = useRef(false);
+  const workerRef = useRef<Worker | null>(null);
+  const pendingSound = useRef(false);
+  const completionLockRef = useRef(false);
 
   const ensureAudio = useCallback(() => {
     if (!audioRef.current) {
@@ -50,50 +99,55 @@ export default function FocusPage() {
       audioRef.current.volume = 0.7;
     }
     if (!audioUnlocked.current) {
-      audioRef.current.play().then(() => {
-        audioRef.current!.pause();
-        audioRef.current!.currentTime = 0;
-        audioUnlocked.current = true;
-      }).catch(() => {});
+      audioRef.current
+        .play()
+        .then(() => {
+          audioRef.current!.pause();
+          audioRef.current!.currentTime = 0;
+          audioUnlocked.current = true;
+        })
+        .catch(() => {});
     }
   }, []);
 
   const fetchStats = useCallback(async () => {
-    const token = getToken();
-    if (!token) return;
     try {
-      const data = await api("/focus/stats", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const data = await api("/focus/stats");
       setTotalSessions(data.totalSessions ?? 0);
       setStreak(data.streak ?? 0);
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
   }, []);
 
   useEffect(() => {
     fetchStats();
   }, [fetchStats]);
 
-  const saveSession = useCallback(async (start: Date, durationSec: number) => {
-    const token = getToken();
-    if (!token) return;
-    setSaving(true);
-    const end = new Date();
-    try {
-      await api("/focus", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          label: MODE_LABELS[mode],
-          duration: Math.round(durationSec / 60),
-          startedAt: start.toISOString(),
-          endedAt: end.toISOString(),
-        }),
-      });
-      fetchStats();
-    } catch { /* silent */ }
-    finally { setSaving(false); }
-  }, [mode, fetchStats]);
+  const saveSession = useCallback(
+    async (start: Date, durationSec: number) => {
+      setSaving(true);
+      const end = new Date();
+      const durationMin = Math.max(1, Math.round(durationSec / 60));
+      try {
+        await api("/focus", {
+          method: "POST",
+          body: JSON.stringify({
+            label: MODE_LABELS[mode],
+            duration: durationMin,
+            startedAt: start.toISOString(),
+            endedAt: end.toISOString(),
+          }),
+        });
+        fetchStats();
+      } catch {
+        /* silent */
+      } finally {
+        setSaving(false);
+      }
+    },
+    [mode, fetchStats]
+  );
 
   const playSound = useCallback(() => {
     if (soundEnabled && audioRef.current) {
@@ -104,57 +158,221 @@ export default function FocusPage() {
 
   totalDurationRef.current = totalDuration;
 
-  // Wall-clock countdown — immune to background tab throttling
+  const persist = useCallback(() => {
+    const idleNoSession =
+      !running &&
+      sessionStart === null &&
+      (timeLeft === totalDuration || timeLeft === 0);
+    if (idleNoSession && timeLeft !== 0) {
+      clearFocusTimerStorage();
+      return;
+    }
+    if (timeLeft === 0 && !running && !sessionStart) {
+      clearFocusTimerStorage();
+      return;
+    }
+    writeFocusTimerToStorage(
+      buildPersisted({
+        mode,
+        totalDuration,
+        timeLeft,
+        running,
+        endWallTimeMs: endTimeRef.current,
+        sessionStart,
+      })
+    );
+  }, [mode, totalDuration, timeLeft, running, sessionStart]);
+
+  useEffect(() => {
+    persist();
+  }, [persist]);
+
+  const completeTimer = useCallback(() => {
+    if (completionLockRef.current) return;
+    if (endTimeRef.current === null && !pendingSound.current) return;
+
+    completionLockRef.current = true;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    workerRef.current?.postMessage({ type: "stop" });
+
+    const start = sessionStart;
+    const wasFocus = mode === "focus";
+    const planned = totalDurationRef.current;
+
+    endTimeRef.current = null;
+    setTimeLeft(0);
+    setRunning(false);
+    setSessionStart(null);
+    pendingSound.current = false;
+
+    playSound();
+
+    if (start && wasFocus) {
+      const elapsedSec = Math.min(
+        planned,
+        Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000))
+      );
+      if (elapsedSec >= 60) {
+        saveSession(start, elapsedSec);
+      }
+    }
+
+    clearFocusTimerStorage();
+    completionLockRef.current = false;
+  }, [playSound, sessionStart, mode, saveSession]);
+
+  // Finish session that expired while user was on another route
+  useEffect(() => {
+    if (!expiredWhileAway) return;
+    setExpiredWhileAway(false);
+    ensureAudio();
+    playSound();
+    const start = sessionStart;
+    if (start && mode === "focus") {
+      const planned = totalDurationRef.current;
+      const elapsedSec = Math.min(
+        planned,
+        Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000))
+      );
+      if (elapsedSec >= 60) {
+        saveSession(start, elapsedSec);
+      }
+    }
+    setSessionStart(null);
+    clearFocusTimerStorage();
+  }, [expiredWhileAway, sessionStart, mode, ensureAudio, playSound, saveSession]);
+
+  // Single Web Worker for background tab; re-arm once from restore snapshot on mount
+  useEffect(() => {
+    const code = `
+      let tid = null;
+      self.onmessage = function(e) {
+        if (tid) { clearTimeout(tid); tid = null; }
+        if (e.data && e.data.type === "start" && e.data.ms > 0) {
+          tid = setTimeout(function() { self.postMessage("done"); }, e.data.ms);
+        }
+      };
+    `;
+    const blob = new Blob([code], { type: "application/javascript" });
+    const url = URL.createObjectURL(blob);
+    workerRef.current = new Worker(url);
+    URL.revokeObjectURL(url);
+
+    const r = initialRestore;
+    if (r?.running && r.endWallTimeMs != null) {
+      const ms = Math.max(0, r.endWallTimeMs - Date.now());
+      if (ms > 0) {
+        workerRef.current.postMessage({ type: "start", ms });
+      }
+    }
+
+    return () => {
+      workerRef.current?.terminate();
+      workerRef.current = null;
+    };
+    // initialRestore is fixed at first mount; worker must not be recreated on pause/resume
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Worker "done" — single path when end time still set
+  useEffect(() => {
+    const w = workerRef.current;
+    if (!w) return;
+    const handler = (e: MessageEvent) => {
+      if (e.data !== "done") return;
+      if (endTimeRef.current === null) return;
+      if (document.visibilityState === "visible") {
+        completeTimer();
+      } else {
+        pendingSound.current = true;
+      }
+    };
+    w.addEventListener("message", handler);
+    return () => w.removeEventListener("message", handler);
+  }, [completeTimer]);
+
+  // Tab visibility: sync display + drain pending completion
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (pendingSound.current) {
+        completeTimer();
+        return;
+      }
+      if (endTimeRef.current !== null) {
+        const remaining = remainingSecondsFromEnd(endTimeRef.current);
+        if (remaining <= 0) {
+          completeTimer();
+        } else {
+          setTimeLeft(remaining);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [completeTimer]);
+
+  // Display loop — wall clock only (no tick counting)
   useEffect(() => {
     if (!running || endTimeRef.current === null) return;
     const tick = () => {
-      const remaining = Math.round((endTimeRef.current! - Date.now()) / 1000);
+      const end = endTimeRef.current;
+      if (end === null) return;
+      const remaining = remainingSecondsFromEnd(end);
       if (remaining <= 0) {
-        clearInterval(intervalRef.current!);
-        setTimeLeft(0);
-        setRunning(false);
-        endTimeRef.current = null;
-        playSound();
-        if (sessionStart && mode === "focus") {
-          saveSession(sessionStart, totalDurationRef.current);
-        }
-        setSessionStart(null);
+        completeTimer();
       } else {
         setTimeLeft(remaining);
       }
     };
     tick();
     intervalRef.current = setInterval(tick, 250);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [running, playSound, sessionStart, mode, saveSession]);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [running, completeTimer]);
 
   const handleStart = () => {
     ensureAudio();
     const duration = timeLeft === 0 ? totalDuration : timeLeft;
     if (timeLeft === 0) setTimeLeft(totalDuration);
-    endTimeRef.current = Date.now() + duration * 1000;
+    const end = Date.now() + duration * 1000;
+    endTimeRef.current = end;
+    pendingSound.current = false;
+    workerRef.current?.postMessage({ type: "start", ms: duration * 1000 });
     setSessionStart(new Date());
     setRunning(true);
   };
 
   const handlePause = () => {
     setRunning(false);
-    const remaining = endTimeRef.current ? Math.round((endTimeRef.current - Date.now()) / 1000) : timeLeft;
+    const remaining = endTimeRef.current
+      ? remainingSecondsFromEnd(endTimeRef.current)
+      : timeLeft;
     endTimeRef.current = null;
+    pendingSound.current = false;
+    workerRef.current?.postMessage({ type: "stop" });
     setTimeLeft(Math.max(0, remaining));
   };
 
   const handleResume = () => {
     ensureAudio();
-    endTimeRef.current = Date.now() + timeLeft * 1000;
+    const end = Date.now() + timeLeft * 1000;
+    endTimeRef.current = end;
+    pendingSound.current = false;
+    workerRef.current?.postMessage({ type: "start", ms: timeLeft * 1000 });
     setRunning(true);
   };
 
   const handleReset = () => {
     setRunning(false);
     endTimeRef.current = null;
+    pendingSound.current = false;
+    workerRef.current?.postMessage({ type: "stop" });
     setSessionStart(null);
     setTimeLeft(totalDuration);
+    clearFocusTimerStorage();
   };
 
   const handleStop = () => {
@@ -166,8 +384,11 @@ export default function FocusPage() {
     }
     setRunning(false);
     endTimeRef.current = null;
+    pendingSound.current = false;
+    workerRef.current?.postMessage({ type: "stop" });
     setSessionStart(null);
     setTimeLeft(totalDuration);
+    clearFocusTimerStorage();
   };
 
   const switchMode = (m: Mode) => {
@@ -177,9 +398,9 @@ export default function FocusPage() {
     setTotalDuration(dur);
     setTimeLeft(dur);
     setSessionStart(null);
+    clearFocusTimerStorage();
   };
 
-  const progress = 1 - timeLeft / totalDuration;
   const isIdle = !running && sessionStart === null && timeLeft === totalDuration;
   const isPaused = !running && sessionStart !== null;
   const isFinished = !running && timeLeft === 0;

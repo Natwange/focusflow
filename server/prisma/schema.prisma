@@ -9,14 +9,34 @@ datasource db {
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
+  name      String   @default("")
   password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Duolingo-style visit streak: increments when you visit on a new day,
+  // resets if you miss a full day (timezone-aware via client offset).
+  streakCount    Int      @default(0)
+  streakDateKey  String?  // YYYY-MM-DD of the last day counted (user-local)
+  lastActiveAt   DateTime?
 
   sessions    FocusSession[]
   goals       Goal[]
   tasks       Task[]
   journalNotes JournalNote[]
+  refreshTokens RefreshToken[]
+}
+
+/// Opaque refresh tokens (store hash only). Rotated on each use; reuse of a revoked hash fails.
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model JournalNote {

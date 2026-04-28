@@ -1,0 +1,21 @@
+export function requestBasePath(apiPath: string): string {
+  const raw = apiPath.split("?")[0] ?? "";
+  return raw.startsWith("/") ? raw : `/${raw}`;
+}
+
+
+/**
+ * When the API returns 401 for a missing/expired session, send the user to the app login.
+ * Skips: server (no window), login/signup pages, and /auth/login (wrong password is also 401).
+ */
+export function redirectToLoginAfterUnauthorized(apiPath: string): void {
+  if (typeof window === "undefined") return;
+
+  const base = requestBasePath(apiPath);
+  if (base === "/auth/login" || base === "/auth/register") return;
+
+  const p = window.location.pathname;
+  if (p === "/login" || p === "/signup") return;
+
+  window.location.assign("/login");
+}
