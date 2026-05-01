@@ -1,5 +1,7 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
+const { validateBody } = require("../middleware/validateBody");
+const { goalCreateBodySchema } = require("../validation/schemas");
 
 const router = express.Router();
 
@@ -99,22 +101,16 @@ function buildPlan({
 }
 
 // POST /goals
-router.post("/", async (req, res) => {
+router.post("/", validateBody(goalCreateBodySchema), async (req, res) => {
   try {
     const userId = req.user.id;
     const { title, totalUnits, unitName, deadline } = req.body;
-
-    if (!title || !totalUnits || !unitName || !deadline) {
-      return res.status(400).json({
-        error: "title, totalUnits, unitName, and deadline are required",
-      });
-    }
 
     const goal = await prisma.goal.create({
       data: {
         userId,
         title,
-        totalUnits: Number(totalUnits),
+        totalUnits,
         unitName,
         deadline: new Date(deadline),
       },

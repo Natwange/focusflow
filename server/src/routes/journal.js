@@ -1,5 +1,7 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
+const { validateBody } = require("../middleware/validateBody");
+const { journalNoteCreateBodySchema } = require("../validation/schemas");
 
 const router = express.Router();
 
@@ -49,23 +51,27 @@ router.get("/notes", async (req, res) => {
 });
 
 // POST /journal/notes – create a note
-router.post("/notes", async (req, res) => {
-  try {
-    const { title = "", content = "", font_style = "balanced" } = req.body;
-    const note = await prisma.journalNote.create({
-      data: {
-        userId: req.user.id,
-        title: String(title),
-        content: String(content),
-        fontStyle: String(font_style),
-      },
-    });
-    return res.status(201).json(toClient(note));
-  } catch (err) {
-    console.error("Journal create error:", err);
-    return res.status(500).json({ error: "Failed to create note" });
+router.post(
+  "/notes",
+  validateBody(journalNoteCreateBodySchema),
+  async (req, res) => {
+    try {
+      const { title, content, font_style } = req.body;
+      const note = await prisma.journalNote.create({
+        data: {
+          userId: req.user.id,
+          title,
+          content,
+          fontStyle: font_style,
+        },
+      });
+      return res.status(201).json(toClient(note));
+    } catch (err) {
+      console.error("Journal create error:", err);
+      return res.status(500).json({ error: "Failed to create note" });
+    }
   }
-});
+);
 
 // PATCH /journal/notes/:id – update a note
 router.patch("/notes/:id", async (req, res) => {

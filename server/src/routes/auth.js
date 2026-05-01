@@ -8,6 +8,8 @@ const {
   revokeRefreshByCookie,
   rotateRefreshSession,
 } = require("../lib/authSession");
+const { validateBody } = require("../middleware/validateBody");
+const { registerBodySchema, loginBodySchema } = require("../validation/schemas");
 
 const router = express.Router();
 
@@ -24,18 +26,9 @@ function requireJwtSecret(res) {
 }
 
 // POST /auth/register
-router.post("/register", async (req, res) => {
+router.post("/register", validateBody(registerBodySchema), async (req, res) => {
   try {
     const { email, password, name } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
-    }
-    const trimmedName =
-      typeof name === "string" ? name.trim().slice(0, 120) : "";
-    if (!trimmedName) {
-      return res.status(400).json({ error: "Name is required" });
-    }
 
     if (!requireJwtSecret(res)) return;
 
@@ -50,7 +43,7 @@ router.post("/register", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({
-      data: { email, password: hashedPassword, name: trimmedName },
+      data: { email, password: hashedPassword, name },
       select: { id: true, email: true, name: true, createdAt: true },
     });
 
@@ -64,15 +57,11 @@ router.post("/register", async (req, res) => {
 });
 
 // POST /auth/login
-router.post("/login", async (req, res) => {
+router.post("/login", validateBody(loginBodySchema), async (req, res) => {
   try {
     if (!requireJwtSecret(res)) return;
 
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
-    }
 
     const user = await prisma.user.findUnique({
       where: { email },
