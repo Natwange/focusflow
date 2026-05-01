@@ -418,11 +418,11 @@ export default function DashboardPage() {
       {/* Today's Plan Sheet Overlay */}
       {showPlan && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-14 p-4"
           onClick={() => setShowPlan(false)}
         >
           {/* Blurred backdrop */}
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-md" />
 
           {/* Paper sheet */}
           <div

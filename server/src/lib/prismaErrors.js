@@ -4,6 +4,19 @@
 function prismaErrorMessage(err) {
   if (!err) return "Internal server error";
 
+  const rawMsg = typeof err.message === "string" ? err.message : "";
+
+  // Client generated from an older schema (forgot prisma generate / stale node_modules)
+  if (
+    err.name === "PrismaClientValidationError" ||
+    /Unknown argument `/i.test(rawMsg)
+  ) {
+    return (
+      "Database client is out of date with the Prisma schema (e.g. new fields like maxUnitsPerDay). " +
+      "From the server folder run: npx prisma migrate deploy && npx prisma generate, then restart the API."
+    );
+  }
+
   if (err.code === "P1001") {
     return "Cannot reach database. Check DATABASE_URL and that Postgres is running.";
   }

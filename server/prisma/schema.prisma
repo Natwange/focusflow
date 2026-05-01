@@ -69,6 +69,8 @@ model Goal {
   totalUnits Int      // e.g., 30 lessons
   deadline   DateTime
   unitName   String   // "lessons", "chapters"
+  availableDays String[] @default(["MON","TUE","WED","THU","FRI","SAT","SUN"])
+  maxUnitsPerDay Int?  // optional daily cap for planner; null = unlimited
   createdAt  DateTime @default(now())
 
   tasks      Task[]

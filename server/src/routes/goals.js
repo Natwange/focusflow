@@ -1,8 +1,19 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
+const { prismaErrorMessage } = require("../lib/prismaErrors");
 const { requireOwnedResource } = require("../lib/ownership");
 const { sanitizeUserText } = require("../lib/sanitizeInput");
-const { buildPlan, startOfDay, daysBetweenInclusive, PlanInputError } = require("../lib/buildPlan");
+const {
+  buildPlan,
+  startOfDay,
+  daysBetweenInclusive,
+  PlanInputError,
+  normalizeAvailableDays,
+  dayCodeOf,
+  resolveMaxUnitsPerDay,
+  getEligibleDates,
+  computeDeadlineRisk,
+} = require("../lib/buildPlan");
 const { validateBody } = require("../middleware/validateBody");
 const { goalCreateBodySchema } = require("../validation/schemas");
 
@@ -12,7 +23,7 @@ const router = express.Router();
 router.post("/", validateBody(goalCreateBodySchema), async (req, res) => {
   try {
     const userId = req.user.id;
-    const { title, totalUnits, unitName, deadline } = req.body;
+    const { title, totalUnits, unitName, deadline, availableDays, maxUnitsPerDay } = req.body;
     const safeTitle = sanitizeUserText(title);
     const safeUnitName = sanitizeUserText(unitName);
 
@@ -23,13 +34,20 @@ router.post("/", validateBody(goalCreateBodySchema), async (req, res) => {
         totalUnits,
         unitName: safeUnitName,
         deadline: new Date(deadline),
+        availableDays: normalizeAvailableDays(availableDays),
+        ...(maxUnitsPerDay !== undefined && {
+          maxUnitsPerDay: resolveMaxUnitsPerDay(maxUnitsPerDay),
+        }),
       },
     });
 
     return res.status(201).json(goal);
   } catch (err) {
+    if (err instanceof PlanInputError) {
+      return res.status(400).json({ error: err.message });
+    }
     console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: prismaErrorMessage(err) });
   }
 });
 
@@ -53,7 +71,7 @@ router.get("/", async (req, res) => {
     const message =
       err.code === "ETIMEDOUT" || err.code === "P1001"
         ? "Database connection failed. Check that your database is running and DATABASE_URL is correct."
-        : "Internal server error";
+        : prismaErrorMessage(err);
     return res.status(500).json({ error: message });
   }
 });
@@ -63,7 +81,7 @@ router.put("/:id", async (req, res) => {
   try {
     const userId = req.user.id;
     const goalId = req.params.id;
-    const { title, totalUnits, unitName, deadline } = req.body;
+    const { title, totalUnits, unitName, deadline, availableDays, maxUnitsPerDay } = req.body;
 
     const goal = await requireOwnedResource({
       model: prisma.goal,
@@ -82,14 +100,24 @@ router.put("/:id", async (req, res) => {
         ...(totalUnits !== undefined && { totalUnits: Number(totalUnits) }),
         ...(unitName && { unitName: sanitizeUserText(unitName) }),
         ...(deadline && { deadline: new Date(deadline) }),
+        ...(availableDays !== undefined && { availableDays: normalizeAvailableDays(availableDays) }),
+        ...(maxUnitsPerDay !== undefined && {
+          maxUnitsPerDay:
+            maxUnitsPerDay === null || maxUnitsPerDay === ""
+              ? null
+              : resolveMaxUnitsPerDay(maxUnitsPerDay),
+        }),
       },
       include: { tasks: true },
     });
 
     return res.json(updated);
   } catch (err) {
+    if (err instanceof PlanInputError) {
+      return res.status(400).json({ error: err.message });
+    }
     console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: prismaErrorMessage(err) });
   }
 });
 
@@ -122,7 +150,7 @@ router.delete("/:id", async (req, res) => {
     return res.json({ ok: true, goalId });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: prismaErrorMessage(err) });
   }
 });
 
@@ -149,7 +177,7 @@ router.delete("/:id/tasks", async (req, res) => {
     return res.json({ ok: true, deletedCount: result.count, goalId });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: prismaErrorMessage(err) });
   }
 });
 
@@ -158,7 +186,12 @@ router.post("/:id/plan/preview", async (req, res) => {
   try {
     const userId = req.user.id;
     const goalId = req.params.id;
-    const { weights, startDate: startDateInput } = req.body || {};
+    const {
+      weights,
+      startDate: startDateInput,
+      availableDays: availableDaysInput,
+      maxUnitsPerDay: maxUnitsPerDayInput,
+    } = req.body || {};
 
     // fetch goal (must belong to user)
     const goal = await requireOwnedResource({
@@ -168,9 +201,24 @@ router.post("/:id/plan/preview", async (req, res) => {
       res,
       notFoundMessage: "Goal not found",
       forbiddenMessage: "Forbidden: goal does not belong to this user",
-      select: { id: true, title: true, totalUnits: true, unitName: true, deadline: true },
+      select: {
+        id: true,
+        title: true,
+        totalUnits: true,
+        unitName: true,
+        deadline: true,
+        availableDays: true,
+        maxUnitsPerDay: true,
+      },
     });
     if (!goal) return;
+
+    const effectiveMax =
+      maxUnitsPerDayInput !== undefined
+        ? maxUnitsPerDayInput === null || maxUnitsPerDayInput === ""
+          ? null
+          : resolveMaxUnitsPerDay(maxUnitsPerDayInput)
+        : goal.maxUnitsPerDay;
 
     // start planning from the provided start date (or today if not provided)
     const startDate =
@@ -178,12 +226,60 @@ router.post("/:id/plan/preview", async (req, res) => {
         ? startOfDay(new Date(startDateInput))
         : startOfDay(new Date());
     const deadline = startOfDay(new Date(goal.deadline));
+    const availableForPlan = availableDaysInput ?? goal.availableDays;
+
+    const eligibleDates = getEligibleDates({
+      startDate,
+      deadline,
+      availableDays: availableForPlan,
+    });
+    const eligibleDaysCount = eligibleDates.length;
+    if (eligibleDaysCount <= 0) {
+      throw new PlanInputError(
+        "No eligible study days between start date and deadline. Choose available days that include at least one date in range."
+      );
+    }
+
+    const capForRisk =
+      effectiveMax == null ? null : resolveMaxUnitsPerDay(effectiveMax);
+
+    const risk = computeDeadlineRisk(
+      goal.totalUnits,
+      eligibleDaysCount,
+      capForRisk
+    );
+
+    if (risk.riskLevel === "impossible") {
+      return res.json({
+        goal: {
+          id: goal.id,
+          title: goal.title,
+          totalUnits: goal.totalUnits,
+          unitName: goal.unitName,
+          deadline: goal.deadline,
+          availableDays: normalizeAvailableDays(availableForPlan),
+          maxUnitsPerDay: effectiveMax,
+        },
+        planning: {
+          startDate: startDate.toISOString(),
+          daysAvailable: eligibleDaysCount,
+          unitsPerDayTarget: risk.requiredUnitsPerDay,
+          maxUnitsPerDay: effectiveMax,
+          riskLevel: risk.riskLevel,
+          requiredUnitsPerDay: risk.requiredUnitsPerDay,
+          eligibleDays: risk.eligibleDays,
+        },
+        items: [],
+      });
+    }
 
     const plan = buildPlan({
       totalUnits: goal.totalUnits,
       unitName: goal.unitName,
       startDate,
       deadline,
+      availableDays: availableForPlan,
+      maxUnitsPerDay: effectiveMax,
       weights,
       unitStartAt: 1,
     });
@@ -195,11 +291,17 @@ router.post("/:id/plan/preview", async (req, res) => {
         totalUnits: goal.totalUnits,
         unitName: goal.unitName,
         deadline: goal.deadline,
+        availableDays: normalizeAvailableDays(availableForPlan),
+        maxUnitsPerDay: effectiveMax,
       },
       planning: {
         startDate: startDate.toISOString(),
         daysAvailable: plan.days,
         unitsPerDayTarget: plan.perDay,
+        maxUnitsPerDay: effectiveMax,
+        riskLevel: plan.riskLevel,
+        requiredUnitsPerDay: plan.requiredUnitsPerDay,
+        eligibleDays: plan.eligibleDays,
       },
       items: plan.items,
     });
@@ -208,7 +310,7 @@ router.post("/:id/plan/preview", async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: prismaErrorMessage(err) });
   }
 });
 
@@ -218,7 +320,7 @@ router.post("/:id/plan/confirm", async (req, res) => {
     const userId = req.user.id;
     const goalId = req.params.id;
 
-    const { items } = req.body;
+    const { items, availableDays, maxUnitsPerDay: maxUnitsPerDayBody } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "items array is required" });
     }
@@ -231,9 +333,19 @@ router.post("/:id/plan/confirm", async (req, res) => {
       res,
       notFoundMessage: "Goal not found",
       forbiddenMessage: "Forbidden: goal does not belong to this user",
-      select: { id: true, totalUnits: true },
+      select: { id: true, totalUnits: true, availableDays: true, maxUnitsPerDay: true },
     });
     if (!goal) return;
+
+    const confirmCap =
+      maxUnitsPerDayBody !== undefined
+        ? maxUnitsPerDayBody === null || maxUnitsPerDayBody === ""
+          ? null
+          : resolveMaxUnitsPerDay(maxUnitsPerDayBody)
+        : goal.maxUnitsPerDay;
+
+    const normalizedAvailableDays = normalizeAvailableDays(availableDays ?? goal.availableDays);
+    const availableSet = new Set(normalizedAvailableDays);
 
     // prevent duplicate auto-plans for MVP
     const existingCount = await prisma.task.count({ where: { userId, goalId } });
@@ -247,6 +359,29 @@ router.post("/:id/plan/confirm", async (req, res) => {
       return res.status(400).json({
         error: `Planned units (${plannedUnits}) must equal goal totalUnits (${goal.totalUnits})`,
       });
+    }
+
+    const hasInvalidDueDate = items.some((it) => {
+      if (!it?.dueDate) return true;
+      try {
+        return !availableSet.has(dayCodeOf(new Date(it.dueDate)));
+      } catch {
+        return true;
+      }
+    });
+    if (hasInvalidDueDate) {
+      return res.status(400).json({
+        error: "Plan contains due dates outside selected availableDays. Re-run preview.",
+      });
+    }
+
+    if (confirmCap != null) {
+      const overCap = items.some((it) => (Number(it.unitsPlanned) || 0) > confirmCap);
+      if (overCap) {
+        return res.status(400).json({
+          error: `Each plan step must be at most ${confirmCap} units (your daily limit). Re-run preview.`,
+        });
+      }
     }
 
     // create tasks in a transaction
@@ -269,7 +404,7 @@ router.post("/:id/plan/confirm", async (req, res) => {
     return res.status(201).json({ createdCount: created.length, tasks: created });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: prismaErrorMessage(err) });
   }
 });
 
@@ -292,7 +427,15 @@ router.post("/:id/plan/refresh", async (req, res) => {
       res,
       notFoundMessage: "Goal not found",
       forbiddenMessage: "Forbidden: goal does not belong to this user",
-      select: { id: true, title: true, totalUnits: true, unitName: true, deadline: true },
+      select: {
+        id: true,
+        title: true,
+        totalUnits: true,
+        unitName: true,
+        deadline: true,
+        availableDays: true,
+        maxUnitsPerDay: true,
+      },
     });
     if (!goal) return;
 
@@ -339,6 +482,8 @@ router.post("/:id/plan/refresh", async (req, res) => {
       unitName: goal.unitName,
       startDate: todayStart,
       deadline,
+      availableDays: goal.availableDays,
+      maxUnitsPerDay: goal.maxUnitsPerDay,
       unitStartAt,
       // For refresh we intentionally use even distribution (no weights) unless weights are stored.
       weights: null,
@@ -372,7 +517,7 @@ router.post("/:id/plan/refresh", async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: prismaErrorMessage(err) });
   }
 });
 

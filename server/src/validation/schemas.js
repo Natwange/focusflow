@@ -70,11 +70,22 @@ const taskStatusBodySchema = z.object({
   status: taskStatusSchema,
 });
 
+const weekdaySchema = z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]);
+
 const goalCreateBodySchema = z.object({
   title: z.string().trim().min(1, "title is required").max(200),
   totalUnits: z.coerce.number().int().positive().max(100_000),
   unitName: z.string().trim().min(1, "unitName is required").max(80),
   deadline: isoLikeString,
+  availableDays: z.array(weekdaySchema).max(7).optional(),
+  // Zod v4: preprocess + inner .optional() rejects *omitted* keys; use optional(union) instead.
+  maxUnitsPerDay: z.optional(
+    z.union([
+      z.literal("").transform(() => undefined),
+      z.null().transform(() => undefined),
+      z.coerce.number().int().positive().max(10_000),
+    ])
+  ),
 });
 
 const journalNoteCreateBodySchema = z.object({

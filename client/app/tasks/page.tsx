@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   ChevronLeft,
   ChevronRight,
@@ -160,6 +161,7 @@ export default function TasksPage() {
   const [newDueTime, setNewDueTime] = useState("");
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [taskIdPendingDelete, setTaskIdPendingDelete] = useState<string | null>(null);
 
   const getRange = useCallback(() => {
     if (view === "week") {
@@ -445,7 +447,7 @@ export default function TasksPage() {
                 <TaskList
                   tasks={activeTasks}
                   onStatus={updateStatus}
-                  onDelete={deleteTask}
+                  onDelete={(id) => setTaskIdPendingDelete(id)}
                   onEdit={editTask}
                   statusLoading={statusLoading}
                   showOverdue={showOverdue}
@@ -509,7 +511,7 @@ export default function TasksPage() {
                 <TaskList
                   tasks={activeTasks}
                   onStatus={updateStatus}
-                  onDelete={deleteTask}
+                  onDelete={(id) => setTaskIdPendingDelete(id)}
                   onEdit={editTask}
                   statusLoading={statusLoading}
                   showOverdue={showOverdue}
@@ -535,7 +537,7 @@ export default function TasksPage() {
               <TaskList
                 tasks={activeTasks}
                 onStatus={updateStatus}
-                onDelete={deleteTask}
+                onDelete={(id) => setTaskIdPendingDelete(id)}
                 onEdit={editTask}
                 statusLoading={statusLoading}
                   showOverdue={showOverdue}
@@ -582,7 +584,7 @@ export default function TasksPage() {
                       )}
                       <button
                         type="button"
-                        onClick={() => deleteTask(t.id)}
+                        onClick={() => setTaskIdPendingDelete(t.id)}
                         aria-label="Delete completed task"
                         className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
                       >
@@ -679,6 +681,19 @@ export default function TasksPage() {
           </div>
         </section>
       </main>
+
+      <ConfirmDialog
+        open={taskIdPendingDelete !== null}
+        title="Are you sure?"
+        message="This permanently deletes the task. You can't undo this."
+        confirmLabel="Delete task"
+        onCancel={() => setTaskIdPendingDelete(null)}
+        onConfirm={() => {
+          const id = taskIdPendingDelete;
+          setTaskIdPendingDelete(null);
+          if (id) void deleteTask(id);
+        }}
+      />
     </div>
   );
 }

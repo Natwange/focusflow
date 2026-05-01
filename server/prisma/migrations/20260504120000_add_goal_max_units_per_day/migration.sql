@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Goal" ADD COLUMN IF NOT EXISTS "maxUnitsPerDay" INTEGER;

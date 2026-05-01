@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { MoreHorizontal, ArrowLeft, Trash2, Save } from "lucide-react";
 
 type FontStyle = "playful" | "balanced" | "professional";
@@ -62,6 +63,7 @@ export default function JournalNotePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const [draftTitle, setDraftTitle] = useState("");
@@ -119,8 +121,14 @@ export default function JournalNotePage() {
     });
   }
 
-  async function handleDelete() {
+  function requestDelete() {
+    setMenuOpen(false);
+    setDeleteConfirmOpen(true);
+  }
+
+  async function executeDelete() {
     if (!noteId) return;
+    setDeleteConfirmOpen(false);
     try {
       await api(`/journal/notes/${noteId}`, {
         method: "DELETE",
@@ -208,7 +216,7 @@ export default function JournalNotePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={handleDelete}
+                      onClick={requestDelete}
                       className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-black/[0.03] text-red-600"
                     >
                       <Trash2 size={16} />
@@ -255,6 +263,15 @@ export default function JournalNotePage() {
           </div>
         </div>
       </main>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Are you sure?"
+        message="This permanently deletes the note. You can't undo this."
+        confirmLabel="Delete note"
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => void executeDelete()}
+      />
     </div>
   );
 }

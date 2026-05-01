@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { api } from "@/lib/api";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ChevronDown, Pencil, Trash2, RefreshCw } from "lucide-react";
 
 type PlanItem = {
@@ -10,6 +11,37 @@ type PlanItem = {
   title: string;
   unitsPlanned: number;
 };
+
+type DeadlineRiskLevel = "on_track" | "at_risk" | "impossible";
+
+type PreviewPlanning = {
+  riskLevel: DeadlineRiskLevel;
+  requiredUnitsPerDay: number;
+  eligibleDays: number;
+};
+
+function riskLevelLabel(level: DeadlineRiskLevel): string {
+  switch (level) {
+    case "on_track":
+      return "On track";
+    case "at_risk":
+      return "At risk (close to your daily cap)";
+    case "impossible":
+      return "Impossible with this daily cap";
+  }
+}
+
+const WEEKDAYS = [
+  { code: "MON", label: "Mon" },
+  { code: "TUE", label: "Tue" },
+  { code: "WED", label: "Wed" },
+  { code: "THU", label: "Thu" },
+  { code: "FRI", label: "Fri" },
+  { code: "SAT", label: "Sat" },
+  { code: "SUN", label: "Sun" },
+] as const;
+
+type WeekdayCode = (typeof WEEKDAYS)[number]["code"];
 
 export default function GoalsPage() {
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -21,8 +53,11 @@ export default function GoalsPage() {
   const [deadline, setDeadline] = useState("");
   const [creating, setCreating] = useState(false);
   const [weightsRaw, setWeightsRaw] = useState("");
+  const [availableDays, setAvailableDays] = useState<WeekdayCode[]>([]);
+  const [maxUnitsPerDay, setMaxUnitsPerDay] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PlanItem[] | null>(null);
+  const [previewPlanning, setPreviewPlanning] = useState<PreviewPlanning | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   type GoalTask = {
@@ -38,6 +73,8 @@ export default function GoalsPage() {
     totalUnits: number;
     unitName: string;
     deadline: string;
+    availableDays?: WeekdayCode[];
+    maxUnitsPerDay?: number | null;
     tasks: GoalTask[];
   };
 
@@ -46,11 +83,32 @@ export default function GoalsPage() {
   const [expandedGoalIds, setExpandedGoalIds] = useState<Record<string, boolean>>({});
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [showPlansDropdown, setShowPlansDropdown] = useState(true);
+  const [goalIdPendingDelete, setGoalIdPendingDelete] = useState<string | null>(null);
 
   const [editTitle, setEditTitle] = useState("");
   const [editTotalUnits, setEditTotalUnits] = useState<string>("");
   const [editUnitName, setEditUnitName] = useState<string>("");
   const [editDeadline, setEditDeadline] = useState<string>("");
+  const [editAvailableDays, setEditAvailableDays] = useState<WeekdayCode[]>([]);
+  const [editMaxUnitsPerDay, setEditMaxUnitsPerDay] = useState<string>("");
+
+  const normalizeSelectedDays = (days: WeekdayCode[]) => (days.length === 0 ? [] : days);
+
+  /** Positive integer or undefined (omit = unlimited). */
+  function parseMaxUnitsPerDayForApi(raw: string): number | undefined {
+    const t = raw.trim();
+    if (!t) return undefined;
+    const n = Number(t);
+    if (!Number.isFinite(n) || n < 1) return undefined;
+    return Math.floor(n);
+  }
+  const toggleDay = (
+    current: WeekdayCode[],
+    code: WeekdayCode,
+    setter: (days: WeekdayCode[]) => void
+  ) => {
+    setter(current.includes(code) ? current.filter((d) => d !== code) : [...current, code]);
+  };
 
   const toDateInput = (iso: string) => {
     const d = new Date(iso);
@@ -116,10 +174,12 @@ export default function GoalsPage() {
     setError(null);
     setSuccessMsg(null);
     setPreview(null);
+    setPreviewPlanning(null);
 
     setCreating(true);
     try {
       const weights = parseWeights();
+      const dailyCap = parseMaxUnitsPerDayForApi(maxUnitsPerDay);
 
       // 1) Create the goal
       const goal = await api("/goals", {
@@ -129,17 +189,49 @@ export default function GoalsPage() {
           totalUnits: Number(totalUnits),
           unitName: unitName.trim(),
           deadline: new Date(deadline).toISOString(),
+          availableDays: normalizeSelectedDays(availableDays),
+          ...(dailyCap !== undefined ? { maxUnitsPerDay: dailyCap } : {}),
         }),
       });
 
       // 2) Ask backend to build a day‑by‑day plan
       const previewData = await api(`/goals/${goal.id}/plan/preview`, {
         method: "POST",
-        body: JSON.stringify({ weights, startDate }),
+        body: JSON.stringify({
+          weights,
+          startDate,
+          availableDays: normalizeSelectedDays(availableDays),
+          ...(dailyCap !== undefined ? { maxUnitsPerDay: dailyCap } : {}),
+        }),
       });
 
       const items: PlanItem[] = previewData.items ?? [];
       setPreview(items);
+
+      const planning = previewData.planning as
+        | (PreviewPlanning & { startDate?: string })
+        | undefined;
+      if (
+        planning &&
+        typeof planning.riskLevel === "string" &&
+        typeof planning.requiredUnitsPerDay === "number" &&
+        typeof planning.eligibleDays === "number"
+      ) {
+        setPreviewPlanning({
+          riskLevel: planning.riskLevel,
+          requiredUnitsPerDay: planning.requiredUnitsPerDay,
+          eligibleDays: planning.eligibleDays,
+        });
+      } else {
+        setPreviewPlanning(null);
+      }
+
+      if (planning?.riskLevel === "impossible") {
+        setError(
+          "This goal does not fit your daily unit cap. Add eligible days, raise the cap, or reduce total units."
+        );
+        return;
+      }
 
       if (items.length === 0) {
         setError("Could not generate a plan for this goal.");
@@ -149,7 +241,11 @@ export default function GoalsPage() {
       // 3) Confirm the plan: this creates actual tasks tied to the goal
       await api(`/goals/${goal.id}/plan/confirm`, {
         method: "POST",
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({
+          items,
+          availableDays: normalizeSelectedDays(availableDays),
+          ...(dailyCap !== undefined ? { maxUnitsPerDay: dailyCap } : {}),
+        }),
       });
 
       setSuccessMsg(
@@ -160,8 +256,27 @@ export default function GoalsPage() {
       setTitle("");
       setTotalUnits("");
       setDeadline("");
-    } catch (e: any) {
-      setError(e?.message || "Failed to create goal");
+      setAvailableDays([]);
+      setMaxUnitsPerDay("");
+
+      const wasAtRisk = planning?.riskLevel === "at_risk";
+      setPreview(null);
+      if (
+        wasAtRisk &&
+        planning &&
+        typeof planning.requiredUnitsPerDay === "number" &&
+        typeof planning.eligibleDays === "number"
+      ) {
+        setPreviewPlanning({
+          riskLevel: "at_risk",
+          requiredUnitsPerDay: planning.requiredUnitsPerDay,
+          eligibleDays: planning.eligibleDays,
+        });
+      } else {
+        setPreviewPlanning(null);
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to create goal");
     } finally {
       setCreating(false);
     }
@@ -204,36 +319,66 @@ export default function GoalsPage() {
     const goal = goalsList.find((g) => g.id === goalId);
     if (!goal) return;
 
-    await api(`/goals/${goalId}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        title: editTitle.trim(),
-        totalUnits: Number(editTotalUnits),
-        unitName: editUnitName.trim(),
-        deadline: new Date(editDeadline).toISOString(),
-      }),
-    });
+    const editCap = parseMaxUnitsPerDayForApi(editMaxUnitsPerDay);
 
-    await api(`/goals/${goalId}/tasks`, {
-      method: "DELETE",
-    });
+    setError(null);
+    try {
+      await api(`/goals/${goalId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          totalUnits: Number(editTotalUnits),
+          unitName: editUnitName.trim(),
+          deadline: new Date(editDeadline).toISOString(),
+          availableDays: normalizeSelectedDays(editAvailableDays),
+          maxUnitsPerDay: editCap !== undefined ? editCap : null,
+        }),
+      });
 
-    const startDateIso = startDateFromGoal(goal);
-    const previewData = await api(`/goals/${goalId}/plan/preview`, {
-      method: "POST",
-      body: JSON.stringify({ weights: null, startDate: startDateIso }),
-    });
+      await api(`/goals/${goalId}/tasks`, {
+        method: "DELETE",
+      });
 
-    const items: PlanItem[] = previewData.items ?? [];
-    if (!items.length) return;
+      const startDateIso = startDateFromGoal(goal);
+      const previewBody: Record<string, unknown> = {
+        weights: null,
+        startDate: startDateIso,
+        availableDays: normalizeSelectedDays(editAvailableDays),
+      };
+      if (editCap !== undefined) {
+        previewBody.maxUnitsPerDay = editCap;
+      }
 
-    await api(`/goals/${goalId}/plan/confirm`, {
-      method: "POST",
-      body: JSON.stringify({ items }),
-    });
+      const previewData = await api(`/goals/${goalId}/plan/preview`, {
+        method: "POST",
+        body: JSON.stringify(previewBody),
+      });
 
-    setEditingGoalId(null);
-    await loadGoals();
+      const items: PlanItem[] = previewData.items ?? [];
+      const planning = previewData.planning as { riskLevel?: string } | undefined;
+      if (planning?.riskLevel === "impossible" || !items.length) {
+        setError(
+          planning?.riskLevel === "impossible"
+            ? "Re-plan does not fit your daily unit cap. Adjust settings and try again."
+            : "Could not generate a plan after edit."
+        );
+        return;
+      }
+
+      await api(`/goals/${goalId}/plan/confirm`, {
+        method: "POST",
+        body: JSON.stringify({
+          items,
+          availableDays: normalizeSelectedDays(editAvailableDays),
+          ...(editCap !== undefined ? { maxUnitsPerDay: editCap } : {}),
+        }),
+      });
+
+      setEditingGoalId(null);
+      await loadGoals();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Save & re-plan failed");
+    }
   };
 
   return (
@@ -346,6 +491,34 @@ export default function GoalsPage() {
             </div>
 
             <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium text-gray-700">
+                Available study days
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAYS.map((d) => {
+                  const selected = availableDays.includes(d.code);
+                  return (
+                    <button
+                      key={d.code}
+                      type="button"
+                      onClick={() => toggleDay(availableDays, d.code, setAvailableDays)}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                        selected
+                          ? "border-black bg-black text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-500">
+                Leave all unselected to plan across all days.
+              </p>
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-gray-700 flex items-center justify-between">
                 Optional: unit sizes
                 <span className="text-xs text-gray-500">
@@ -376,6 +549,24 @@ export default function GoalsPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700 flex items-center justify-between">
+                Max units per day
+                <span className="text-xs text-gray-500 font-normal">optional</span>
+              </label>
+              <input
+                type="number"
+                min={1}
+                placeholder="Unlimited"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
+                value={maxUnitsPerDay}
+                onChange={(e) => setMaxUnitsPerDay(e.target.value)}
+              />
+              <p className="text-xs text-gray-500">
+                Leave empty for no daily cap. If set, each scheduled day will have at most this many units.
+              </p>
+            </div>
+
             <div className="md:col-span-2 flex items-center justify-between pt-2">
               <div className="space-y-1">
                 {error && (
@@ -396,27 +587,65 @@ export default function GoalsPage() {
             </div>
           </form>
 
-          {preview && preview.length > 0 && (
-            <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-4 text-sm text-gray-700 space-y-2">
-              <p className="font-medium">
-                First few planned days
+          {previewPlanning && (
+            <div
+              className={`mt-4 rounded-lg border p-4 text-sm space-y-2 ${
+                previewPlanning.riskLevel === "impossible"
+                  ? "bg-red-50 border-red-200 text-red-950"
+                  : previewPlanning.riskLevel === "at_risk"
+                    ? "bg-amber-50 border-amber-200 text-amber-950"
+                    : "bg-gray-50 border-gray-200 text-gray-800"
+              }`}
+            >
+              <p>
+                <span className="font-medium">Deadline risk: </span>
+                {riskLevelLabel(previewPlanning.riskLevel)}
+                <span className="opacity-90">
+                  {" "}
+                  — {previewPlanning.requiredUnitsPerDay.toFixed(2)} units/day needed across{" "}
+                  {previewPlanning.eligibleDays} eligible day(s)
+                </span>
               </p>
-              <ul className="list-disc pl-5 space-y-1">
-                {preview.slice(0, 5).map((item, idx) => (
-                  <li key={idx}>
-                    <span className="font-medium">
-                      {new Date(item.dueDate).toLocaleDateString()}
-                    </span>
-                    {": "}
-                    {item.title}
-                  </li>
-                ))}
-                {preview.length > 5 && (
-                  <li className="text-gray-500">
-                    …and {preview.length - 5} more days planned.
-                  </li>
+              {preview && preview.length > 0 && (
+                <>
+                  <p className="font-medium pt-1">First few planned days</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    {preview.slice(0, 5).map((item, idx) => (
+                      <li key={idx}>
+                        <span className="font-medium">
+                          {new Date(item.dueDate).toLocaleDateString()}
+                        </span>
+                        {": "}
+                        {item.title}
+                      </li>
+                    ))}
+                    {preview.length > 5 && (
+                      <li className="text-gray-500">
+                        …and {preview.length - 5} more days planned.
+                      </li>
+                    )}
+                  </ul>
+                </>
+              )}
+              {previewPlanning.riskLevel === "at_risk" &&
+                !(preview && preview.length > 0) && (
+                  <p className="text-xs mt-1 leading-relaxed opacity-90">
+                    Your plan is saved. Average daily load is close to your cap — consider more
+                    eligible days or a higher daily limit if you want buffer.
+                  </p>
                 )}
-              </ul>
+              {previewPlanning.riskLevel === "at_risk" && !creating && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewPlanning(null);
+                    setPreview(null);
+                  }}
+                  className="mt-3 text-xs font-medium text-amber-900/80 underline underline-offset-2 hover:text-amber-950"
+                >
+                  Dismiss warning
+                </button>
+              )}
             </div>
           )}
         </section>
@@ -498,6 +727,14 @@ export default function GoalsPage() {
                                 setEditTotalUnits(String(g.totalUnits));
                                 setEditUnitName(g.unitName);
                                 setEditDeadline(toDateInput(g.deadline));
+                                setEditAvailableDays(
+                                  Array.isArray(g.availableDays) ? g.availableDays : []
+                                );
+                                setEditMaxUnitsPerDay(
+                                  g.maxUnitsPerDay != null && g.maxUnitsPerDay > 0
+                                    ? String(g.maxUnitsPerDay)
+                                    : ""
+                                );
                               }
                               return next;
                             })
@@ -519,7 +756,7 @@ export default function GoalsPage() {
 
                         <button
                           type="button"
-                          onClick={() => deleteGoal(g.id)}
+                          onClick={() => setGoalIdPendingDelete(g.id)}
                           className="inline-flex items-center rounded-full border border-red-200 bg-white px-3 py-1.5 text-sm hover:bg-red-50 transition"
                           aria-label="Delete goal"
                         >
@@ -610,6 +847,44 @@ export default function GoalsPage() {
                               onChange={(e) => setEditDeadline(e.target.value)}
                             />
                           </div>
+                          <div className="space-y-1 md:col-span-2">
+                            <label className="text-xs text-gray-500">Available study days</label>
+                            <div className="flex flex-wrap gap-2">
+                              {WEEKDAYS.map((d) => {
+                                const selected = editAvailableDays.includes(d.code);
+                                return (
+                                  <button
+                                    key={d.code}
+                                    type="button"
+                                    onClick={() =>
+                                      toggleDay(editAvailableDays, d.code, setEditAvailableDays)
+                                    }
+                                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                      selected
+                                        ? "border-black bg-black text-white"
+                                        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                    }`}
+                                  >
+                                    {d.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              Leave all unselected to plan across all days.
+                            </p>
+                          </div>
+                          <div className="space-y-1 md:col-span-2">
+                            <label className="text-xs text-gray-500">Max units per day (optional)</label>
+                            <input
+                              type="number"
+                              min={1}
+                              placeholder="Unlimited"
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none"
+                              value={editMaxUnitsPerDay}
+                              onChange={(e) => setEditMaxUnitsPerDay(e.target.value)}
+                            />
+                          </div>
                         </div>
                         <div className="flex items-center justify-end gap-2">
                           <button
@@ -640,6 +915,19 @@ export default function GoalsPage() {
           )}
         </section>
       </main>
+
+      <ConfirmDialog
+        open={goalIdPendingDelete !== null}
+        title="Are you sure?"
+        message="This removes the goal and its planned tasks. You can't undo this."
+        confirmLabel="Delete goal"
+        onCancel={() => setGoalIdPendingDelete(null)}
+        onConfirm={() => {
+          const id = goalIdPendingDelete;
+          setGoalIdPendingDelete(null);
+          if (id) void deleteGoal(id);
+        }}
+      />
     </div>
   );
 }
