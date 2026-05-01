@@ -1,5 +1,7 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
+const { requireOwnedResource } = require("../lib/ownership");
+const { sanitizeUserText } = require("../lib/sanitizeInput");
 const { validateBody } = require("../middleware/validateBody");
 const {
   taskCreateBodySchema,
@@ -14,14 +16,16 @@ router.post("/", validateBody(taskCreateBodySchema), async (req, res) => {
   try {
     const userId = req.user.id;
     const { title, goalId, estimatedMin, dueDate, priority } = req.body;
+    const safeTitle = sanitizeUserText(title);
 
     if (goalId) {
-      const goal = await prisma.goal.findFirst({
-        where: { id: goalId, userId },
-        select: { id: true },
+      const goal = await prisma.goal.findUnique({
+        where: { id: goalId },
+        select: { id: true, userId: true },
       });
-      if (!goal) {
-        return res.status(403).json({ error: "Invalid goalId for this user" });
+      if (!goal) return res.status(404).json({ error: "Goal not found" });
+      if (goal.userId !== userId) {
+        return res.status(403).json({ error: "Forbidden: goal does not belong to this user" });
       }
     }
 
@@ -29,7 +33,7 @@ router.post("/", validateBody(taskCreateBodySchema), async (req, res) => {
       data: {
         userId,
         goalId: goalId || null,
-        title,
+        title: safeTitle,
         estimatedMin: estimatedMin != null ? Number(estimatedMin) : null,
         priority: priority || "medium",
         dueDate: dueDate ? new Date(dueDate) : null,
@@ -86,12 +90,15 @@ router.delete("/:id", async (req, res) => {
     const userId = req.user.id;
     const taskId = req.params.id;
 
-    const task = await prisma.task.findFirst({
-      where: { id: taskId, userId },
-      select: { id: true },
+    const task = await requireOwnedResource({
+      model: prisma.task,
+      id: taskId,
+      userId,
+      res,
+      notFoundMessage: "Task not found",
+      forbiddenMessage: "Forbidden: task does not belong to this user",
     });
-
-    if (!task) return res.status(404).json({ error: "Task not found" });
+    if (!task) return;
 
     await prisma.task.delete({ where: { id: taskId } });
 
@@ -109,15 +116,29 @@ router.patch("/:id", validateBody(taskUpdateBodySchema), async (req, res) => {
     const taskId = req.params.id;
     const { title, dueDate, estimatedMin, goalId, status, priority } = req.body;
 
-    const task = await prisma.task.findFirst({
-      where: { id: taskId, userId },
-      select: { id: true },
+    const task = await requireOwnedResource({
+      model: prisma.task,
+      id: taskId,
+      userId,
+      res,
+      notFoundMessage: "Task not found",
+      forbiddenMessage: "Forbidden: task does not belong to this user",
     });
+    if (!task) return;
 
-    if (!task) return res.status(404).json({ error: "Task not found" });
+    if (goalId) {
+      const goal = await prisma.goal.findUnique({
+        where: { id: goalId },
+        select: { id: true, userId: true },
+      });
+      if (!goal) return res.status(404).json({ error: "Goal not found" });
+      if (goal.userId !== userId) {
+        return res.status(403).json({ error: "Forbidden: goal does not belong to this user" });
+      }
+    }
 
     const data = {};
-    if (title !== undefined) data.title = String(title);
+    if (title !== undefined) data.title = sanitizeUserText(title);
     if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
     if (estimatedMin !== undefined) data.estimatedMin = estimatedMin != null ? Number(estimatedMin) : null;
     if (goalId !== undefined) data.goalId = goalId || null;
@@ -148,12 +169,15 @@ router.patch("/:id/status", validateBody(taskStatusBodySchema), async (req, res)
     const taskId = req.params.id;
     const { status } = req.body;
 
-    const task = await prisma.task.findFirst({
-      where: { id: taskId, userId },
-      select: { id: true },
+    const task = await requireOwnedResource({
+      model: prisma.task,
+      id: taskId,
+      userId,
+      res,
+      notFoundMessage: "Task not found",
+      forbiddenMessage: "Forbidden: task does not belong to this user",
     });
-
-    if (!task) return res.status(404).json({ error: "Task not found" });
+    if (!task) return;
 
     const updated = await prisma.task.update({
       where: { id: taskId },

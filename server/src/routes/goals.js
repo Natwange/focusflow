@@ -1,5 +1,7 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
+const { requireOwnedResource } = require("../lib/ownership");
+const { sanitizeUserText } = require("../lib/sanitizeInput");
 const { validateBody } = require("../middleware/validateBody");
 const { goalCreateBodySchema } = require("../validation/schemas");
 
@@ -105,13 +107,15 @@ router.post("/", validateBody(goalCreateBodySchema), async (req, res) => {
   try {
     const userId = req.user.id;
     const { title, totalUnits, unitName, deadline } = req.body;
+    const safeTitle = sanitizeUserText(title);
+    const safeUnitName = sanitizeUserText(unitName);
 
     const goal = await prisma.goal.create({
       data: {
         userId,
-        title,
+        title: safeTitle,
         totalUnits,
-        unitName,
+        unitName: safeUnitName,
         deadline: new Date(deadline),
       },
     });
@@ -155,18 +159,22 @@ router.put("/:id", async (req, res) => {
     const goalId = req.params.id;
     const { title, totalUnits, unitName, deadline } = req.body;
 
-    const goal = await prisma.goal.findFirst({
-      where: { id: goalId, userId },
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
     });
-
-    if (!goal) return res.status(404).json({ error: "Goal not found" });
+    if (!goal) return;
 
     const updated = await prisma.goal.update({
       where: { id: goalId },
       data: {
-        ...(title && { title }),
+        ...(title && { title: sanitizeUserText(title) }),
         ...(totalUnits !== undefined && { totalUnits: Number(totalUnits) }),
-        ...(unitName && { unitName }),
+        ...(unitName && { unitName: sanitizeUserText(unitName) }),
         ...(deadline && { deadline: new Date(deadline) }),
       },
       include: { tasks: true },
@@ -185,12 +193,15 @@ router.delete("/:id", async (req, res) => {
     const userId = req.user.id;
     const goalId = req.params.id;
 
-    const goal = await prisma.goal.findFirst({
-      where: { id: goalId, userId },
-      select: { id: true },
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
     });
-
-    if (!goal) return res.status(404).json({ error: "Goal not found" });
+    if (!goal) return;
 
     // Delete tasks first (cascade)
     await prisma.task.deleteMany({
@@ -215,12 +226,15 @@ router.delete("/:id/tasks", async (req, res) => {
     const userId = req.user.id;
     const goalId = req.params.id;
 
-    const goal = await prisma.goal.findFirst({
-      where: { id: goalId, userId },
-      select: { id: true },
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
     });
-
-    if (!goal) return res.status(404).json({ error: "Goal not found" });
+    if (!goal) return;
 
     const result = await prisma.task.deleteMany({
       where: { userId, goalId },
@@ -241,12 +255,16 @@ router.post("/:id/plan/preview", async (req, res) => {
     const { weights, startDate: startDateInput } = req.body || {};
 
     // fetch goal (must belong to user)
-    const goal = await prisma.goal.findFirst({
-      where: { id: goalId, userId },
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
       select: { id: true, title: true, totalUnits: true, unitName: true, deadline: true },
     });
-
-    if (!goal) return res.status(404).json({ error: "Goal not found" });
+    if (!goal) return;
 
     // start planning from the provided start date (or today if not provided)
     const startDate =
@@ -299,11 +317,16 @@ router.post("/:id/plan/confirm", async (req, res) => {
     }
 
     // confirm goal belongs to user
-    const goal = await prisma.goal.findFirst({
-      where: { id: goalId, userId },
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
       select: { id: true, totalUnits: true },
     });
-    if (!goal) return res.status(404).json({ error: "Goal not found" });
+    if (!goal) return;
 
     // prevent duplicate auto-plans for MVP
     const existingCount = await prisma.task.count({ where: { userId, goalId } });
@@ -326,7 +349,7 @@ router.post("/:id/plan/confirm", async (req, res) => {
           data: {
             userId,
             goalId,
-            title: String(it.title),
+            title: sanitizeUserText(it.title),
             dueDate: it.dueDate ? new Date(it.dueDate) : null,
             estimatedMin: null,
             status: "todo",
@@ -355,12 +378,16 @@ router.post("/:id/plan/refresh", async (req, res) => {
     const userId = req.user.id;
     const goalId = req.params.id;
 
-    const goal = await prisma.goal.findFirst({
-      where: { id: goalId, userId },
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
       select: { id: true, title: true, totalUnits: true, unitName: true, deadline: true },
     });
-
-    if (!goal) return res.status(404).json({ error: "Goal not found" });
+    if (!goal) return;
 
     const todayStart = startOfDay(new Date());
     const deadline = startOfDay(new Date(goal.deadline));
@@ -418,7 +445,7 @@ router.post("/:id/plan/refresh", async (req, res) => {
           data: {
             userId,
             goalId: goal.id,
-            title: it.title,
+            title: sanitizeUserText(it.title),
             dueDate: it.dueDate ? new Date(it.dueDate) : null,
             estimatedMin: null,
             priority: "medium",

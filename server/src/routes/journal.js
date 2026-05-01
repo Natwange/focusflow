@@ -1,5 +1,7 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
+const { requireOwnedResource } = require("../lib/ownership");
+const { sanitizeObjectTextFields } = require("../lib/sanitizeInput");
 const { validateBody } = require("../middleware/validateBody");
 const { journalNoteCreateBodySchema } = require("../validation/schemas");
 
@@ -22,13 +24,26 @@ function toClient(note) {
 // GET /journal/notes/:id – get a single note
 router.get("/notes/:id", async (req, res) => {
   try {
+    const userId = req.user.id;
     const { id } = req.params;
-    const note = await prisma.journalNote.findFirst({
-      where: { id, userId: req.user.id },
+    const note = await requireOwnedResource({
+      model: prisma.journalNote,
+      id,
+      userId,
+      res,
+      notFoundMessage: "Note not found",
+      forbiddenMessage: "Forbidden: note does not belong to this user",
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        content: true,
+        fontStyle: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
-    if (!note) {
-      return res.status(404).json({ error: "Note not found" });
-    }
+    if (!note) return;
     return res.json(toClient(note));
   } catch (err) {
     console.error("Journal get note error:", err);
@@ -56,7 +71,10 @@ router.post(
   validateBody(journalNoteCreateBodySchema),
   async (req, res) => {
     try {
-      const { title, content, font_style } = req.body;
+      const { title, content, font_style } = sanitizeObjectTextFields(req.body, [
+        "title",
+        "content",
+      ]);
       const note = await prisma.journalNote.create({
         data: {
           userId: req.user.id,
@@ -76,14 +94,21 @@ router.post(
 // PATCH /journal/notes/:id – update a note
 router.patch("/notes/:id", async (req, res) => {
   try {
+    const userId = req.user.id;
     const { id } = req.params;
-    const { title, content, font_style } = req.body;
-    const note = await prisma.journalNote.findFirst({
-      where: { id, userId: req.user.id },
+    const { title, content, font_style } = sanitizeObjectTextFields(req.body, [
+      "title",
+      "content",
+    ]);
+    const note = await requireOwnedResource({
+      model: prisma.journalNote,
+      id,
+      userId,
+      res,
+      notFoundMessage: "Note not found",
+      forbiddenMessage: "Forbidden: note does not belong to this user",
     });
-    if (!note) {
-      return res.status(404).json({ error: "Note not found" });
-    }
+    if (!note) return;
     const updated = await prisma.journalNote.update({
       where: { id },
       data: {
@@ -102,13 +127,17 @@ router.patch("/notes/:id", async (req, res) => {
 // DELETE /journal/notes/:id
 router.delete("/notes/:id", async (req, res) => {
   try {
+    const userId = req.user.id;
     const { id } = req.params;
-    const note = await prisma.journalNote.findFirst({
-      where: { id, userId: req.user.id },
+    const note = await requireOwnedResource({
+      model: prisma.journalNote,
+      id,
+      userId,
+      res,
+      notFoundMessage: "Note not found",
+      forbiddenMessage: "Forbidden: note does not belong to this user",
     });
-    if (!note) {
-      return res.status(404).json({ error: "Note not found" });
-    }
+    if (!note) return;
     await prisma.journalNote.delete({ where: { id } });
     return res.status(204).send();
   } catch (err) {
