@@ -96,6 +96,17 @@ const journalNoteCreateBodySchema = z.object({
     .default("balanced"),
 });
 
+const rebalanceStrategySchema = z.enum([
+  "keep_deadline",
+  "spread_evenly",
+  "increase_daily_load",
+  "extend_deadline",
+]);
+
+const rebalanceConfirmBodySchema = z.object({
+  strategy: rebalanceStrategySchema,
+});
+
 module.exports = {
   registerBodySchema,
   loginBodySchema,
@@ -104,4 +115,5 @@ module.exports = {
   taskStatusBodySchema,
   goalCreateBodySchema,
   journalNoteCreateBodySchema,
+  rebalanceConfirmBodySchema,
 };

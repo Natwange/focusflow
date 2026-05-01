@@ -47,39 +47,7 @@ export default function DashboardPage() {
         `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true`
       );
       const nextTasks: Task[] = Array.isArray(data) ? data : [];
-
-      // If a goal-generated task is overdue, refresh that goal plan so remaining work
-      // is re-distributed up to the deadline (inclusive).
-      const overdueGoalIds = Array.from(
-        new Set(
-          nextTasks
-            .filter((t) => {
-              if (!t.goalId) return false;
-              if (t.status === "done") return false;
-              if (!t.dueDate) return false;
-              return new Date(t.dueDate).getTime() < start.getTime();
-            })
-            .map((t) => t.goalId as string)
-        )
-      );
-
-      if (overdueGoalIds.length > 0) {
-        await Promise.all(
-          overdueGoalIds.map((gid) =>
-            api(`/goals/${gid}/plan/refresh`, {
-              method: "POST",
-            }).catch(() => {})
-          )
-        );
-
-        // Re-fetch tasks after re-balancing
-        const refreshed = await api(
-          `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true`
-        );
-        setTasks(Array.isArray(refreshed) ? refreshed : []);
-      } else {
-        setTasks(nextTasks);
-      }
+      setTasks(nextTasks);
     } catch {
       setTasks([]);
     } finally {

@@ -192,36 +192,6 @@ export default function TasksPage() {
       );
       let nextTasks: Task[] = Array.isArray(data) ? data : [];
 
-      if (isDayViewToday) {
-        const overdueGoalIds = Array.from(
-          new Set(
-            nextTasks
-              .filter((t) => {
-                if (!t.goalId) return false;
-                if (t.status === "done") return false;
-                if (!t.dueDate) return false;
-                return new Date(t.dueDate).getTime() < start.getTime();
-              })
-              .map((t) => t.goalId as string)
-          )
-        );
-
-        if (overdueGoalIds.length > 0) {
-          await Promise.all(
-            overdueGoalIds.map((gid) =>
-              api(`/goals/${gid}/plan/refresh`, {
-                method: "POST",
-              }).catch(() => {})
-            )
-          );
-
-          const refreshed = await api(
-            `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=${includeOverdue}`
-          );
-          nextTasks = Array.isArray(refreshed) ? refreshed : [];
-        }
-      }
-
       setTasks(nextTasks);
     } catch (e: any) {
       setTasks([]);

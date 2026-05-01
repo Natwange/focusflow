@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { api } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { ChevronDown, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { ChevronDown, Pencil, Trash2, RefreshCw, X } from "lucide-react";
 
 type PlanItem = {
   dueDate: string;
@@ -18,6 +18,30 @@ type PreviewPlanning = {
   riskLevel: DeadlineRiskLevel;
   requiredUnitsPerDay: number;
   eligibleDays: number;
+};
+
+type RebalanceStrategy =
+  | "keep_deadline"
+  | "spread_evenly"
+  | "increase_daily_load"
+  | "extend_deadline";
+
+type RebalanceOption = {
+  strategy: RebalanceStrategy;
+  label: string;
+  description: string;
+  estimatedDailyLoad: number;
+  newDeadline: string | null;
+  feasible: boolean;
+  suggestedMaxUnitsPerDay?: number | null;
+};
+
+type RebalancePreviewResponse = {
+  isBehind: boolean;
+  completedUnits: number;
+  expectedUnitsByToday: number;
+  remainingUnits: number;
+  options: RebalanceOption[];
 };
 
 function riskLevelLabel(level: DeadlineRiskLevel): string {
@@ -84,6 +108,15 @@ export default function GoalsPage() {
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [showPlansDropdown, setShowPlansDropdown] = useState(true);
   const [goalIdPendingDelete, setGoalIdPendingDelete] = useState<string | null>(null);
+
+  const [rebalanceGoalId, setRebalanceGoalId] = useState<string | null>(null);
+  const [rebalancePreview, setRebalancePreview] = useState<RebalancePreviewResponse | null>(null);
+  const [rebalanceLoading, setRebalanceLoading] = useState(false);
+  const [rebalanceConfirming, setRebalanceConfirming] = useState(false);
+  const [rebalanceError, setRebalanceError] = useState<string | null>(null);
+  const [selectedRebalanceStrategy, setSelectedRebalanceStrategy] = useState<
+    RebalanceStrategy | ""
+  >("");
 
   const [editTitle, setEditTitle] = useState("");
   const [editTotalUnits, setEditTotalUnits] = useState<string>("");
@@ -298,12 +331,58 @@ export default function GoalsPage() {
     await loadGoals();
   };
 
-  const refreshGoalPlan = async (goalId: string) => {
-    await api(`/goals/${goalId}/plan/refresh`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    await loadGoals();
+  const closeRebalance = useCallback(() => {
+    setRebalanceGoalId(null);
+    setRebalancePreview(null);
+    setRebalanceError(null);
+    setSelectedRebalanceStrategy("");
+  }, []);
+
+  useEffect(() => {
+    if (!rebalanceGoalId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRebalance();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rebalanceGoalId, closeRebalance]);
+
+  const openRebalance = async (goalId: string) => {
+    setRebalanceGoalId(goalId);
+    setRebalancePreview(null);
+    setRebalanceError(null);
+    setSelectedRebalanceStrategy("");
+    setRebalanceLoading(true);
+    try {
+      const data = (await api(`/goals/${goalId}/plan/rebalance-preview`, {
+        method: "POST",
+      })) as RebalancePreviewResponse;
+      setRebalancePreview(data);
+      const first = data.options?.find((o) => o.feasible);
+      if (first) setSelectedRebalanceStrategy(first.strategy);
+    } catch (e: unknown) {
+      setRebalanceError(e instanceof Error ? e.message : "Failed to load rebalance options");
+    } finally {
+      setRebalanceLoading(false);
+    }
+  };
+
+  const confirmRebalance = async () => {
+    if (!rebalanceGoalId || !selectedRebalanceStrategy) return;
+    setRebalanceConfirming(true);
+    setRebalanceError(null);
+    try {
+      await api(`/goals/${rebalanceGoalId}/plan/rebalance-confirm`, {
+        method: "POST",
+        body: JSON.stringify({ strategy: selectedRebalanceStrategy }),
+      });
+      closeRebalance();
+      await loadGoals();
+    } catch (e: unknown) {
+      setRebalanceError(e instanceof Error ? e.message : "Could not apply rebalance");
+    } finally {
+      setRebalanceConfirming(false);
+    }
   };
 
   const startDateFromGoal = (goal: Goal) => {
@@ -747,9 +826,10 @@ export default function GoalsPage() {
 
                         <button
                           type="button"
-                          onClick={() => refreshGoalPlan(g.id)}
+                          onClick={() => openRebalance(g.id)}
                           className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition"
-                          aria-label="Rebalance plan"
+                          aria-label="Rebalance or recover plan"
+                          title="Rebalance or recover plan"
                         >
                           <RefreshCw size={16} />
                         </button>
@@ -915,6 +995,153 @@ export default function GoalsPage() {
           )}
         </section>
       </main>
+
+      {rebalanceGoalId && (
+        <div
+          className="fixed inset-0 z-[90] flex items-start justify-center pt-10 sm:pt-14 px-4"
+          role="presentation"
+          onClick={closeRebalance}
+        >
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-md" aria-hidden />
+          <div
+            className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rebalance-title"
+          >
+            <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-gray-100">
+              <h2 id="rebalance-title" className="text-lg font-semibold tracking-tight">
+                Rebalance plan
+              </h2>
+              <button
+                type="button"
+                onClick={closeRebalance}
+                className="rounded-full p-2 hover:bg-gray-100 text-gray-500 hover:text-black"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4 text-sm">
+              {rebalanceLoading && <p className="text-gray-500">Loading recovery options…</p>}
+              {rebalanceError && <p className="text-red-600">{rebalanceError}</p>}
+              {rebalancePreview && !rebalanceLoading && (
+                <>
+                  <div className="text-gray-700 space-y-1">
+                    <p>
+                      <span className="font-medium">Completed:</span>{" "}
+                      {rebalancePreview.completedUnits} units
+                    </p>
+                    <p>
+                      <span className="font-medium">Expected by today:</span>{" "}
+                      {rebalancePreview.expectedUnitsByToday} units
+                    </p>
+                    <p>
+                      <span className="font-medium">Remaining:</span>{" "}
+                      {rebalancePreview.remainingUnits} units
+                    </p>
+                    <p
+                      className={
+                        rebalancePreview.isBehind
+                          ? "text-amber-900 font-medium pt-1"
+                          : "text-emerald-800 font-medium pt-1"
+                      }
+                    >
+                      {rebalancePreview.isBehind
+                        ? "You are behind the original schedule."
+                        : "You are on track relative to your original schedule."}
+                    </p>
+                  </div>
+                  {rebalancePreview.isBehind ? (
+                    <div className="space-y-3">
+                      <p className="font-medium text-gray-900">Choose a recovery approach</p>
+                      <ul className="space-y-2">
+                        {rebalancePreview.options.map((opt) => (
+                          <li key={opt.strategy}>
+                            <label
+                              className={`flex gap-3 rounded-xl border p-3 ${
+                                opt.feasible
+                                  ? "cursor-pointer hover:bg-gray-50 border-gray-200"
+                                  : "opacity-55 border-gray-100 cursor-not-allowed"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="rebalance-strategy"
+                                disabled={!opt.feasible}
+                                checked={selectedRebalanceStrategy === opt.strategy}
+                                onChange={() => setSelectedRebalanceStrategy(opt.strategy)}
+                                className="mt-1 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <div className="font-medium text-gray-900">{opt.label}</div>
+                                {!opt.feasible && (
+                                  <div className="text-[11px] font-semibold uppercase text-gray-400 mt-0.5">
+                                    Not available
+                                  </div>
+                                )}
+                                <div className="text-gray-600 text-xs mt-1 leading-relaxed">
+                                  {opt.description}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Est. load: ~{opt.estimatedDailyLoad} units/day
+                                  {opt.newDeadline && (
+                                    <>
+                                      {" "}
+                                      • New deadline:{" "}
+                                      {new Date(opt.newDeadline).toLocaleDateString()}
+                                    </>
+                                  )}
+                                  {opt.suggestedMaxUnitsPerDay != null && (
+                                    <>
+                                      {" "}
+                                      • Suggested cap: {opt.suggestedMaxUnitsPerDay}/day
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="flex flex-wrap justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={closeRebalance}
+                          className="rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={
+                            !selectedRebalanceStrategy || rebalanceConfirming
+                          }
+                          onClick={() => void confirmRebalance()}
+                          className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-black/90 disabled:opacity-50"
+                        >
+                          {rebalanceConfirming ? "Applying…" : "Apply selected"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="button"
+                        onClick={closeRebalance}
+                        className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-black/90"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={goalIdPendingDelete !== null}

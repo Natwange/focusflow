@@ -6,7 +6,6 @@ const { sanitizeUserText } = require("../lib/sanitizeInput");
 const {
   buildPlan,
   startOfDay,
-  daysBetweenInclusive,
   PlanInputError,
   normalizeAvailableDays,
   dayCodeOf,
@@ -15,9 +14,58 @@ const {
   computeDeadlineRisk,
 } = require("../lib/buildPlan");
 const { validateBody } = require("../middleware/validateBody");
-const { goalCreateBodySchema } = require("../validation/schemas");
+const {
+  goalCreateBodySchema,
+  rebalanceConfirmBodySchema,
+} = require("../validation/schemas");
+const {
+  parseTrailingUnitRange,
+  buildRebalancePreview,
+  assertStrategy,
+  earliestDeadlineFitting,
+} = require("../lib/rebalanceRecovery");
 
 const router = express.Router();
+
+async function loadRebalanceContext(goalId, userId, res) {
+  const goal = await requireOwnedResource({
+    model: prisma.goal,
+    id: goalId,
+    userId,
+    res,
+    notFoundMessage: "Goal not found",
+    forbiddenMessage: "Forbidden: goal does not belong to this user",
+    select: {
+      id: true,
+      title: true,
+      totalUnits: true,
+      unitName: true,
+      deadline: true,
+      availableDays: true,
+      maxUnitsPerDay: true,
+      createdAt: true,
+    },
+  });
+  if (!goal) return null;
+
+  const doneTasks = await prisma.task.findMany({
+    where: { userId, goalId: goal.id, status: "done" },
+    select: { title: true },
+  });
+
+  const completedUnits = doneTasks.reduce((sum, t) => {
+    const parsed = parseTrailingUnitRange(t.title);
+    return sum + (parsed ? parsed.unitsPlanned : 0);
+  }, 0);
+
+  const preview = buildRebalancePreview({
+    goal,
+    completedUnits,
+    today: new Date(),
+  });
+
+  return { goal, preview, completedUnits };
+}
 
 // POST /goals
 router.post("/", validateBody(goalCreateBodySchema), async (req, res) => {
@@ -408,110 +456,169 @@ router.post("/:id/plan/confirm", async (req, res) => {
   }
 });
 
-// POST /goals/:id/plan/refresh
-// Re-balance a goal plan when the user has overdue plan tasks.
-// Rules:
-// - Keep all tasks with status == "done".
-// - Delete tasks with status != "done" (todo/doing).
-// - Compute how many units are already completed by parsing numeric ranges from titles.
-// - Recreate tasks from "today" until goal.deadline (deadline day included).
+// POST /goals/:id/plan/rebalance-preview
+// Read-only: behind detection + recovery options (no task or goal mutations).
+router.post("/:id/plan/rebalance-preview", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+    const ctx = await loadRebalanceContext(goalId, userId, res);
+    if (!ctx) return;
+    return res.json(ctx.preview);
+  } catch (err) {
+    if (err instanceof PlanInputError) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
+  }
+});
+
+// POST /goals/:id/plan/rebalance-confirm
+// Apply chosen strategy: updates goal when needed, deletes open tasks, recreates plan.
+router.post(
+  "/:id/plan/rebalance-confirm",
+  validateBody(rebalanceConfirmBodySchema),
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const goalId = req.params.id;
+      const { strategy } = req.body;
+
+      assertStrategy(strategy);
+
+      const ctx = await loadRebalanceContext(goalId, userId, res);
+      if (!ctx) return;
+
+      const chosen = ctx.preview.options.find((o) => o.strategy === strategy);
+      if (!chosen || !chosen.feasible) {
+        return res.status(400).json({
+          error:
+            "That recovery option is not available. Run rebalance-preview and pick a feasible strategy.",
+        });
+      }
+
+      const { goal, completedUnits } = ctx;
+      const remainingUnits = Math.max(goal.totalUnits - completedUnits, 0);
+      const todayStart = startOfDay(new Date());
+      const deadline0 = startOfDay(new Date(goal.deadline));
+      const cap = resolveMaxUnitsPerDay(goal.maxUnitsPerDay);
+
+      if (remainingUnits <= 0) {
+        await prisma.task.deleteMany({
+          where: { userId, goalId: goal.id, status: { not: "done" } },
+        });
+        return res.json({
+          ok: true,
+          strategy,
+          createdCount: 0,
+          remainingUnits: 0,
+        });
+      }
+
+      if (strategy === "extend_deadline") {
+        const ext = earliestDeadlineFitting({
+          today: todayStart,
+          initialDeadline: deadline0,
+          remainingUnits,
+          maxUnitsPerDay: cap,
+          availableDays: goal.availableDays,
+        });
+        if (!ext) {
+          return res.status(400).json({ error: "Could not compute extended deadline." });
+        }
+        await prisma.goal.update({
+          where: { id: goal.id },
+          data: { deadline: ext },
+        });
+      } else if (strategy === "increase_daily_load") {
+        const eligibleToDeadline = getEligibleDates({
+          startDate: todayStart,
+          deadline: deadline0,
+          availableDays: goal.availableDays,
+        }).length;
+        if (eligibleToDeadline <= 0) {
+          return res.status(400).json({ error: "No eligible days left before deadline." });
+        }
+        const suggestedMax = Math.ceil(remainingUnits / eligibleToDeadline);
+        await prisma.goal.update({
+          where: { id: goal.id },
+          data: { maxUnitsPerDay: suggestedMax },
+        });
+      }
+
+      const goalFresh = await prisma.goal.findUnique({
+        where: { id: goal.id },
+      });
+      if (!goalFresh) {
+        return res.status(404).json({ error: "Goal not found" });
+      }
+
+      await prisma.task.deleteMany({
+        where: { userId, goalId: goal.id, status: { not: "done" } },
+      });
+
+      const planDeadline = startOfDay(new Date(goalFresh.deadline));
+      const maxForPlan =
+        strategy === "spread_evenly" ? null : goalFresh.maxUnitsPerDay;
+
+      const plan = buildPlan({
+        totalUnits: remainingUnits,
+        unitName: goalFresh.unitName,
+        startDate: todayStart,
+        deadline: planDeadline,
+        availableDays: goalFresh.availableDays,
+        maxUnitsPerDay: maxForPlan,
+        unitStartAt: completedUnits + 1,
+        weights: null,
+      });
+
+      const created = await prisma.$transaction(
+        plan.items.map((it) =>
+          prisma.task.create({
+            data: {
+              userId,
+              goalId: goalFresh.id,
+              title: sanitizeUserText(it.title),
+              dueDate: it.dueDate ? new Date(it.dueDate) : null,
+              estimatedMin: null,
+              priority: "medium",
+              status: "todo",
+            },
+            select: { id: true, title: true, dueDate: true, status: true, goalId: true },
+          })
+        )
+      );
+
+      return res.json({
+        ok: true,
+        strategy,
+        createdCount: created.length,
+        remainingUnits,
+        goal: {
+          id: goalFresh.id,
+          deadline: goalFresh.deadline,
+          maxUnitsPerDay: goalFresh.maxUnitsPerDay,
+        },
+      });
+    } catch (err) {
+      if (err instanceof PlanInputError) {
+        return res.status(400).json({ error: err.message });
+      }
+      console.error(err);
+      return res.status(500).json({ error: prismaErrorMessage(err) });
+    }
+  }
+);
+
+// POST /goals/:id/plan/refresh — alias for rebalance-preview (no automatic writes).
 router.post("/:id/plan/refresh", async (req, res) => {
   try {
     const userId = req.user.id;
     const goalId = req.params.id;
-
-    const goal = await requireOwnedResource({
-      model: prisma.goal,
-      id: goalId,
-      userId,
-      res,
-      notFoundMessage: "Goal not found",
-      forbiddenMessage: "Forbidden: goal does not belong to this user",
-      select: {
-        id: true,
-        title: true,
-        totalUnits: true,
-        unitName: true,
-        deadline: true,
-        availableDays: true,
-        maxUnitsPerDay: true,
-      },
-    });
-    if (!goal) return;
-
-    const todayStart = startOfDay(new Date());
-    const deadline = startOfDay(new Date(goal.deadline));
-    const remainingDays = daysBetweenInclusive(todayStart, deadline);
-    if (remainingDays <= 0) return res.json({ refreshed: true, createdCount: 0, skipped: true });
-
-    const parseTrailingUnitRange = (t) => {
-      if (!t || typeof t !== "string") return null;
-      // Match endings like "lessons 3-5" or "chapters 7"
-      const m = t.trim().match(/(\d+)(?:-(\d+))?$/);
-      if (!m) return null;
-      const start = Number(m[1]);
-      const end = m[2] ? Number(m[2]) : start;
-      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
-      return { start, end, unitsPlanned: end - start + 1 };
-    };
-
-    const doneTasks = await prisma.task.findMany({
-      where: { userId, goalId: goal.id, status: "done" },
-      select: { title: true, status: true },
-    });
-
-    const completedUnits = doneTasks.reduce((sum, t) => {
-      const parsed = parseTrailingUnitRange(t.title);
-      return sum + (parsed ? parsed.unitsPlanned : 0);
-    }, 0);
-
-    const remainingUnits = Math.max(goal.totalUnits - completedUnits, 0);
-
-    // Remove only non-completed tasks; keep done tasks for progress history.
-    await prisma.task.deleteMany({
-      where: { userId, goalId: goal.id, status: { not: "done" } },
-    });
-
-    if (remainingUnits <= 0) {
-      return res.json({ refreshed: true, createdCount: 0, remainingUnits: 0 });
-    }
-
-    const unitStartAt = completedUnits + 1;
-    const plan = buildPlan({
-      totalUnits: remainingUnits,
-      unitName: goal.unitName,
-      startDate: todayStart,
-      deadline,
-      availableDays: goal.availableDays,
-      maxUnitsPerDay: goal.maxUnitsPerDay,
-      unitStartAt,
-      // For refresh we intentionally use even distribution (no weights) unless weights are stored.
-      weights: null,
-    });
-
-    const created = await prisma.$transaction(
-      plan.items.map((it) =>
-        prisma.task.create({
-          data: {
-            userId,
-            goalId: goal.id,
-            title: sanitizeUserText(it.title),
-            dueDate: it.dueDate ? new Date(it.dueDate) : null,
-            estimatedMin: null,
-            priority: "medium",
-            status: "todo",
-          },
-          select: { id: true, title: true, dueDate: true, status: true, goalId: true },
-        })
-      )
-    );
-
-    return res.json({
-      refreshed: true,
-      createdCount: created.length,
-      remainingUnits,
-      unitStartAt,
-    });
+    const ctx = await loadRebalanceContext(goalId, userId, res);
+    if (!ctx) return;
+    return res.json(ctx.preview);
   } catch (err) {
     if (err instanceof PlanInputError) {
       return res.status(400).json({ error: err.message });
