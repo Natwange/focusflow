@@ -5,6 +5,7 @@
 import { redirectToLoginAfterUnauthorized, requestBasePath } from "@/lib/authRedirect";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
+let refreshInFlight: Promise<boolean> | null = null;
 
 function shouldAttemptRefresh(path: string, isRetry: boolean): boolean {
   if (isRetry) return false;
@@ -25,6 +26,17 @@ async function tryRefreshSession(): Promise<boolean> {
     headers: { "Content-Type": "application/json" },
   });
   return res.ok;
+}
+
+async function refreshSessionOnce(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = tryRefreshSession()
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
 }
 
 export async function api(path: string, opts: RequestInit = {}): Promise<any> {
@@ -71,7 +83,7 @@ async function apiOnce(
         : `Request failed: ${res.status}`;
 
     if (res.status === 401 && shouldAttemptRefresh(path, isRetry)) {
-      const refreshed = await tryRefreshSession();
+      const refreshed = await refreshSessionOnce();
       if (refreshed) {
         return apiOnce(path, opts, true);
       }
