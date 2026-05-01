@@ -1,102 +1,88 @@
 # FocusFlow
 
-FocusFlow is a full-stack personal productivity app for:
-- turning goals into dated task plans
-- tracking focus sessions (Pomodoro-style)
-- monitoring streak + productivity analytics
-- keeping journal notes
+FocusFlow is a full-stack productivity app that helps users break goals into actionable tasks, track focus sessions, and reflect with journal notes. The project emphasizes practical product engineering and secure backend design.
 
-This README describes what is currently implemented in this repository.
+## Project Overview
 
-## What Is In The App Right Now
+FocusFlow combines:
+- goal planning with deadline-aware task generation
+- task management with priorities and status tracking
+- focus session logging and streak analytics
+- personal journaling with autosave
+- secure cookie-based authentication
 
-### Core product areas
-- Auth: register, login, logout, cookie-based session with refresh token rotation
-- Dashboard: today's task view (includes overdue), focus minutes today, streak
-- Goals: create/edit/delete goals, generate plan previews, confirm plan into tasks, rebalance overdue plans
-- Tasks: create/edit/delete tasks, status updates, priority + due date/time, week/month/day calendar views
-- Focus: persistent timer (survives tab navigation), session logging, session stats
-- Analytics: day/week/month dashboard with productivity score and chart data from live DB values
-- Journal: create/read/update/delete personal notes
-- Settings: account panel, password change, sign out, theme preference (light/dark/system)
-- Assistant UI: rule-based in-app assistant shell (currently non-LLM)
+## Core Features
 
-### Main frontend routes
-- `/login`, `/signup`
-- `/dashboard`
-- `/goals`
-- `/tasks`
-- `/focus`
-- `/analytics`
-- `/journal`, `/journal/[noteId]`
-- `/settings`
-- `/plans/today` (placeholder: "Coming Soon")
+- Account system: register, login, refresh, logout, password change
+- Goals: create/update/delete and generate/rebalance study/work plans
+- Tasks: create/update/delete with priority, due date, and status
+- Journal notes: create/read/update/delete with style preferences
+- Focus sessions: log sessions, summarize daily time and streak
+- Analytics dashboard: productivity metrics and trend views
 
 ## Tech Stack
 
-### Frontend (`client`)
-- Next.js (App Router) + React + TypeScript
-- Tailwind CSS
-- `lucide-react` icons
-- API calls use `fetch` with cookie credentials
+- **Frontend:** Next.js (App Router), React, TypeScript, Tailwind CSS
+- **Backend:** Node.js, Express
+- **Database:** PostgreSQL with Prisma ORM
+- **Auth/Security:** JWT in HttpOnly cookies, refresh token rotation, helmet, CORS, rate limiting, Zod, sanitize-html
+- **Testing:** Jest + Supertest
 
-### Backend (`server`)
-- Node.js + Express
-- Prisma + PostgreSQL
-- JWT access token in `httpOnly` cookie + opaque refresh token rotation
-- Cookie auth middleware for protected routes
+## Architecture Overview
 
-## Repository Structure
+- `client/` - Next.js UI and page routes
+- `server/src/app.js` - Express app composition (middleware + routes)
+- `server/src/index.js` - server bootstrap/listener startup
+- `server/src/routes/` - API route modules (`auth`, `goals`, `tasks`, `journal`, `focus`, `analytics`, `activity`)
+- `server/src/lib/` - shared logic (auth sessions, planning, ownership checks, sanitization, audit logging)
+- `server/tests/` - unit and integration/security test suites
 
-- `client` - Next.js app
-- `server` - Express API + Prisma schema/migrations
-- `server/prisma/schema.prisma` - database models
-- `server/src/routes` - API route modules
+## Security Improvements
 
-## Data Model (Current)
+- **HttpOnly cookie auth:** access and refresh tokens are set in HttpOnly cookies
+- **Refresh token rotation:** refresh token is rotated on each valid refresh
+- **Protected routes:** middleware-enforced auth on user data endpoints
+- **Zod validation:** centralized request validation for auth/tasks/goals/journal inputs
+- **Ownership checks:** user-scoped resource access controls for task/goal/journal updates/deletes
+- **Rate limiting:** stricter limits on `/auth/login`, `/auth/register`, `/auth/refresh`
+- **Sanitization:** user-generated text sanitized before persistence
+- **Audit logging:** JSON audit events for login/logout/refresh/password-change actions
 
-Main Prisma models:
-- `User`
-- `RefreshToken`
-- `Goal`
-- `Task`
-- `FocusSession`
-- `JournalNote`
+## Testing
 
-Notable behavior:
-- User streak is visit-based (updated via `POST /activity/ping`)
-- Goal planning supports weighted units and deadline-inclusive scheduling
-- Goal rebalancing keeps completed tasks and regenerates remaining plan tasks
+Current automated coverage includes:
+- **Unit tests**
+  - Goal planning algorithm (`buildPlan`) behavior and edge cases
+- **Integration tests**
+  - Auth + `/me` behavior with cookie flow
+  - Task validation and ownership boundaries
+- **Auth/Security tests**
+  - Login success/failure + cookie assertions
+  - Refresh flow success/failure scenarios
+  - Rate limiting assertions
+- **Goal planning tests**
+  - distribution correctness
+  - deadline alignment
+  - short/long-range edge cases
+  - deterministic output
+  - invalid input handling
 
-## API Surface (Current)
+Run backend tests:
 
-### Public routes
-- `POST /auth/register`
-- `POST /auth/login`
-- `POST /auth/refresh`
-- `POST /auth/logout`
-- `GET /health`
+```bash
+cd server
+npm test
+```
 
-### Authenticated routes
-- `GET /me`
-- `PATCH /me/password`
-- Goals: CRUD + planning (`/goals`, `/goals/:id/plan/preview|confirm|refresh`)
-- Tasks: CRUD + status updates (`/tasks`, `/tasks/:id`, `/tasks/:id/status`)
-- Focus: create/list/stats/summary (`/focus`, `/focus/stats`, `/focus/summary`)
-- Analytics: `/analytics/overview`, `/analytics/productivity`, `/analytics/dashboard`
-- Journal notes: `/journal/notes`, `/journal/notes/:id`
-- Activity ping: `POST /activity/ping`
-
-## Local Development
+## Run Locally
 
 ### Prerequisites
+
 - Node.js 20+
 - npm
-- PostgreSQL database (local or hosted)
+- PostgreSQL
 
 ### 1) Install dependencies
-
-In two terminals:
 
 ```bash
 cd server
@@ -110,17 +96,19 @@ npm install
 
 ### 2) Configure environment variables
 
-Create `server/.env`:
+Create `server/.env` (use your own real values):
 
 ```env
 DATABASE_URL="postgresql://<user>:<password>@<host>:<port>/<db>"
 JWT_SECRET="<long-random-secret>"
-JWT_EXPIRES_IN="7d"
 CLIENT_ORIGIN="http://localhost:3000"
-# Optional:
+JWT_EXPIRES_IN="7d"
+# Optional
 # JWT_ACCESS_EXPIRES_IN="15m"
 # JWT_REFRESH_EXPIRES_IN="7d"
+# AUTH_RATE_LIMIT_MAX="8"
 # PORT="4000"
+# TRUST_PROXY="1"
 ```
 
 Create `client/.env.local`:
@@ -129,51 +117,40 @@ Create `client/.env.local`:
 NEXT_PUBLIC_API_URL="http://localhost:4000"
 ```
 
-### 3) Run Prisma migrations
+### 3) Run DB migrations
 
 ```bash
 cd server
 npx prisma migrate dev
 ```
 
-### 4) Start both apps
-
-Backend:
+### 4) Start apps
 
 ```bash
 cd server
 npm run dev
 ```
 
-Frontend:
-
 ```bash
 cd client
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Scripts
+## Screenshots
 
-### Client
-- `npm run dev`
-- `npm run build`
-- `npm run start`
-- `npm run lint`
+_Add screenshots/gifs here_
+- Dashboard
+- Goals planner
+- Tasks calendar
+- Journal detail editor
+- Analytics page
 
-### Server
-- `npm run dev`
-- `npm run start`
+## Future Improvements
 
-## Important Notes / Current Limits
-
-- The in-app assistant is currently rule-based placeholder logic, not a production AI backend.
-- `/plans/today` exists but is not implemented beyond a placeholder page.
-- There is no automated test suite configured yet in this repo.
-- `client/app/layout.tsx` metadata still has default Next.js title/description values.
-
-## Health Check
-
-- Backend: `GET http://localhost:4000/health`
-- Expected: `{ "status": "ok", "time": "..." }`
+- Add CI test pipeline and coverage reporting
+- Add centralized structured logging sink (Datadog/ELK) beyond console
+- Expand e2e tests for key user journeys
+- Add role/permission model for shared workspaces
+- Improve assistant capabilities with production LLM backend

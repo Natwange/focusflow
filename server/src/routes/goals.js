@@ -2,105 +2,11 @@ const express = require("express");
 const prisma = require("../lib/prisma");
 const { requireOwnedResource } = require("../lib/ownership");
 const { sanitizeUserText } = require("../lib/sanitizeInput");
+const { buildPlan, startOfDay, daysBetweenInclusive, PlanInputError } = require("../lib/buildPlan");
 const { validateBody } = require("../middleware/validateBody");
 const { goalCreateBodySchema } = require("../validation/schemas");
 
 const router = express.Router();
-
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function daysBetweenInclusive(start, end) {
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const s = startOfDay(start).getTime();
-  const e = startOfDay(end).getTime();
-  return Math.floor((e - s) / msPerDay) + 1;
-}
-
-function buildPlan({
-  totalUnits,
-  unitName,
-  startDate,
-  deadline,
-  weights,
-  unitStartAt = 1,
-}) {
-  const days = daysBetweenInclusive(startDate, deadline);
-  if (days <= 0) return { error: "Deadline must be in the future" };
-  if (totalUnits <= 0) return { error: "Total units must be > 0" };
-
-  // Normalize weights into an array of length totalUnits.
-  const normalizedWeights =
-    Array.isArray(weights) && weights.length === totalUnits
-      ? weights.map((w) => {
-          const n = Number(w);
-          return Number.isFinite(n) && n > 0 ? n : 1;
-        })
-      : Array.from({ length: totalUnits }, () => 1);
-
-  const totalWeight = normalizedWeights.reduce((sum, w) => sum + w, 0) || 1;
-
-  // Assign each unit to a day index [0..days-1], based on the "center" of its weight span.
-  // This keeps the *last unit* on the deadline day, fixing the "deadline day got no plan content" issue.
-  const unitToDay = new Array(totalUnits).fill(0);
-  let prefixWeightBefore = 0;
-  for (let u = 0; u < totalUnits; u++) {
-    if (u === totalUnits - 1) {
-      unitToDay[u] = days - 1; // force deadline to always have content (when totalUnits > 0)
-    } else {
-      const w = normalizedWeights[u];
-      const midRatio = (prefixWeightBefore + w / 2) / totalWeight; // 0..1
-      const dayIdx = Math.round(midRatio * (days - 1));
-      unitToDay[u] = Math.max(0, Math.min(days - 1, dayIdx));
-    }
-    prefixWeightBefore += normalizedWeights[u];
-  }
-
-  // Group consecutive units that map to the same day.
-  const items = [];
-  let groupStart = 0;
-  let groupDay = unitToDay[0];
-
-  const pushGroup = (endExclusive) => {
-    const startUnitIdx = groupStart; // 0-based within totalUnits
-    const endUnitIdx = endExclusive - 1;
-
-    const startUnit = unitStartAt + startUnitIdx;
-    const endUnit = unitStartAt + endUnitIdx;
-    const unitsPlanned = endUnit - startUnit + 1;
-
-    const title =
-      unitsPlanned === 1
-        ? `${unitName} ${startUnit}`
-        : `${unitName} ${startUnit}-${endUnit}`;
-
-    const dueDate = startOfDay(
-      new Date(startDate.getTime() + groupDay * 24 * 60 * 60 * 1000)
-    );
-
-    items.push({
-      dueDate: dueDate.toISOString(),
-      title,
-      unitsPlanned,
-      unitRange: { start: startUnit, end: endUnit },
-    });
-  };
-
-  for (let u = 1; u < totalUnits; u++) {
-    if (unitToDay[u] !== groupDay) {
-      pushGroup(u);
-      groupStart = u;
-      groupDay = unitToDay[u];
-    }
-  }
-  pushGroup(totalUnits);
-
-  const perDay = totalUnits / days;
-  return { days, perDay, items };
-}
 
 // POST /goals
 router.post("/", validateBody(goalCreateBodySchema), async (req, res) => {
@@ -282,8 +188,6 @@ router.post("/:id/plan/preview", async (req, res) => {
       unitStartAt: 1,
     });
 
-    if (plan.error) return res.status(400).json({ error: plan.error });
-
     return res.json({
       goal: {
         id: goal.id,
@@ -300,6 +204,9 @@ router.post("/:id/plan/preview", async (req, res) => {
       items: plan.items,
     });
   } catch (err) {
+    if (err instanceof PlanInputError) {
+      return res.status(400).json({ error: err.message });
+    }
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }
@@ -437,8 +344,6 @@ router.post("/:id/plan/refresh", async (req, res) => {
       weights: null,
     });
 
-    if (plan.error) return res.status(400).json({ error: plan.error });
-
     const created = await prisma.$transaction(
       plan.items.map((it) =>
         prisma.task.create({
@@ -463,6 +368,9 @@ router.post("/:id/plan/refresh", async (req, res) => {
       unitStartAt,
     });
   } catch (err) {
+    if (err instanceof PlanInputError) {
+      return res.status(400).json({ error: err.message });
+    }
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });
   }

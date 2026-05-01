@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const prisma = require("../lib/prisma");
 const { prismaErrorMessage } = require("../lib/prismaErrors");
 const { clearSessionCookies } = require("../lib/authCookie");
+const { auditAuthEvent } = require("../lib/auditLogger");
 const {
   establishSession,
   revokeRefreshByCookie,
@@ -68,11 +69,19 @@ router.post("/login", validateBody(loginBodySchema), async (req, res) => {
       select: { id: true, email: true, name: true, password: true },
     });
     if (!user) {
+      auditAuthEvent(req, {
+        action: "login_failure",
+        email,
+      });
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
+      auditAuthEvent(req, {
+        action: "login_failure",
+        email: user.email,
+      });
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
@@ -80,6 +89,10 @@ router.post("/login", validateBody(loginBodySchema), async (req, res) => {
       id: user.id,
       email: user.email,
       name: user.name || "",
+    });
+    auditAuthEvent(req, {
+      action: "login_success",
+      email: user.email,
     });
 
     return res.json({
@@ -102,11 +115,14 @@ router.post("/refresh", async (req, res) => {
 
     const ok = await rotateRefreshSession(req, res);
     if (!ok) {
+      auditAuthEvent(req, { action: "refresh_token_failure" });
       return res.status(401).json({ error: "Session expired" });
     }
+    auditAuthEvent(req, { action: "refresh_token_success" });
     return res.json({ ok: true });
   } catch (err) {
     console.error("Refresh error:", err);
+    auditAuthEvent(req, { action: "refresh_token_failure" });
     clearSessionCookies(res);
     return res.status(401).json({ error: "Session expired" });
   }
@@ -118,6 +134,7 @@ router.post("/logout", async (req, res) => {
   } catch (err) {
     console.error("Logout revoke error:", err);
   }
+  auditAuthEvent(req, { action: "logout" });
   clearSessionCookies(res);
   return res.json({ ok: true });
 });
