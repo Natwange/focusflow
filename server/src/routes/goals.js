@@ -26,6 +26,9 @@ const {
   earliestDeadlineFitting,
 } = require("../lib/rebalanceRecovery");
 const { evaluateGoalProgress } = require("../lib/evaluationEngine");
+const { detectFailureModes } = require("../lib/failureModeDetector");
+const { recommendRebalance } = require("../lib/rebalanceRecommendationEngine");
+const { runGoalAgent } = require("../lib/goalAgentOrchestrator");
 
 const router = express.Router();
 
@@ -175,6 +178,287 @@ router.get("/:id/evaluation", async (req, res) => {
     return res.json({
       goalId: goal.id,
       evaluation,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
+  }
+});
+
+// GET /goals/:id/failure-analysis
+// Read-only failure analysis derived from evaluation + tasks metadata.
+router.get("/:id/failure-analysis", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
+      select: {
+        id: true,
+        userId: true,
+        createdAt: true,
+        deadline: true,
+        availableDays: true,
+        maxUnitsPerDay: true,
+      },
+    });
+    if (!goal) return;
+
+    const tasks = await prisma.task.findMany({
+      where: { userId, goalId },
+      select: {
+        status: true,
+        dueDate: true,
+        unitStart: true,
+        unitEnd: true,
+      },
+    });
+
+    const now = new Date();
+    const evaluation = evaluateGoalProgress({ goal, tasks, now });
+    const failureAnalysis = detectFailureModes({
+      goal,
+      tasks,
+      evaluation,
+      now,
+    });
+
+    return res.json({
+      goalId: goal.id,
+      evaluation,
+      failureAnalysis,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
+  }
+});
+
+// GET /goals/:id/rebalance-recommendation
+// Read-only recommendation preview from evaluation + failure analysis.
+router.get("/:id/rebalance-recommendation", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
+      select: {
+        id: true,
+        userId: true,
+        createdAt: true,
+        deadline: true,
+        availableDays: true,
+        maxUnitsPerDay: true,
+      },
+    });
+    if (!goal) return;
+
+    const tasks = await prisma.task.findMany({
+      where: { userId, goalId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        dueDate: true,
+        unitStart: true,
+        unitEnd: true,
+      },
+    });
+
+    const now = new Date();
+    const evaluation = evaluateGoalProgress({ goal, tasks, now });
+    const failureAnalysis = detectFailureModes({
+      goal,
+      tasks,
+      evaluation,
+      now,
+    });
+    const rebalanceRecommendation = recommendRebalance({
+      goal,
+      tasks,
+      evaluation,
+      failureAnalysis,
+      now,
+    });
+
+    return res.json({
+      goalId: goal.id,
+      evaluation,
+      failureAnalysis,
+      rebalanceRecommendation,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
+  }
+});
+
+// GET /goals/:id/agent-preview
+// Read-only orchestrated output combining evaluation, failure analysis, and rebalance recommendation.
+router.get("/:id/agent-preview", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
+      select: {
+        id: true,
+        userId: true,
+        createdAt: true,
+        deadline: true,
+        availableDays: true,
+        maxUnitsPerDay: true,
+      },
+    });
+    if (!goal) return;
+
+    const tasks = await prisma.task.findMany({
+      where: { userId, goalId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        dueDate: true,
+        unitStart: true,
+        unitEnd: true,
+      },
+    });
+
+    const result = runGoalAgent({
+      goal,
+      tasks,
+      now: new Date(),
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
+  }
+});
+
+// POST /goals/:id/apply-agent-rebalance
+// Write endpoint: applies dueDate changes from orchestrated agent recommendation.
+router.post("/:id/apply-agent-rebalance", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
+      select: {
+        id: true,
+        userId: true,
+        createdAt: true,
+        deadline: true,
+        availableDays: true,
+        maxUnitsPerDay: true,
+      },
+    });
+    if (!goal) return;
+
+    const tasks = await prisma.task.findMany({
+      where: { userId, goalId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        dueDate: true,
+        unitStart: true,
+        unitEnd: true,
+      },
+    });
+
+    const agentResult = runGoalAgent({
+      goal,
+      tasks,
+      now: new Date(),
+    });
+
+    const rec = agentResult.rebalanceRecommendation;
+    if (!rec?.canRebalance) {
+      return res.status(400).json({
+        error: rec?.reason || "Rebalance cannot be applied.",
+        nextAction: agentResult.nextAction || "manual_review",
+      });
+    }
+
+    const taskById = new Map(tasks.map((t) => [String(t.id), t]));
+    const plannedChanges = Array.isArray(rec.changes) ? rec.changes : [];
+    const updateChanges = [];
+
+    for (const change of plannedChanges) {
+      const taskId = String(change?.taskId || "");
+      const targetTask = taskById.get(taskId);
+      if (!targetTask) {
+        return res.status(400).json({
+          error: `Invalid rebalance change target: ${taskId}`,
+          nextAction: "manual_review",
+        });
+      }
+      if (targetTask.status === "done") {
+        continue;
+      }
+      const toDate = new Date(change.to);
+      if (Number.isNaN(toDate.getTime())) {
+        return res.status(400).json({
+          error: `Invalid rebalance target date for task: ${taskId}`,
+          nextAction: "manual_review",
+        });
+      }
+      updateChanges.push({
+        taskId,
+        toDate,
+      });
+    }
+
+    const updatedTasks =
+      updateChanges.length > 0
+        ? await prisma.$transaction(
+            updateChanges.map((c) =>
+              prisma.task.update({
+                where: { id: c.taskId },
+                data: { dueDate: c.toDate },
+                select: {
+                  id: true,
+                  title: true,
+                  status: true,
+                  dueDate: true,
+                  goalId: true,
+                },
+              })
+            )
+          )
+        : [];
+
+    return res.json({
+      goalId: goal.id,
+      applied: true,
+      updatedTasks,
+      agentResult,
     });
   } catch (err) {
     console.error(err);

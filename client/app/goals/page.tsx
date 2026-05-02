@@ -44,6 +44,102 @@ type RebalancePreviewResponse = {
   options: RebalanceOption[];
 };
 
+/** Response from GET /goals/:id/agent-preview */
+type AgentPreviewResponse = {
+  goalId: string;
+  agentRunId: string;
+  evaluation: {
+    status?: string;
+    completionRate?: number;
+    [key: string]: unknown;
+  };
+  failureAnalysis: {
+    primaryFailureMode?: string;
+    severity?: string;
+    failureModes?: string[];
+    [key: string]: unknown;
+  };
+  rebalanceRecommendation: {
+    canRebalance?: boolean;
+    reason?: string;
+    recommendedAction?: string;
+    warnings?: string[];
+    [key: string]: unknown;
+  };
+  recommendation: string;
+  recommendationSegments?: Array<{ text: string; emphasis?: boolean }>;
+  nextAction: string;
+};
+
+const AGENT_FAILURE_LABELS: Record<string, string> = {
+  no_failure_detected: "None detected",
+  overloaded_day: "Overloaded days",
+  too_many_missed_tasks: "Many missed tasks",
+  behind_schedule: "Behind schedule",
+  not_enough_available_days: "Not enough days before deadline",
+  task_distribution_problem: "Uneven distribution",
+};
+
+const AGENT_STATUS_LABELS: Record<string, string> = {
+  on_track: "On track",
+  slightly_behind: "Slightly behind",
+  at_risk: "At risk",
+};
+
+const AGENT_SEVERITY_LABELS: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
+const AGENT_STATUS_TONE_CLASSES: Record<string, string> = {
+  on_track: "text-emerald-700",
+  slightly_behind: "text-amber-700",
+  at_risk: "text-red-700",
+};
+
+function formatAgentLabel(raw: string | undefined): string {
+  if (!raw) return "—";
+  return raw.replace(/_/g, " ");
+}
+
+function formatAgentFailureMode(raw: string | undefined): string {
+  if (!raw) return "—";
+  return AGENT_FAILURE_LABELS[raw] ?? formatAgentLabel(raw);
+}
+
+function formatAgentStatus(raw: string | undefined): string {
+  if (!raw) return "—";
+  return AGENT_STATUS_LABELS[raw] ?? formatAgentLabel(raw);
+}
+
+function formatAgentSeverity(raw: string | undefined): string {
+  if (!raw) return "—";
+  return AGENT_SEVERITY_LABELS[raw] ?? formatAgentLabel(raw);
+}
+
+function statusToneClass(raw: string | undefined): string {
+  if (!raw) return "text-gray-900";
+  return AGENT_STATUS_TONE_CLASSES[raw] ?? "text-gray-900";
+}
+
+function formatNextAction(raw: string | undefined): string {
+  if (raw === "keep_plan") return "Keep current plan";
+  if (!raw) return "—";
+  return formatAgentLabel(raw);
+}
+
+function recommendationFromStatus(raw: string | undefined): string {
+  if (raw === "on_track") return "You're on track. Keep your current pace.";
+  if (raw === "slightly_behind") {
+    return "You're slightly behind. Consider adjusting your pace.";
+  }
+  if (raw === "at_risk") {
+    return "You're at risk of missing your goal. Action is recommended.";
+  }
+  return "Review your current goal state and adjust your next step.";
+}
+
 function riskLevelLabel(level: DeadlineRiskLevel): string {
   switch (level) {
     case "on_track":
@@ -119,6 +215,14 @@ export default function GoalsPage() {
     RebalanceStrategy | ""
   >("");
 
+  const [agentPreviewByGoal, setAgentPreviewByGoal] = useState<
+    Record<string, AgentPreviewResponse | null>
+  >({});
+  const [agentPreviewLoading, setAgentPreviewLoading] = useState<Record<string, boolean>>({});
+  const [agentPreviewError, setAgentPreviewError] = useState<Record<string, string | null>>({});
+  const [agentApplyLoading, setAgentApplyLoading] = useState<Record<string, boolean>>({});
+  const [agentApplySuccess, setAgentApplySuccess] = useState<Record<string, string | null>>({});
+
   const [editTitle, setEditTitle] = useState("");
   const [editTotalUnits, setEditTotalUnits] = useState<string>("");
   const [editUnitName, setEditUnitName] = useState<string>("");
@@ -161,6 +265,52 @@ export default function GoalsPage() {
       setGoalsLoading(false);
     }
   }, []);
+
+  const loadAgentPreview = useCallback(async (goalId: string) => {
+    setAgentPreviewLoading((prev) => ({ ...prev, [goalId]: true }));
+    setAgentPreviewError((prev) => ({ ...prev, [goalId]: null }));
+    setAgentApplySuccess((prev) => ({ ...prev, [goalId]: null }));
+    try {
+      const data = (await api(`/goals/${goalId}/agent-preview`)) as AgentPreviewResponse;
+      setAgentPreviewByGoal((prev) => ({ ...prev, [goalId]: data }));
+    } catch (e: unknown) {
+      setAgentPreviewByGoal((prev) => ({ ...prev, [goalId]: null }));
+      setAgentPreviewError((prev) => ({
+        ...prev,
+        [goalId]: e instanceof Error ? e.message : "Could not load agent preview",
+      }));
+    } finally {
+      setAgentPreviewLoading((prev) => ({ ...prev, [goalId]: false }));
+    }
+  }, []);
+
+  const applyAgentRebalance = useCallback(
+    async (goalId: string) => {
+      setAgentApplyLoading((prev) => ({ ...prev, [goalId]: true }));
+      setAgentApplySuccess((prev) => ({ ...prev, [goalId]: null }));
+      setAgentPreviewError((prev) => ({ ...prev, [goalId]: null }));
+      try {
+        await api(`/goals/${goalId}/apply-agent-rebalance`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        setAgentApplySuccess((prev) => ({
+          ...prev,
+          [goalId]: "Rebalance applied. Tasks updated.",
+        }));
+        await loadGoals();
+        await loadAgentPreview(goalId);
+      } catch (e: unknown) {
+        setAgentPreviewError((prev) => ({
+          ...prev,
+          [goalId]: e instanceof Error ? e.message : "Could not apply rebalance",
+        }));
+      } finally {
+        setAgentApplyLoading((prev) => ({ ...prev, [goalId]: false }));
+      }
+    },
+    [loadGoals, loadAgentPreview]
+  );
 
   useEffect(() => {
     loadGoals();
@@ -784,7 +934,11 @@ export default function GoalsPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            setExpandedGoalIds((prev) => ({ ...prev, [g.id]: !isExpanded }))
+                            setExpandedGoalIds((prev) => {
+                              const willExpand = !prev[g.id];
+                              if (willExpand) void loadAgentPreview(g.id);
+                              return { ...prev, [g.id]: willExpand };
+                            })
                           }
                           className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition"
                         >
@@ -846,6 +1000,132 @@ export default function GoalsPage() {
 
                     {isExpanded && (
                       <div className="mt-4 space-y-3">
+                        <div className="rounded-2xl border border-gray-200 bg-[#FAFAFA] p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="text-sm font-semibold text-gray-900">Agent Insight</h3>
+                            <button
+                              type="button"
+                              onClick={() => void loadAgentPreview(g.id)}
+                              disabled={agentPreviewLoading[g.id]}
+                              className="text-xs font-medium text-gray-600 hover:text-black underline underline-offset-2 disabled:opacity-50"
+                            >
+                              {agentPreviewLoading[g.id] ? "Refreshing…" : "Refresh"}
+                            </button>
+                          </div>
+
+                          {agentPreviewLoading[g.id] && !agentPreviewByGoal[g.id] && (
+                            <p className="text-xs text-gray-500">Loading agent preview…</p>
+                          )}
+                          {agentPreviewError[g.id] && (
+                            <p className="text-xs text-red-600">{agentPreviewError[g.id]}</p>
+                          )}
+                          {agentApplySuccess[g.id] && (
+                            <p className="text-xs text-emerald-700">{agentApplySuccess[g.id]}</p>
+                          )}
+
+                          {agentPreviewByGoal[g.id] && (
+                            <>
+                              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                                <div>
+                                  <dt className="text-gray-500">Status</dt>
+                                  <dd
+                                    className={`font-semibold text-sm ${statusToneClass(
+                                      agentPreviewByGoal[g.id]?.evaluation?.status
+                                    )}`}
+                                  >
+                                    {formatAgentStatus(agentPreviewByGoal[g.id]?.evaluation?.status)}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-gray-500">Completion</dt>
+                                  <dd className="font-medium text-gray-900">
+                                    {typeof agentPreviewByGoal[g.id]?.evaluation?.completionRate ===
+                                    "number"
+                                      ? `${(
+                                          agentPreviewByGoal[g.id]!.evaluation.completionRate * 100
+                                        ).toFixed(1)}%`
+                                      : "—"}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-gray-500">
+                                    {agentPreviewByGoal[g.id]?.failureAnalysis?.primaryFailureMode ===
+                                    "no_failure_detected"
+                                      ? "System Status"
+                                      : "Primary issue"}
+                                  </dt>
+                                  <dd className="font-medium text-gray-900">
+                                    {agentPreviewByGoal[g.id]?.failureAnalysis?.primaryFailureMode ===
+                                    "no_failure_detected"
+                                      ? "No issues detected"
+                                      : formatAgentFailureMode(
+                                          agentPreviewByGoal[g.id]?.failureAnalysis?.primaryFailureMode
+                                        )}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-gray-500">Severity</dt>
+                                  <dd className="font-medium text-gray-900">
+                                    {formatAgentSeverity(
+                                      agentPreviewByGoal[g.id]?.failureAnalysis?.severity
+                                    )}
+                                  </dd>
+                                </div>
+                              </dl>
+                              <p className="text-xs text-gray-800 leading-relaxed">
+                                <span className="font-medium text-gray-700">Recommendation: </span>
+                                <span className="font-semibold text-gray-950">
+                                  {recommendationFromStatus(
+                                    agentPreviewByGoal[g.id]?.evaluation?.status
+                                  )}
+                                </span>
+                              </p>
+                              {Array.isArray(
+                                agentPreviewByGoal[g.id]?.rebalanceRecommendation?.warnings
+                              ) &&
+                                (agentPreviewByGoal[g.id]!.rebalanceRecommendation.warnings!.length >
+                                  0 && (
+                                  <div className="text-xs">
+                                    <p className="font-medium text-amber-900 mb-1">Warnings</p>
+                                    <ul className="list-disc pl-4 space-y-0.5 text-amber-900/90">
+                                      {agentPreviewByGoal[g.id]!.rebalanceRecommendation.warnings!.map(
+                                        (w, i) => (
+                                          <li key={i}>{w}</li>
+                                        )
+                                      )}
+                                    </ul>
+                                  </div>
+                                ))}
+
+                              {agentPreviewByGoal[g.id]?.rebalanceRecommendation?.canRebalance ? (
+                                <button
+                                  type="button"
+                                  disabled={!!agentApplyLoading[g.id]}
+                                  onClick={() => void applyAgentRebalance(g.id)}
+                                  className="rounded-lg bg-black px-4 py-2 text-xs font-medium text-white hover:bg-black/90 disabled:opacity-50"
+                                >
+                                  {agentApplyLoading[g.id] ? "Applying…" : "Apply Rebalance"}
+                                </button>
+                              ) : (
+                                <div className="text-xs text-gray-600 space-y-1 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                                  <p>
+                                    <span className="font-medium text-gray-800">Next Action: </span>
+                                    <span>{formatNextAction(agentPreviewByGoal[g.id]?.nextAction)}</span>
+                                  </p>
+                                  {agentPreviewByGoal[g.id]?.rebalanceRecommendation?.reason && (
+                                    <p className="text-gray-600">
+                                      {agentPreviewByGoal[g.id]!.rebalanceRecommendation.reason}
+                                    </p>
+                                  )}
+                                  <p className="text-gray-500">
+                                    Based on your current pace and workload, your schedule is achievable.
+                                  </p>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+
                         <ul className="space-y-2">
                           {tasksSorted.length === 0 ? (
                             <li className="text-sm text-gray-500">No tasks in this plan.</li>
