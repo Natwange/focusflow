@@ -90,5 +90,9 @@ model Task {
   status       String   @default("todo") // todo | doing | done
   dueDate      DateTime?
   completedAt  DateTime?
+  planRunId    String?
+  planSource   String?  // initial_generation | rebalance
+  unitStart    Int?
+  unitEnd      Int?
   createdAt    DateTime @default(now())
 }

@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const prisma = require("../lib/prisma");
 const { prismaErrorMessage } = require("../lib/prismaErrors");
 const { requireOwnedResource } = require("../lib/ownership");
@@ -24,6 +25,7 @@ const {
   assertStrategy,
   earliestDeadlineFitting,
 } = require("../lib/rebalanceRecovery");
+const { evaluateGoalProgress } = require("../lib/evaluationEngine");
 
 const router = express.Router();
 
@@ -50,10 +52,17 @@ async function loadRebalanceContext(goalId, userId, res) {
 
   const doneTasks = await prisma.task.findMany({
     where: { userId, goalId: goal.id, status: "done" },
-    select: { title: true },
+    select: { title: true, unitStart: true, unitEnd: true },
   });
 
   const completedUnits = doneTasks.reduce((sum, t) => {
+    if (
+      Number.isInteger(t.unitStart) &&
+      Number.isInteger(t.unitEnd) &&
+      t.unitEnd >= t.unitStart
+    ) {
+      return sum + (t.unitEnd - t.unitStart + 1);
+    }
     const parsed = parseTrailingUnitRange(t.title);
     return sum + (parsed ? parsed.unitsPlanned : 0);
   }, 0);
@@ -121,6 +130,55 @@ router.get("/", async (req, res) => {
         ? "Database connection failed. Check that your database is running and DATABASE_URL is correct."
         : prismaErrorMessage(err);
     return res.status(500).json({ error: message });
+  }
+});
+
+// GET /goals/:id/evaluation
+// Read-only progress evaluation based on goal tasks + metadata.
+router.get("/:id/evaluation", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
+      select: {
+        id: true,
+        userId: true,
+        createdAt: true,
+        deadline: true,
+      },
+    });
+    if (!goal) return;
+
+    const tasks = await prisma.task.findMany({
+      where: { userId, goalId },
+      select: {
+        status: true,
+        dueDate: true,
+        unitStart: true,
+        unitEnd: true,
+      },
+    });
+
+    const evaluation = evaluateGoalProgress({
+      goal,
+      tasks,
+      now: new Date(),
+    });
+
+    return res.json({
+      goalId: goal.id,
+      evaluation,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
   }
 });
 
@@ -432,6 +490,8 @@ router.post("/:id/plan/confirm", async (req, res) => {
       }
     }
 
+    const planRunId = crypto.randomUUID();
+
     // create tasks in a transaction
     const created = await prisma.$transaction(
       items.map((it) =>
@@ -443,6 +503,16 @@ router.post("/:id/plan/confirm", async (req, res) => {
             dueDate: it.dueDate ? new Date(it.dueDate) : null,
             estimatedMin: null,
             status: "todo",
+            planRunId,
+            planSource: "initial_generation",
+            unitStart:
+              it?.unitRange && Number.isInteger(it.unitRange.start)
+                ? it.unitRange.start
+                : null,
+            unitEnd:
+              it?.unitRange && Number.isInteger(it.unitRange.end)
+                ? it.unitRange.end
+                : null,
           },
           select: { id: true, title: true, dueDate: true, status: true, goalId: true },
         })
@@ -573,6 +643,8 @@ router.post(
         weights: null,
       });
 
+      const planRunId = crypto.randomUUID();
+
       const created = await prisma.$transaction(
         plan.items.map((it) =>
           prisma.task.create({
@@ -584,6 +656,16 @@ router.post(
               estimatedMin: null,
               priority: "medium",
               status: "todo",
+              planRunId,
+              planSource: "rebalance",
+              unitStart:
+                it?.unitRange && Number.isInteger(it.unitRange.start)
+                  ? it.unitRange.start
+                  : null,
+              unitEnd:
+                it?.unitRange && Number.isInteger(it.unitRange.end)
+                  ? it.unitRange.end
+                  : null,
             },
             select: { id: true, title: true, dueDate: true, status: true, goalId: true },
           })

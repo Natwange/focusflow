@@ -187,9 +187,12 @@ function buildPlan({
     );
   }
 
+  const hasExplicitWeights =
+    Array.isArray(weights) && weights.length === totalUnits;
+
   // Normalize weights into an array of length totalUnits.
   const normalizedWeights =
-    Array.isArray(weights) && weights.length === totalUnits
+    hasExplicitWeights
       ? weights.map((w) => {
           const n = Number(w);
           return Number.isFinite(n) && n > 0 ? n : 1;
@@ -198,19 +201,28 @@ function buildPlan({
 
   const totalWeight = normalizedWeights.reduce((sum, w) => sum + w, 0) || 1;
 
-  // Assign each unit to an eligible day index [0..days-1], based on weight span center.
+  // Assign each unit to an eligible day index [0..days-1].
+  // - Explicit weights: use weighted span centers.
+  // - No weights: use true even distribution across days.
   const unitToDay = new Array(totalUnits).fill(0);
-  let prefixWeightBefore = 0;
-  for (let u = 0; u < totalUnits; u++) {
-    if (u === totalUnits - 1) {
-      unitToDay[u] = days - 1; // ensure deadline day always has content
-    } else {
-      const w = normalizedWeights[u];
-      const midRatio = (prefixWeightBefore + w / 2) / totalWeight;
-      const dayIdx = Math.round(midRatio * (days - 1));
-      unitToDay[u] = Math.max(0, Math.min(days - 1, dayIdx));
+  if (!hasExplicitWeights) {
+    for (let u = 0; u < totalUnits; u++) {
+      // Even split: floor(u * days / totalUnits) guarantees last unit lands on last day.
+      unitToDay[u] = Math.floor((u * days) / totalUnits);
     }
-    prefixWeightBefore += normalizedWeights[u];
+  } else {
+    let prefixWeightBefore = 0;
+    for (let u = 0; u < totalUnits; u++) {
+      if (u === totalUnits - 1) {
+        unitToDay[u] = days - 1; // ensure deadline day always has content
+      } else {
+        const w = normalizedWeights[u];
+        const midRatio = (prefixWeightBefore + w / 2) / totalWeight;
+        const dayIdx = Math.round(midRatio * (days - 1));
+        unitToDay[u] = Math.max(0, Math.min(days - 1, dayIdx));
+      }
+      prefixWeightBefore += normalizedWeights[u];
+    }
   }
 
   const cap = resolveMaxUnitsPerDay(maxUnitsPerDay);

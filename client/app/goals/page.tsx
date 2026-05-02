@@ -68,7 +68,8 @@ const WEEKDAYS = [
 type WeekdayCode = (typeof WEEKDAYS)[number]["code"];
 
 export default function GoalsPage() {
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
   const [title, setTitle] = useState("");
   const [totalUnits, setTotalUnits] = useState<string>("");
@@ -145,10 +146,8 @@ export default function GoalsPage() {
 
   const toDateInput = (iso: string) => {
     const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 10);
   };
 
   const loadGoals = useCallback(async () => {
@@ -221,7 +220,7 @@ export default function GoalsPage() {
           title: title.trim(),
           totalUnits: Number(totalUnits),
           unitName: unitName.trim(),
-          deadline: new Date(deadline).toISOString(),
+          deadline,
           availableDays: normalizeSelectedDays(availableDays),
           ...(dailyCap !== undefined ? { maxUnitsPerDay: dailyCap } : {}),
         }),
@@ -389,9 +388,9 @@ export default function GoalsPage() {
     const dueDates = goal.tasks
       .map((t) => t.dueDate)
       .filter(Boolean) as string[];
-    if (dueDates.length === 0) return new Date().toISOString();
+    if (dueDates.length === 0) return todayKey;
     const min = new Date(Math.min(...dueDates.map((d) => new Date(d).getTime())));
-    return min.toISOString();
+    return min.toISOString().slice(0, 10);
   };
 
   const startReplanFromEdit = async (goalId: string) => {
@@ -408,7 +407,7 @@ export default function GoalsPage() {
           title: editTitle.trim(),
           totalUnits: Number(editTotalUnits),
           unitName: editUnitName.trim(),
-          deadline: new Date(editDeadline).toISOString(),
+          deadline: editDeadline,
           availableDays: normalizeSelectedDays(editAvailableDays),
           maxUnitsPerDay: editCap !== undefined ? editCap : null,
         }),
