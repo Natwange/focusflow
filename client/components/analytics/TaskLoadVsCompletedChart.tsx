@@ -14,7 +14,7 @@ type Props = {
 
 const VB_W = 400;
 const VB_H = 140;
-const PAD_L = 8;
+const PAD_L = 40;
 const PAD_R = 8;
 const PAD_T = 16;
 const PAD_B = 36;
@@ -23,11 +23,13 @@ function normalizePair(planned: number[], completed: number[]) {
   const n = Math.min(planned.length, completed.length);
   const sliceP = planned.slice(0, n);
   const sliceC = completed.slice(0, n);
-  const max = Math.max(1, ...sliceP, ...sliceC);
+  const maxCount = Math.max(0, ...sliceP, ...sliceC);
+  const max = Math.max(1, maxCount);
   const pad = max * 0.08;
   const hi = max + pad;
   return {
     n,
+    maxCount,
     normP: sliceP.map((v) => v / hi),
     normC: sliceC.map((v) => v / hi),
   };
@@ -50,25 +52,25 @@ function linePath(norm: number[]): string {
   return d;
 }
 
-/**
- * Planned load vs completed — gaps suggest heavier load than closure (mock).
- */
+/** Planned load vs completed — gaps suggest heavier load than closure. */
 export function TaskLoadVsCompletedChart({
   planned,
   completed,
   interval,
   className,
 }: Props) {
-  const { normP, normC, n } = normalizePair(planned, completed);
+  const { normP, normC, n, maxCount } = normalizePair(planned, completed);
   const pathP = linePath(normP);
   const pathC = linePath(normC);
   const labels = trendRangeLabels(interval);
+  const topYLabel =
+    maxCount <= 0 ? "0 tasks" : `${maxCount} task${maxCount === 1 ? "" : "s"} max`;
 
   return (
     <AnalyticsChartCard
       className={className}
-      title="Load & completion"
-      subtitle="When the upper line sits above, pace may feel heavier"
+      title="Tasks due vs tasks done"
+      subtitle="Per time slice: how many tasks had a due date (planned) vs how many you marked done (completed)"
       icon={
         <svg width={18} height={18} viewBox="0 0 18 18" aria-hidden>
           <path
@@ -88,14 +90,14 @@ export function TaskLoadVsCompletedChart({
             className="w-5 h-0.5 rounded-full shrink-0"
             style={{ backgroundColor: CHART.loadLine }}
           />
-          Planned
+          Planned (due)
         </span>
         <span className="inline-flex items-center gap-2">
           <span
             className="w-5 h-0.5 rounded-full shrink-0"
-            style={{ backgroundColor: CHART.accent }}
+            style={{ backgroundColor: CHART.completeLine }}
           />
-          Completed
+          Completed (done)
         </span>
       </div>
 
@@ -105,8 +107,26 @@ export function TaskLoadVsCompletedChart({
           viewBox={`0 0 ${VB_W} ${VB_H}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label="Planned task load compared to tasks completed over time"
+          aria-label="Task counts: due in each slice vs completed in each slice"
         >
+          <text
+            x={4}
+            y={PAD_T + 11}
+            fontSize={10}
+            fill="#6b7280"
+            className="tabular-nums"
+          >
+            {topYLabel}
+          </text>
+          <text
+            x={4}
+            y={VB_H - PAD_B - 2}
+            fontSize={10}
+            fill="#6b7280"
+            className="tabular-nums"
+          >
+            0 tasks
+          </text>
           <line
             x1={PAD_L}
             y1={(PAD_T + (VB_H - PAD_B - PAD_T) / 2).toFixed(2)}
@@ -132,7 +152,7 @@ export function TaskLoadVsCompletedChart({
             <path
               d={pathC}
               fill="none"
-              stroke={CHART.accent}
+              stroke={CHART.completeLine}
               strokeWidth={2}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -146,6 +166,11 @@ export function TaskLoadVsCompletedChart({
           <span>{labels.mid}</span>
           <span>{labels.end}</span>
         </div>
+        <p className="text-[11px] text-gray-500 mt-2 px-1 leading-snug">
+          Both lines use the same vertical scale (0 up to your largest count in either series).
+          A gap with planned above completed usually means more was scheduled than you closed in
+          that slice.
+        </p>
       </div>
     </AnalyticsChartCard>
   );

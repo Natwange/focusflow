@@ -57,6 +57,14 @@ const mockPrisma = {
       });
     }),
   },
+  agentRun: {
+    create: jest.fn(async ({ data }) => ({
+      id: "agent_run_test",
+      ...data,
+      acceptedByUser: false,
+      createdAt: new Date(),
+    })),
+  },
   journalNote: {},
   focusSession: {},
   $transaction: jest.fn(),
@@ -160,5 +168,6 @@ describe("GET /goals/:id/agent-preview", () => {
     expect(res.body.rebalanceRecommendation).toBeDefined();
     expect(typeof res.body.recommendation).toBe("string");
     expect(res.body.nextAction).toBe(res.body.rebalanceRecommendation.recommendedAction);
+    expect(mockPrisma.agentRun.create).toHaveBeenCalled();
   });
 });

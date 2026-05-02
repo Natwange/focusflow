@@ -125,6 +125,9 @@ function statusToneClass(raw: string | undefined): string {
 
 function formatNextAction(raw: string | undefined): string {
   if (raw === "keep_plan") return "Keep current plan";
+  if (raw === "extend_deadline") return "Extend deadline";
+  if (raw === "reduce_scope") return "Reduce scope";
+  if (raw === "manual_review") return "Review manually";
   if (!raw) return "—";
   return formatAgentLabel(raw);
 }
@@ -315,6 +318,16 @@ export default function GoalsPage() {
   useEffect(() => {
     loadGoals();
   }, [loadGoals]);
+
+  useEffect(() => {
+    const id = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+    if (!id) return;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const canSubmit =
     title.trim().length > 0 &&
@@ -1113,7 +1126,8 @@ export default function GoalsPage() {
                                     <span>{formatNextAction(agentPreviewByGoal[g.id]?.nextAction)}</span>
                                   </p>
                                   {agentPreviewByGoal[g.id]?.rebalanceRecommendation?.reason && (
-                                    <p className="text-gray-600">
+                                    <p className="text-gray-700">
+                                      <span className="font-medium text-gray-800">Reason: </span>
                                       {agentPreviewByGoal[g.id]!.rebalanceRecommendation.reason}
                                     </p>
                                   )}

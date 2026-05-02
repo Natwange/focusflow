@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
-import { AppAssistantRoot } from "@/components/chatbot";
 import { SettingsModalProvider } from "@/components/settings/SettingsModalProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { THEME_STORAGE_KEY } from "@/lib/themeStorage";
@@ -76,10 +75,8 @@ export default function RootLayout({
         />
         <ThemeProvider>
           <SettingsModalProvider>
-            <AppAssistantRoot>
-              <Navbar />
-              {children}
-            </AppAssistantRoot>
+            <Navbar />
+            {children}
           </SettingsModalProvider>
         </ThemeProvider>
       </body>

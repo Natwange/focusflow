@@ -73,11 +73,10 @@ function compareTasks(a, b) {
   return String(a?.id || "").localeCompare(String(b?.id || ""));
 }
 
-function actionForImpossible(failureAnalysis) {
-  const modes = new Set(failureAnalysis?.failureModes || []);
-  if (modes.has("not_enough_available_days")) return "extend_deadline";
-  if (modes.has("too_many_missed_tasks")) return "reduce_scope";
-  return "manual_review";
+function actionForImpossible(goal) {
+  // Deadlines are flexible by default unless goal explicitly marks strictDeadline=true.
+  if (goal?.strictDeadline === true) return "reduce_scope";
+  return "extend_deadline";
 }
 
 function recommendRebalance({
@@ -151,8 +150,9 @@ function recommendRebalance({
   if (eligibleDates.length === 0) {
     return {
       canRebalance: false,
-      reason: "No available days remain between today and deadline.",
-      recommendedAction: actionForImpossible(failureAnalysis),
+      reason:
+        "The current deadline does not include enough available work days to place remaining tasks.",
+      recommendedAction: actionForImpossible(goal),
       proposedSchedule: [],
       changes: [],
       warnings,
@@ -163,9 +163,9 @@ function recommendRebalance({
     return {
       canRebalance: false,
       reason:
-        `Remaining incomplete work (${requiredUnits} units) exceeds available capacity ` +
-        `(${capacityUnits} units) before deadline.`,
-      recommendedAction: actionForImpossible(failureAnalysis),
+        `The current deadline does not include enough available work days: ` +
+        `${requiredUnits} units remain, but only ${capacityUnits} units fit before the deadline.`,
+      recommendedAction: actionForImpossible(goal),
       proposedSchedule: [],
       changes: [],
       warnings,
@@ -227,7 +227,7 @@ function recommendRebalance({
       return {
         canRebalance: false,
         reason: "Unable to place missed tasks into available future capacity.",
-        recommendedAction: actionForImpossible(failureAnalysis),
+        recommendedAction: actionForImpossible(goal),
         proposedSchedule: [],
         changes: [],
         warnings,
@@ -260,7 +260,7 @@ function recommendRebalance({
       return {
         canRebalance: false,
         reason: "Unable to fit remaining tasks into available days with current constraints.",
-        recommendedAction: actionForImpossible(failureAnalysis),
+        recommendedAction: actionForImpossible(goal),
         proposedSchedule: [],
         changes: [],
         warnings,

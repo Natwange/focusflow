@@ -74,6 +74,25 @@ model Goal {
   createdAt  DateTime @default(now())
 
   tasks      Task[]
+  agentRuns  AgentRun[]
+}
+
+/// Logged output from the goal agent (preview runs); used for history and analytics.
+model AgentRun {
+  id               String   @id @default(cuid())
+  goalId           String
+  userId           String
+  evaluation       Json
+  failureAnalysis  Json
+  recommendation   String
+  nextAction       String
+  rebalancePreview Json
+  acceptedByUser   Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId, userId])
 }
 
 model Task {

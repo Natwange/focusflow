@@ -1,6 +1,6 @@
 import type { ProductivityPeriodMetrics } from "@/lib/productivityScore";
 
-/** Canonical shape consumed by Analytics UI, insights, and chatbot rules. */
+/** Canonical shape consumed by Analytics UI and insights. */
 export type AnalyticsSlice = {
   heroTitle: string;
   compareLabel: string;

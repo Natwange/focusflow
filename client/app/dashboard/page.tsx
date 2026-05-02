@@ -308,7 +308,8 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Create Goal */}
-            <button
+            <Link
+              href="/goals#goal-planner"
               className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
             >
               <div className="flex items-center gap-3">
@@ -323,10 +324,11 @@ export default function DashboardPage() {
               <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
                 Set a north star for your work
               </span>
-            </button>
+            </Link>
 
             {/* Generate Plan */}
-            <button
+            <Link
+              href="/goals#goal-planner"
               className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
             >
               <div className="flex items-center gap-3">
@@ -341,10 +343,11 @@ export default function DashboardPage() {
               <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
                 Auto-create tasks from your goal
               </span>
-            </button>
+            </Link>
 
             {/* Start Focus */}
-            <button
+            <Link
+              href="/focus"
               className="group flex flex-col items-start justify-between rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-gray-300 hover:shadow-sm"
             >
               <div className="flex items-center gap-3">
@@ -359,7 +362,7 @@ export default function DashboardPage() {
               <span className="mt-2 text-[11px] text-gray-400 group-hover:text-gray-500">
                 Log a 25–60 minute session
               </span>
-            </button>
+            </Link>
 
             {/* Journal Entry */}
             <Link

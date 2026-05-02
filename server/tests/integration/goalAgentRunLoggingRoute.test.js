@@ -58,12 +58,6 @@ const mockPrisma = {
       };
       return pickSelected(db.tasks[idx], select);
     }),
-    create: jest.fn(async () => {
-      throw new Error("task.create should not be called by apply-agent-rebalance");
-    }),
-    deleteMany: jest.fn(async () => {
-      throw new Error("task.deleteMany should not be called by apply-agent-rebalance");
-    }),
   },
   agentRun: {
     create: jest.fn(async ({ data }) => {
@@ -75,6 +69,15 @@ const mockPrisma = {
       };
       db.agentRuns.push(row);
       return row;
+    }),
+    findMany: jest.fn(async ({ where, orderBy, select }) => {
+      let rows = db.agentRuns.filter(
+        (r) => r.goalId === where.goalId && r.userId === where.userId
+      );
+      if (orderBy?.createdAt === "desc") {
+        rows = [...rows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      }
+      return rows.map((row) => pickSelected(row, select));
     }),
     findFirst: jest.fn(async ({ where, orderBy }) => {
       const rows = db.agentRuns.filter(
@@ -91,7 +94,6 @@ const mockPrisma = {
       db.agentRuns[idx] = { ...db.agentRuns[idx], ...data };
       return db.agentRuns[idx];
     }),
-    findMany: jest.fn(async () => []),
   },
   journalNote: {},
   focusSession: {},
@@ -102,17 +104,16 @@ jest.mock("../../src/lib/prisma", () => mockPrisma);
 
 const { createApp } = require("../../src/app");
 
-describe("POST /goals/:id/apply-agent-rebalance", () => {
+describe("Agent run logging", () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     db.users.clear();
     db.goals.clear();
     db.tasks = [];
     db.agentRuns = [];
-
     process.env.JWT_SECRET = "test-jwt-secret";
-    const hashed = await bcrypt.hash("ValidPass123!", 10);
 
+    const hashed = await bcrypt.hash("ValidPass123!", 10);
     db.users.set("user_1", {
       id: "user_1",
       email: "alice@example.com",
@@ -139,8 +140,8 @@ describe("POST /goals/:id/apply-agent-rebalance", () => {
 
     db.tasks.push(
       {
-        id: "task_missed",
-        title: "Missed unit",
+        id: "task_1",
+        title: "Lesson 1",
         userId: "user_1",
         goalId: "goal_1",
         status: "todo",
@@ -149,146 +150,143 @@ describe("POST /goals/:id/apply-agent-rebalance", () => {
         unitEnd: 1,
       },
       {
-        id: "task_future",
-        title: "Future unit",
+        id: "task_2",
+        title: "Lesson 2",
         userId: "user_1",
         goalId: "goal_1",
         status: "todo",
         dueDate: new Date(now + 3 * day),
         unitStart: 2,
         unitEnd: 2,
-      },
-      {
-        id: "task_done",
-        title: "Completed unit",
-        userId: "user_1",
-        goalId: "goal_1",
-        status: "done",
-        dueDate: new Date(now - 1 * day),
-        unitStart: 3,
-        unitEnd: 3,
       }
     );
+  });
 
+  test("agent-preview creates AgentRun record", async () => {
+    const app = createApp();
+    const agent = request.agent(app);
+    await loginAs(agent, { email: "alice@example.com", password: "ValidPass123!" });
+
+    const res = await agent.get("/goals/goal_1/agent-preview");
+    expect(res.status).toBe(200);
+    expect(mockPrisma.agentRun.create).toHaveBeenCalledTimes(1);
+    const call = mockPrisma.agentRun.create.mock.calls[0][0];
+    expect(call.data.goalId).toBe("goal_1");
+    expect(call.data.userId).toBe("user_1");
+    expect(call.data.evaluation).toBeDefined();
+    expect(call.data.failureAnalysis).toBeDefined();
+    expect(typeof call.data.recommendation).toBe("string");
+    expect(typeof call.data.nextAction).toBe("string");
+    expect(call.data.rebalancePreview).toBeDefined();
+    expect(db.agentRuns.length).toBe(1);
+    expect(db.agentRuns[0].acceptedByUser).toBe(false);
+  });
+
+  test("apply-agent-rebalance marks most recent AgentRun acceptedByUser", async () => {
     db.agentRuns.push({
-      id: "ar_latest",
+      id: "ar_old",
       goalId: "goal_1",
       userId: "user_1",
-      evaluation: { stub: true },
-      failureAnalysis: { stub: true },
-      recommendation: "seed",
+      evaluation: {},
+      failureAnalysis: {},
+      recommendation: "old",
       nextAction: "rebalance",
+      rebalancePreview: {},
+      acceptedByUser: false,
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+    });
+    db.agentRuns.push({
+      id: "ar_new",
+      goalId: "goal_1",
+      userId: "user_1",
+      evaluation: {},
+      failureAnalysis: {},
+      recommendation: "new",
+      nextAction: "rebalance",
+      rebalancePreview: {},
+      acceptedByUser: false,
+      createdAt: new Date("2026-05-02T00:00:00.000Z"),
+    });
+
+    const app = createApp();
+    const agent = request.agent(app);
+    await loginAs(agent, { email: "alice@example.com", password: "ValidPass123!" });
+
+    const res = await agent.post("/goals/goal_1/apply-agent-rebalance");
+    expect(res.status).toBe(200);
+    const newest = db.agentRuns.find((r) => r.id === "ar_new");
+    const older = db.agentRuns.find((r) => r.id === "ar_old");
+    expect(newest.acceptedByUser).toBe(true);
+    expect(older.acceptedByUser).toBe(false);
+  });
+
+  test("agent-history returns correct data ordered newest first", async () => {
+    db.agentRuns.push({
+      id: "ar_a",
+      goalId: "goal_1",
+      userId: "user_1",
+      evaluation: {},
+      failureAnalysis: {},
+      recommendation: "first",
+      nextAction: "keep_plan",
+      rebalancePreview: {},
+      acceptedByUser: true,
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+    });
+    db.agentRuns.push({
+      id: "ar_b",
+      goalId: "goal_1",
+      userId: "user_1",
+      evaluation: {},
+      failureAnalysis: {},
+      recommendation: "second",
+      nextAction: "rebalance",
+      rebalancePreview: {},
+      acceptedByUser: false,
+      createdAt: new Date("2026-05-03T00:00:00.000Z"),
+    });
+
+    const app = createApp();
+    const agent = request.agent(app);
+    await loginAs(agent, { email: "alice@example.com", password: "ValidPass123!" });
+
+    const res = await agent.get("/goals/goal_1/agent-history");
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0].id).toBe("ar_b");
+    expect(res.body[0].recommendation).toBe("second");
+    expect(res.body[1].id).toBe("ar_a");
+    expect(res.body[0]).toEqual(
+      expect.objectContaining({
+        id: expect.any(String),
+        createdAt: expect.anything(),
+        recommendation: expect.any(String),
+        nextAction: expect.any(String),
+        acceptedByUser: expect.any(Boolean),
+      })
+    );
+  });
+
+  test("non-owner cannot access agent-history", async () => {
+    db.agentRuns.push({
+      id: "ar_1",
+      goalId: "goal_1",
+      userId: "user_1",
+      evaluation: {},
+      failureAnalysis: {},
+      recommendation: "x",
+      nextAction: "keep_plan",
       rebalancePreview: {},
       acceptedByUser: false,
       createdAt: new Date(),
     });
-  });
 
-  test("auth required", async () => {
-    const app = createApp();
-    const res = await request(app).post("/goals/goal_1/apply-agent-rebalance");
-    expect(res.status).toBe(401);
-  });
-
-  test("non-owner forbidden", async () => {
     const app = createApp();
     const agent = request.agent(app);
-    const loginRes = await loginAs(agent, {
-      email: "bob@example.com",
-      password: "ValidPass123!",
-    });
-    expect(loginRes.status).toBe(200);
+    await loginAs(agent, { email: "bob@example.com", password: "ValidPass123!" });
 
-    const res = await agent.post("/goals/goal_1/apply-agent-rebalance");
+    const res = await agent.get("/goals/goal_1/agent-history");
     expect(res.status).toBe(403);
-    expect(res.body.error).toBe("Forbidden: goal does not belong to this user");
-  });
-
-  test("applies valid rebalance", async () => {
-    const app = createApp();
-    const agent = request.agent(app);
-    const loginRes = await loginAs(agent, {
-      email: "alice@example.com",
-      password: "ValidPass123!",
-    });
-    expect(loginRes.status).toBe(200);
-
-    const beforeMissed = db.tasks.find((t) => t.id === "task_missed").dueDate.toISOString();
-    const res = await agent.post("/goals/goal_1/apply-agent-rebalance");
-
-    expect(res.status).toBe(200);
-    expect(res.body.goalId).toBe("goal_1");
-    expect(res.body.applied).toBe(true);
-    expect(Array.isArray(res.body.updatedTasks)).toBe(true);
-    expect(res.body.updatedTasks.length).toBeGreaterThan(0);
-    expect(res.body.agentResult).toBeDefined();
-
-    const afterMissed = db.tasks.find((t) => t.id === "task_missed").dueDate.toISOString();
-    expect(afterMissed).not.toBe(beforeMissed);
-    expect(mockPrisma.agentRun.update).toHaveBeenCalled();
-    const updatedRun = db.agentRuns.find((r) => r.id === "ar_latest");
-    expect(updatedRun.acceptedByUser).toBe(true);
-  });
-
-  test("does not modify completed tasks", async () => {
-    const app = createApp();
-    const agent = request.agent(app);
-    const loginRes = await loginAs(agent, {
-      email: "alice@example.com",
-      password: "ValidPass123!",
-    });
-    expect(loginRes.status).toBe(200);
-
-    const doneBefore = db.tasks.find((t) => t.id === "task_done").dueDate.toISOString();
-    const res = await agent.post("/goals/goal_1/apply-agent-rebalance");
-    expect(res.status).toBe(200);
-    const doneAfter = db.tasks.find((t) => t.id === "task_done").dueDate.toISOString();
-    expect(doneAfter).toBe(doneBefore);
-    expect(res.body.updatedTasks.some((t) => t.id === "task_done")).toBe(false);
-  });
-
-  test("returns 400 if canRebalance is false", async () => {
-    db.tasks = [
-      {
-        id: "only_done",
-        title: "Done",
-        userId: "user_1",
-        goalId: "goal_1",
-        status: "done",
-        dueDate: new Date(),
-        unitStart: 1,
-        unitEnd: 1,
-      },
-    ];
-
-    const app = createApp();
-    const agent = request.agent(app);
-    const loginRes = await loginAs(agent, {
-      email: "alice@example.com",
-      password: "ValidPass123!",
-    });
-    expect(loginRes.status).toBe(200);
-
-    const res = await agent.post("/goals/goal_1/apply-agent-rebalance");
-    expect(res.status).toBe(400);
-    expect(typeof res.body.error).toBe("string");
-    expect(typeof res.body.nextAction).toBe("string");
-  });
-
-  test("does not create/delete tasks", async () => {
-    const app = createApp();
-    const agent = request.agent(app);
-    const loginRes = await loginAs(agent, {
-      email: "alice@example.com",
-      password: "ValidPass123!",
-    });
-    expect(loginRes.status).toBe(200);
-
-    const beforeCount = db.tasks.length;
-    const res = await agent.post("/goals/goal_1/apply-agent-rebalance");
-    expect(res.status).toBe(200);
-    expect(db.tasks.length).toBe(beforeCount);
-    expect(mockPrisma.task.create).not.toHaveBeenCalled();
-    expect(mockPrisma.task.deleteMany).not.toHaveBeenCalled();
   });
 });

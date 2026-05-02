@@ -24,18 +24,22 @@ import {
   PILLAR_LABELS,
 } from "@/lib/productivityScore";
 import type { AnalyticsSlice } from "@/lib/analyticsTypes";
-import { fetchAnalyticsDashboard } from "@/lib/analyticsApi";
+import {
+  fetchActivityPatterns,
+  fetchAnalyticsDashboard,
+  type ActivityPatternsDto,
+} from "@/lib/analyticsApi";
 import { dashboardDtoToAnalyticsSlice } from "@/lib/analyticsPresentation";
 import {
   ProductivityTrendChart,
   TaskLoadVsCompletedChart,
 } from "@/components/analytics";
-import { deriveInsights, deriveRecommendations } from "@/lib/analyticsInsights";
-import { useChatbotAppContext } from "@/components/chatbot";
+import {
+  deriveInsightsFromActivityPatterns,
+  deriveRecommendationsFromActivityPatterns,
+} from "@/lib/activityPatternsInsights";
 
 export type { AnalyticsInterval };
-
-type IntervalMockAnalytics = AnalyticsSlice;
 
 function Card({
   className = "",
@@ -256,47 +260,29 @@ function DominantHeroCard({
   data,
   comparison,
 }: {
-  data: IntervalMockAnalytics;
+  data: AnalyticsSlice;
   comparison: ReturnType<typeof compareProductivityScores>;
 }) {
   return (
     <Card className="p-8 bg-[#F9F9F9] border-gray-200">
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-        <div className="space-y-4 flex-1 min-w-0">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <p className="text-sm font-semibold text-gray-900">
-              {data.heroTitle}
-            </p>
-            <ScoreChangeBadge
-              scoreDelta={comparison.scoreDelta}
-              compareLabel={data.compareLabel}
-            />
-          </div>
-
-          <p className="text-2xl font-semibold text-gray-900">
-            Productivity score:{" "}
-            <span className="tabular-nums">{comparison.currentScore}</span>
-            <span className="text-base font-normal text-gray-500"> / 100</span>
+      <div className="space-y-4 max-w-3xl">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <p className="text-sm font-semibold text-gray-900">
+            {data.heroTitle}
           </p>
-
-          <p className="text-sm text-gray-600 max-w-xl">
-            {data.insight}
-          </p>
+          <ScoreChangeBadge
+            scoreDelta={comparison.scoreDelta}
+            compareLabel={data.compareLabel}
+          />
         </div>
 
-        <div className="lg:max-w-sm w-full shrink-0">
-          <div className="rounded-2xl border border-gray-200 bg-white px-6 py-5">
-            <p className="text-sm font-semibold text-gray-900">Quick read</p>
-            <p className="text-xs text-gray-600 mt-2">
-              Scores blend tasks completed, focus time logged, and completion
-              rate for this range. Logic lives in{" "}
-              <code className="text-[11px] bg-gray-100 px-1 rounded">
-                productivityScore.ts
-              </code>
-              .
-            </p>
-          </div>
-        </div>
+        <p className="text-2xl font-semibold text-gray-900">
+          Productivity score:{" "}
+          <span className="tabular-nums">{comparison.currentScore}</span>
+          <span className="text-base font-normal text-gray-500"> / 100</span>
+        </p>
+
+        <p className="text-sm text-gray-600">{data.insight}</p>
       </div>
     </Card>
   );
@@ -321,7 +307,8 @@ function AssistantInsightsCard({
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">Insights</p>
           <p className="text-xs text-gray-500 mt-0.5">
-            From your live charts and summary for this range.
+            From your stored tasks, focus sessions, and agent runs (rolling window —
+            UTC weekdays; see headline).
           </p>
         </div>
       </div>
@@ -359,7 +346,7 @@ function AssistantRecommendationsCard({ items }: { items: string[] }) {
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">Recommendations</p>
           <p className="text-xs text-gray-500 mt-0.5">
-            Small next steps based on what we’re seeing.
+            Next steps tied to counts in the same activity sample — not generic filler.
           </p>
         </div>
       </div>
@@ -395,32 +382,49 @@ function AnalyticsLoadingSkeleton() {
   );
 }
 
+const ACTIVITY_PATTERN_WINDOW_DAYS = 90;
+
 export default function AnalyticsPage() {
   const [interval, setInterval] = useState<AnalyticsInterval>("week");
   const [data, setData] = useState<AnalyticsSlice | null>(null);
+  const [activityPatterns, setActivityPatterns] =
+    useState<ActivityPatternsDto | null>(null);
+  const [patternsLoadError, setPatternsLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const setAppContext = useChatbotAppContext()?.setAppContext;
-
   useEffect(() => {
     let cancelled = false;
-    setAppContext?.({ analyticsInterval: interval, analyticsSlice: undefined });
 
     setLoading(true);
     setError(null);
+    setPatternsLoadError(null);
+    setActivityPatterns(null);
 
-    fetchAnalyticsDashboard(interval)
-      .then((dto) => {
+    const dashboardP = fetchAnalyticsDashboard(interval);
+    const patternsP = fetchActivityPatterns(ACTIVITY_PATTERN_WINDOW_DAYS).catch(
+      (e) => {
+        if (!cancelled) {
+          setPatternsLoadError(
+            e instanceof Error ? e.message : "Could not load activity patterns"
+          );
+        }
+        return null;
+      }
+    );
+
+    Promise.all([dashboardP, patternsP])
+      .then(([dto, patternsDto]) => {
         if (cancelled) return;
         const slice = dashboardDtoToAnalyticsSlice(dto, interval);
         setData(slice);
-        setAppContext?.({ analyticsInterval: interval, analyticsSlice: slice });
+        setActivityPatterns(patternsDto);
         setLoading(false);
       })
       .catch((e) => {
         if (cancelled) return;
         setData(null);
+        setActivityPatterns(null);
         const msg = e instanceof Error ? e.message : "Could not load analytics";
         setError(msg === "Authentication required" ? "SIGN_IN_REQUIRED" : msg);
         setLoading(false);
@@ -428,9 +432,8 @@ export default function AnalyticsPage() {
 
     return () => {
       cancelled = true;
-      setAppContext?.({ analyticsInterval: undefined, analyticsSlice: undefined });
     };
-  }, [interval, setAppContext]);
+  }, [interval]);
 
   const comparison = useMemo(() => {
     if (!data) return null;
@@ -494,38 +497,27 @@ export default function AnalyticsPage() {
     ];
   }, [data, completion]);
 
-  const assistantContext = useMemo(() => {
-    if (!data || !comparison) return null;
-    return {
-      interval,
-      current: data.current,
-      previous: data.previous,
-      trendBars: data.trendBars,
-      loadBars: data.loadBars,
-      completeBars: data.completeBars,
-      currentScore: comparison.currentScore,
-      scoreDelta: comparison.scoreDelta,
-    };
-  }, [
-    interval,
-    data,
-    comparison,
-  ]);
+  const aiInsights = useMemo(() => {
+    if (activityPatterns) {
+      return deriveInsightsFromActivityPatterns(activityPatterns);
+    }
+    if (patternsLoadError) {
+      return {
+        headline: "Activity patterns could not be loaded.",
+        bullets: [
+          `${patternsLoadError}. Charts and scores above still use your selected range.`,
+        ],
+      };
+    }
+    return { headline: "", bullets: [] as string[] };
+  }, [activityPatterns, patternsLoadError]);
 
-  const aiInsights = useMemo(
-    () =>
-      assistantContext
-        ? deriveInsights(assistantContext)
-        : { headline: "", bullets: [] as string[] },
-    [assistantContext]
-  );
-  const aiRecommendations = useMemo(
-    () =>
-      assistantContext
-        ? deriveRecommendations(assistantContext)
-        : { items: [] as string[] },
-    [assistantContext]
-  );
+  const aiRecommendations = useMemo(() => {
+    if (!activityPatterns) {
+      return { items: [] as string[] };
+    }
+    return deriveRecommendationsFromActivityPatterns(activityPatterns);
+  }, [activityPatterns]);
 
   const showContent = !loading && data && comparison;
 
@@ -610,10 +602,16 @@ export default function AnalyticsPage() {
 
             <section className="space-y-4">
               <div>
-                <h2 className="text-sm font-semibold text-gray-900">Assistant</h2>
+                <h2 className="text-sm font-semibold text-gray-900">
+                  Insights & recommendations
+                </h2>
                 <p className="text-xs text-gray-500 mt-0.5 max-w-md">
-                  Rule-based read on this range—swap for a model when you’re
-                  ready.
+                  Grounded in{" "}
+                  <code className="text-[11px] bg-gray-100 px-1 rounded">
+                    GET /analytics/activity-patterns
+                  </code>{" "}
+                  (last {ACTIVITY_PATTERN_WINDOW_DAYS} days). Charts use the interval
+                  toggle; weekday highs/lows here use UTC.
                 </p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -623,41 +621,6 @@ export default function AnalyticsPage() {
                 />
                 <AssistantRecommendationsCard items={aiRecommendations.items} />
               </div>
-
-              <Card className="p-6 bg-white max-w-xl">
-                <p className="text-sm font-semibold text-gray-900">For engineers</p>
-                <p className="text-xs text-gray-600 mt-2">
-                  Data:{" "}
-                  <code className="text-[11px] bg-gray-100 px-1 rounded">
-                    GET /analytics/dashboard
-                  </code>
-                  . Presentation:{" "}
-                  <code className="text-[11px] bg-gray-100 px-1 rounded">
-                    analyticsPresentation.ts
-                  </code>
-                  . Scores:{" "}
-                  <code className="text-[11px] bg-gray-100 px-1 rounded">
-                    productivityScore.ts
-                  </code>
-                  . Copy rules:{" "}
-                  <code className="text-[11px] bg-gray-100 px-1 rounded">
-                    analyticsInsights.ts
-                  </code>
-                  .
-                </p>
-                <div className="mt-4 rounded-xl border border-gray-200 bg-[#F9F9F9] p-4 space-y-2">
-                  <p className="text-xs text-gray-500">Selected range</p>
-                  <p className="text-sm font-medium text-gray-900 capitalize">
-                    {interval}
-                  </p>
-                  <p className="text-xs text-gray-500 pt-2 border-t border-gray-200">
-                    Previous period score
-                  </p>
-                  <p className="text-sm font-semibold text-gray-900 tabular-nums">
-                    {comparison.previousScore} / 100
-                  </p>
-                </div>
-              </Card>
             </section>
           </>
         ) : null}

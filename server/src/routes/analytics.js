@@ -1,5 +1,8 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
+const {
+  analyzeUserActivityPatterns,
+} = require("../lib/userActivityPatternAnalyzer");
 
 const router = express.Router();
 
@@ -221,6 +224,85 @@ async function periodSlice(userId, startUtc, endUtc, streakDays) {
     streakDays,
   };
 }
+
+// GET /analytics/activity-patterns?days=7..366 — user-scoped; feeds userActivityPatternAnalyzer (UTC buckets).
+router.get("/activity-patterns", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const rawDays = parseInt(String(req.query.days ?? "90"), 10);
+    const days = Math.min(366, Math.max(7, Number.isFinite(rawDays) ? rawDays : 90));
+    const now = new Date();
+    const startUtc = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { streakCount: true },
+    });
+    const streakDays =
+      typeof user?.streakCount === "number" ? Math.max(0, user.streakCount) : 0;
+
+    const [tasks, focusSessions, goals, agentRuns] = await Promise.all([
+      prisma.task.findMany({
+        where: {
+          userId,
+          OR: [
+            { dueDate: { gte: startUtc } },
+            { completedAt: { gte: startUtc } },
+            {
+              AND: [
+                { status: { not: "done" } },
+                { dueDate: { not: null } },
+                { dueDate: { lte: now } },
+                { dueDate: { gte: startUtc } },
+              ],
+            },
+          ],
+        },
+        select: {
+          id: true,
+          status: true,
+          dueDate: true,
+          completedAt: true,
+          goalId: true,
+        },
+        take: 5000,
+      }),
+      prisma.focusSession.findMany({
+        where: { userId, startedAt: { gte: startUtc, lte: now } },
+        select: { duration: true, startedAt: true, createdAt: true },
+        take: 10000,
+      }),
+      prisma.goal.findMany({
+        where: { userId },
+        select: { id: true },
+        take: 500,
+      }),
+      prisma.agentRun.findMany({
+        where: { userId, createdAt: { gte: startUtc, lte: now } },
+        select: { createdAt: true, acceptedByUser: true },
+        take: 2000,
+      }),
+    ]);
+
+    const analysis = analyzeUserActivityPatterns({
+      tasks,
+      focusSessions,
+      goals,
+      agentRuns,
+      streaks: { currentStreak: streakDays },
+      now,
+    });
+
+    return res.json({
+      windowDays: days,
+      generatedAt: now.toISOString(),
+      ...analysis,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // GET /analytics/dashboard?interval=day|week|month&tzOffsetMinutes=...
 router.get("/dashboard", async (req, res) => {

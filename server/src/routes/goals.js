@@ -348,7 +348,56 @@ router.get("/:id/agent-preview", async (req, res) => {
       now: new Date(),
     });
 
+    await prisma.agentRun.create({
+      data: {
+        goalId: goal.id,
+        userId,
+        evaluation: result.evaluation,
+        failureAnalysis: result.failureAnalysis,
+        recommendation: result.recommendation,
+        nextAction: result.nextAction,
+        rebalancePreview: result.rebalanceRecommendation,
+      },
+    });
+
     return res.json(result);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
+  }
+});
+
+// GET /goals/:id/agent-history
+// Recent agent runs for this goal (newest first).
+router.get("/:id/agent-history", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const goalId = req.params.id;
+
+    const goal = await requireOwnedResource({
+      model: prisma.goal,
+      id: goalId,
+      userId,
+      res,
+      notFoundMessage: "Goal not found",
+      forbiddenMessage: "Forbidden: goal does not belong to this user",
+      select: { id: true },
+    });
+    if (!goal) return;
+
+    const runs = await prisma.agentRun.findMany({
+      where: { goalId, userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        createdAt: true,
+        recommendation: true,
+        nextAction: true,
+        acceptedByUser: true,
+      },
+    });
+
+    return res.json(runs);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: prismaErrorMessage(err) });
@@ -453,6 +502,17 @@ router.post("/:id/apply-agent-rebalance", async (req, res) => {
             )
           )
         : [];
+
+    const latestRun = await prisma.agentRun.findFirst({
+      where: { goalId: goal.id, userId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (latestRun) {
+      await prisma.agentRun.update({
+        where: { id: latestRun.id },
+        data: { acceptedByUser: true },
+      });
+    }
 
     return res.json({
       goalId: goal.id,

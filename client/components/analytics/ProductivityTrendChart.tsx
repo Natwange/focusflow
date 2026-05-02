@@ -7,7 +7,7 @@ import { AnalyticsChartCard } from "./AnalyticsChartCard";
 import { CHART } from "./chartTheme";
 
 type Props = {
-  /** Relative productivity per step (mock); scaled visually, not raw units */
+  /** Focus session minutes per bucket (from the API for this interval). */
   values: number[];
   interval: AnalyticsInterval;
   className?: string;
@@ -15,26 +15,22 @@ type Props = {
 
 const VB_W = 400;
 const VB_H = 132;
-const PAD_L = 8;
+const PAD_L = 40;
 const PAD_R = 8;
 const PAD_T = 12;
 const PAD_B = 36;
 
-function normalizeValues(values: number[]): { min: number; max: number; norm: number[] } {
+/** Scale from 0 so height reads as “more minutes” toward the top. */
+function normalizeValuesZeroBased(values: number[]): { maxRaw: number; hi: number; norm: number[] } {
   if (values.length === 0) {
-    return { min: 0, max: 1, norm: [] };
+    return { maxRaw: 0, hi: 1, norm: [] };
   }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const pad = span * 0.12;
-  const lo = min - pad;
-  const hi = max + pad;
-  const range = hi - lo || 1;
+  const maxRaw = Math.max(...values);
+  const hi = Math.max(maxRaw * 1.08, 1);
   return {
-    min: lo,
-    max: hi,
-    norm: values.map((v) => (v - lo) / range),
+    maxRaw,
+    hi,
+    norm: values.map((v) => v / hi),
   };
 }
 
@@ -76,28 +72,27 @@ function buildLinePath(norm: number[]): string {
   return d;
 }
 
-/**
- * Soft area + line trend — productivity over the selected period (mock series).
- */
 export function ProductivityTrendChart({ values, interval, className }: Props) {
-  const gradId = useId().replace(/:/g, "");
-  const { norm } = normalizeValues(values);
+  const gradId = `ff-prod-${useId().replace(/:/g, "")}`;
+  const { norm, maxRaw } = normalizeValuesZeroBased(values);
   const areaPath = buildAreaPath(norm);
   const linePath = buildLinePath(norm);
   const labels = trendRangeLabels(interval);
+  const topLabel = maxRaw <= 0 ? "0 min" : `${Math.round(maxRaw)} min peak`;
+  const bottomLabel = "0 min";
 
   const aria =
     interval === "day"
-      ? "Productivity trend from morning through evening"
+      ? "Focus minutes logged per part of today, morning through evening"
       : interval === "week"
-        ? "Productivity trend Monday through Sunday"
-        : "Productivity trend from early to late in the month";
+        ? "Focus minutes logged per day Monday through Sunday"
+        : "Focus minutes logged across the month from early to late";
 
   return (
     <AnalyticsChartCard
       className={className}
-      title="Productivity trend"
-      subtitle="How your rhythm moves across this period"
+      title="Focus time by period"
+      subtitle="Total focus session minutes in each slice of the range (your local timezone)"
       icon={<div className="w-4 h-4 rounded-full bg-[#8FABD4]/45" aria-hidden />}
     >
       <div className="rounded-xl border border-gray-100 bg-[#FAFAFA] px-3 pt-3 pb-2">
@@ -109,11 +104,29 @@ export function ProductivityTrendChart({ values, interval, className }: Props) {
           aria-label={aria}
         >
           <defs>
-            <linearGradient id="ffProdFill" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={CHART.accentFillTop} />
               <stop offset="100%" stopColor={CHART.accentFillBottom} />
             </linearGradient>
           </defs>
+          <text
+            x={4}
+            y={PAD_T + 11}
+            fontSize={10}
+            fill="#6b7280"
+            className="tabular-nums"
+          >
+            {topLabel}
+          </text>
+          <text
+            x={4}
+            y={VB_H - PAD_B - 2}
+            fontSize={10}
+            fill="#6b7280"
+            className="tabular-nums"
+          >
+            {bottomLabel}
+          </text>
           {/* One soft horizontal guide */}
           <line
             x1={PAD_L}
@@ -145,6 +158,10 @@ export function ProductivityTrendChart({ values, interval, className }: Props) {
           <span>{labels.mid}</span>
           <span>{labels.end}</span>
         </div>
+        <p className="text-[11px] text-gray-500 mt-2 px-1 leading-snug">
+          The line follows minutes from your focus timer. The top of the chart is the busiest
+          slice in this range (not a fixed daily goal).
+        </p>
       </div>
     </AnalyticsChartCard>
   );

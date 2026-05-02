@@ -154,7 +154,7 @@ describe("recommendRebalance", () => {
     expect(dates.every((d) => d === 1 || d === 3)).toBe(true);
   });
 
-  test("impossible rebalance returns canRebalance false", () => {
+  test("impossible rebalance defaults to extend_deadline", () => {
     const tasks = [
       task({
         id: "t1",
@@ -183,10 +183,41 @@ describe("recommendRebalance", () => {
     });
 
     expect(out.canRebalance).toBe(false);
-    expect(["extend_deadline", "reduce_scope", "manual_review"]).toContain(
-      out.recommendedAction
-    );
-    expect(out.reason).toMatch(/exceeds available capacity|No available days remain/i);
+    expect(out.recommendedAction).toBe("extend_deadline");
+    expect(out.reason).toMatch(/does not include enough available work days/i);
+  });
+
+  test("strictDeadline true recommends reduce_scope for impossible rebalance", () => {
+    const tasks = [
+      task({
+        id: "t1",
+        dueDate: "2026-05-03T00:00:00.000Z",
+        unitStart: 1,
+        unitEnd: 4,
+      }),
+      task({
+        id: "t2",
+        dueDate: "2026-05-04T00:00:00.000Z",
+        unitStart: 5,
+        unitEnd: 8,
+      }),
+    ];
+
+    const out = recommendRebalance({
+      goal: {
+        ...baseGoal,
+        strictDeadline: true,
+        availableDays: [1],
+        maxUnitsPerDay: 2,
+      },
+      tasks,
+      evaluation: {},
+      failureAnalysis: { failureModes: ["not_enough_available_days"] },
+      now,
+    });
+
+    expect(out.canRebalance).toBe(false);
+    expect(out.recommendedAction).toBe("reduce_scope");
   });
 
   test("future task only moves when capacity/distribution requires it", () => {
