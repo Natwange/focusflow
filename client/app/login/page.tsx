@@ -53,9 +53,8 @@ export default function LoginPage() {
   const router = useRouter(); // lets us programmatically navigate to other pages (e.g. /dashboard)
 
   // Store what the user has typed into the form fields.
-  // These defaults make it easier to test quickly during development.
-  const [email, setEmail] = useState("test1@example.com");
-  const [password, setPassword] = useState("Password123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false); // controls whether the password is visible as text
 
   // UI state for showing a loading spinner/text and error messages
