@@ -12,6 +12,14 @@ function databaseUrl(): string {
   if (direct) return direct;
   const pooled = process.env.DATABASE_URL?.trim();
   if (pooled) return pooled;
+
+  // `prisma generate` loads this file but does not open a DB connection. Render builds
+  // sometimes run before env is injected; a placeholder URL satisfies config parsing only.
+  const argv = process.argv.join(" ");
+  if (argv.includes("generate") && !argv.includes("migrate")) {
+    return "postgresql://build:build@127.0.0.1:5432/_prisma_generate_only?schema=public";
+  }
+
   throw new Error(
     "Missing DATABASE_URL in server/.env. Optional: DATABASE_URL_DIRECT for Prisma migrate (direct connection)."
   );

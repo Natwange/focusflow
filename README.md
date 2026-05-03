@@ -167,7 +167,7 @@ Also run `npx prisma generate` during your API build or install if the host does
 - **`TRUST_PROXY=1`** when the app sits behind a reverse proxy (Railway, Render, etc.) so rate limits and IPs behave.
 - **Split frontend/API domains:** the browser calls the API on a different site than the page, so set **`COOKIE_SAME_SITE=none`** so HttpOnly auth cookies are sent on credentialed `fetch` (HTTPS required). Same hostname for both can omit this and keep the default **strict** cookies.
 
-Start command: `npm run start` from `server/` after `npm install` and Prisma generate/migrate.
+Start command: `npm start` from `server/` runs **`prisma migrate deploy`** then the API (production). Local dev still uses `npm run dev`.
 
 ### Frontend (Next.js)
 
@@ -179,8 +179,8 @@ Start command: `npm run start` from `server/` after `npm install` and Prisma gen
 This repo has no root `package.json`; the API lives under **`server/`**.
 
 - **Root Directory** (Dashboard): `server`
-- **Build Command**: `npm ci && npm run build` (runs `prisma generate` + `prisma migrate deploy`; needs **`DATABASE_URL`** available at build time — add it under *Environment* and enable it for builds if Render asks)
-- **Start Command**: `npm start`
+- **Build Command**: `npm install && npm run build` (runs **`prisma generate` only** — no DB required at build time)
+- **Start Command**: `npm start` (runs **`prisma migrate deploy`** then `node`; needs **`DATABASE_URL`** at runtime in *Environment*)
 - Optional: connect the repo and use the root **`render.yaml`** Blueprint as a starting point
 
 The API binds to **`0.0.0.0`** so Render’s health checks and routing work.
