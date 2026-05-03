@@ -626,10 +626,10 @@ export default function GoalsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-black flex flex-col">
+    <div className="ff-page flex flex-col">
       <main className="w-full max-w-6xl mx-auto px-6 pt-10 pb-20 space-y-10">
         {/* HERO */}
-        <section className="border border-gray-200 rounded-2xl p-10 flex items-center justify-between">
+        <section className="rounded-2xl border border-gray-200 bg-white p-10 flex items-center justify-between shadow-sm">
           <div className="max-w-xl space-y-4">
             <h1 className="text-3xl font-semibold leading-tight">
               Small steps. Big trajectory.
@@ -945,7 +945,7 @@ export default function GoalsPage() {
           <button
             type="button"
             onClick={() => setShowPlansDropdown((v) => !v)}
-            className="flex w-full items-center justify-between rounded-2xl border border-black/25 bg-white p-4 text-left"
+            className="flex w-full items-center justify-between rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm"
           >
             <div className="flex items-center gap-3">
               <ChevronDown
@@ -988,7 +988,7 @@ export default function GoalsPage() {
                 return (
                   <div
                     key={g.id}
-                    className="rounded-xl border border-gray-200 bg-[#F9F9F9] shadow-sm p-5 space-y-4"
+                    className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-4"
                   >
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                       <div className="min-w-0 flex-1 space-y-3">
@@ -1139,7 +1139,8 @@ export default function GoalsPage() {
                                     {typeof agentPreviewByGoal[g.id]?.evaluation?.completionRate ===
                                     "number"
                                       ? `${(
-                                          agentPreviewByGoal[g.id]!.evaluation.completionRate * 100
+                                          (agentPreviewByGoal[g.id]?.evaluation?.completionRate as number) *
+                                          100
                                         ).toFixed(1)}%`
                                       : "—"}
                                   </dd>

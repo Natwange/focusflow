@@ -100,7 +100,7 @@ export default function JournalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] text-black">
+    <div className="ff-page">
       <main className="mx-auto max-w-6xl px-6 py-6 space-y-8">
         {/* Hero */}
         <section className="border border-gray-200 rounded-2xl bg-white p-6 md:p-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 shadow-sm">

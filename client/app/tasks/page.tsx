@@ -351,7 +351,7 @@ export default function TasksPage() {
     : null;
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] text-black">
+    <div className="ff-page">
       <main className="mx-auto max-w-6xl px-6 py-8 space-y-8">
         {/* Header */}
         <section className="rounded-2xl border border-gray-200 bg-white p-6 md:p-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 shadow-sm">

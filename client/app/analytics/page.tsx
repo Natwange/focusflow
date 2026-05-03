@@ -49,7 +49,7 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`rounded-2xl border border-gray-200 bg-white ${className}`}>
+    <div className={`rounded-2xl border border-gray-200 bg-white shadow-sm ${className}`}>
       {children}
     </div>
   );
@@ -296,7 +296,7 @@ function AssistantInsightsCard({
   bullets: string[];
 }) {
   return (
-    <Card className="overflow-hidden border-gray-200/90 shadow-sm shadow-gray-200/40">
+    <Card className="overflow-hidden border-gray-200/90">
       <div className="px-5 py-4 border-b border-gray-100/90 bg-gradient-to-br from-[#F8F9FB] to-white flex items-start gap-3">
         <div
           className="w-9 h-9 rounded-xl bg-white border border-gray-200/80 flex items-center justify-center shrink-0"
@@ -335,7 +335,7 @@ function AssistantInsightsCard({
 
 function AssistantRecommendationsCard({ items }: { items: string[] }) {
   return (
-    <Card className="overflow-hidden border-gray-200/90 shadow-sm shadow-gray-200/40">
+    <Card className="overflow-hidden border-gray-200/90">
       <div className="px-5 py-4 border-b border-gray-100/90 bg-gradient-to-br from-[#F8F9FB] to-white flex items-start gap-3">
         <div
           className="w-9 h-9 rounded-xl bg-white border border-gray-200/80 flex items-center justify-center shrink-0"
@@ -522,9 +522,9 @@ export default function AnalyticsPage() {
   const showContent = !loading && data && comparison;
 
   return (
-    <div className="min-h-screen bg-white text-black flex flex-col">
+    <div className="ff-page flex flex-col">
       <main className="max-w-6xl mx-auto px-6 pt-10 pb-20 space-y-10 w-full">
-        <section className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-2">
             <h1 className="text-3xl font-semibold tracking-tight">Analytics</h1>
             <p className="text-gray-600">

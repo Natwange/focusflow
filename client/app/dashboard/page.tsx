@@ -140,7 +140,7 @@ export default function DashboardPage() {
   const totalCount = incompleteTodayAndOverdueCount;
 
   return (
-    <div className="min-h-screen bg-white text-black flex flex-col">
+    <div className="ff-page flex flex-col">
       <main className="max-w-6xl mx-auto px-6 pt-10 pb-20 space-y-10">
         {goalsError && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -148,7 +148,7 @@ export default function DashboardPage() {
           </div>
         )}
         {/* HERO */}
-        <section className="border border-gray-200 rounded-2xl p-10 flex items-center justify-between">
+        <section className="rounded-2xl border border-gray-200 bg-white p-10 shadow-sm flex items-center justify-between">
           <div className="max-w-xl space-y-4">
             <h1 className="text-3xl font-semibold leading-tight">
               Stay consistent. Finish
@@ -183,14 +183,14 @@ export default function DashboardPage() {
             alt="Focus and plan your day"
             width={300}
             height={200}
-            className="opacity-90 grayscale md:-translate-x-4 object-contain"
+            className="opacity-95 object-contain md:-translate-x-4"
           />
         </section>
 
         {/* GRID */}
         <section className="grid grid-cols-3 gap-6">
           {/* TODAY'S TASKS */}
-          <div className="col-span-2 border border-black rounded-2xl p-6">
+          <div className="col-span-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold tracking-tight">Today&#39;s Tasks</h2>
 
             <div className="space-y-2 mt-3 text-sm">
@@ -259,13 +259,13 @@ export default function DashboardPage() {
           </div>
 
           {/* PROGRESS */}
-          <div className="border border-black rounded-2xl p-6 space-y-5">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm space-y-5">
             <h2 className="text-lg font-semibold tracking-tight">Your Progress</h2>
 
             <div>
               <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-black transition-all duration-300"
+                  className="h-full rounded-full bg-emerald-600 transition-all duration-300"
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
@@ -298,7 +298,7 @@ export default function DashboardPage() {
         </section>
 
         {/* QUICK ACTIONS */}
-        <section className="bg-white border border-gray-200 rounded-3xl p-6 mt-6">
+        <section className="mt-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold tracking-tight">Quick Actions</h2>
             <span className="text-xs uppercase tracking-[0.18em] text-gray-400">

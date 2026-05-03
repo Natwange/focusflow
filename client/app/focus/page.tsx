@@ -406,7 +406,7 @@ export default function FocusPage() {
   const isFinished = !running && timeLeft === 0;
 
   return (
-    <div className="h-[calc(100vh-56px)] bg-white text-black flex flex-col items-center justify-between relative overflow-hidden">
+    <div className="h-[calc(100vh-56px)] bg-[#FAFAFA] text-black flex flex-col items-center justify-between relative overflow-hidden">
 
       {/* Main content */}
       <div className="relative z-10 flex flex-col items-center gap-4 px-6 pt-4 pb-2 w-full max-w-md flex-1 justify-center">

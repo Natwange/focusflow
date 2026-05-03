@@ -99,10 +99,10 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen grid place-items-center px-6 bg-[#f6f8fb]">
+    <main className="ff-page grid place-items-center px-6">
       {/* Centered card that holds the sign-in form */}
       <section className="relative z-10 w-full max-w-md">
-        <div className="rounded-2xl border border-black/10 bg-white px-7 py-8 shadow-[0_16px_40px_rgba(0,0,0,0.08)]">
+        <div className="rounded-2xl border border-gray-200 bg-white px-7 py-8 shadow-sm">
           {/* Small brand label + heading text */}
           <p className="text-xs tracking-[0.22em] text-black/40">
             FOCUSFLOW

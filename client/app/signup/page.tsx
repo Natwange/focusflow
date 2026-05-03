@@ -100,9 +100,9 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen grid place-items-center bg-white px-6">
+    <div className="ff-page grid place-items-center px-6">
       <div className="w-full max-w-md">
-        <div className="rounded-2xl border border-black/10 bg-white shadow-[0_16px_40px_rgba(0,0,0,0.08)]">
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
           <div className="p-8">
             <p className="text-xs tracking-[0.22em] text-black/50">FOCUSFLOW</p>
 

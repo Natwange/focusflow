@@ -21,7 +21,13 @@ export function unitsPlannedForTask(task: {
 }): number {
   const s = task.unitStart;
   const e = task.unitEnd;
-  if (Number.isInteger(s) && Number.isInteger(e) && e >= s) {
+  if (
+    s != null &&
+    e != null &&
+    Number.isInteger(s) &&
+    Number.isInteger(e) &&
+    e >= s
+  ) {
     return e - s + 1;
   }
   const parsed = parseTrailingUnitRange(task.title);

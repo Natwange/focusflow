@@ -20,7 +20,7 @@ export function AnalyticsChartCard({
 }: Props) {
   return (
     <div
-      className={`rounded-2xl border border-gray-200 bg-white p-6 ${className}`}
+      className={`rounded-2xl border border-gray-200 bg-white p-6 shadow-sm ${className}`}
     >
       <div className="flex items-start justify-between gap-4">
         <div>

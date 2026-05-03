@@ -156,7 +156,7 @@ export default function JournalNotePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white text-black flex items-center justify-center">
+      <div className="ff-page flex items-center justify-center">
         <p className="text-black/60">Loading note…</p>
       </div>
     );
@@ -174,9 +174,9 @@ export default function JournalNotePage() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-black">
+    <div className="ff-page">
       <main className="mx-auto max-w-3xl px-6 py-6">
-        <div className="rounded-2xl border border-black/25 bg-white overflow-hidden shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
           <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
             <Link
               href="/journal"

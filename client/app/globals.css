@@ -58,6 +58,13 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Off-white app canvas (Journal / Tasks); use with white `shadow-sm` cards */
+@layer components {
+  .ff-page {
+    @apply min-h-screen bg-[#FAFAFA] text-black;
+  }
+}
+
 header {
   border-top-width: 0 !important;
   border-top-style: none !important;
