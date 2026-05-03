@@ -47,6 +47,29 @@ describe("evaluateGoalProgress", () => {
     expect(out.status).toBe("slightly_behind");
   });
 
+  test("infers units from task title when unit metadata is missing", () => {
+    const goal = {
+      createdAt: "2026-05-01T00:00:00.000Z",
+      deadline: "2026-05-10T00:00:00.000Z",
+    };
+
+    const tasks = [
+      { status: "done", dueDate: "2026-05-02T00:00:00.000Z", title: "Lessons 1-3" },
+      { status: "done", dueDate: "2026-05-03T00:00:00.000Z", title: "Lessons 4-6" },
+      { status: "todo", dueDate: "2026-05-08T00:00:00.000Z", title: "Lessons 7-9" },
+    ];
+
+    const out = evaluateGoalProgress({
+      goal,
+      tasks,
+      now: new Date("2026-05-04T12:00:00.000Z"),
+    });
+
+    expect(out.totalUnits).toBe(9);
+    expect(out.completedUnits).toBe(6);
+    expect(out.completionRate).toBeCloseTo(6 / 9, 4);
+  });
+
   test("uses safe fallback for legacy tasks missing unit metadata", () => {
     const goal = {
       createdAt: "2026-05-01T00:00:00.000Z",

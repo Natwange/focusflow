@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { api } from "@/lib/api";
+import { sumCompletedUnits } from "@/lib/goalTaskUnits";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ChevronDown, Pencil, Trash2, RefreshCw, X } from "lucide-react";
 
@@ -189,6 +190,8 @@ export default function GoalsPage() {
     title: string;
     dueDate: string | null;
     status: "todo" | "doing" | "done";
+    unitStart?: number | null;
+    unitEnd?: number | null;
   };
 
   type Goal = {
@@ -670,161 +673,207 @@ export default function GoalsPage() {
         </section>
 
         {/* Goal planner form */}
-        <section id="goal-planner" className="border border-gray-200 rounded-2xl p-8 space-y-6">
-          <h2 className="text-xl font-semibold tracking-tight">
-            Set goals, build discipline
-          </h2>
+        <section
+          id="goal-planner"
+          className="rounded-2xl border border-gray-200 bg-white shadow-sm px-6 py-8 md:px-10 md:py-9 space-y-8"
+        >
+          <header className="space-y-2">
+            <h2 className="text-xl font-semibold tracking-tight text-gray-900">
+              Set goals, build discipline
+            </h2>
+            <p className="text-sm text-gray-600 max-w-2xl leading-relaxed">
+              Turn a big goal into scheduled work you can actually follow.
+            </p>
+          </header>
 
-          <form
-            onSubmit={handleCreateGoal}
-            className="grid grid-cols-1 md:grid-cols-2 gap-6"
-          >
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                Goal name
-              </label>
-              <input
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
-                placeholder="Finish 30‑day JavaScript course"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </div>
+          <form onSubmit={handleCreateGoal} className="space-y-8">
+            <div className="rounded-xl border border-gray-100 bg-[#FAFAFA]/90 p-5 md:p-6 space-y-4">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.14em]">
+                Goal details
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-800">
+                    Goal name{" "}
+                    <span className="text-gray-400 font-normal" aria-hidden>
+                      *
+                    </span>
+                  </label>
+                  <input
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900/15"
+                    placeholder="Finish 30‑day JavaScript course"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700 flex items-center justify-between">
-                Total units
-                <span className="text-xs text-gray-500">
-                  e.g. 30 lessons, 10 chapters
-                </span>
-              </label>
-              <input
-                type="number"
-                min={1}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
-                value={totalUnits}
-                onChange={(e) => setTotalUnits(e.target.value)}
-              />
-            </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-800 flex items-center justify-between gap-2">
+                    <span>
+                      Total units{" "}
+                      <span className="text-gray-400 font-normal" aria-hidden>
+                        *
+                      </span>
+                    </span>
+                    <span className="text-[11px] font-normal text-gray-400 shrink-0">
+                      e.g. 30 lessons
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900/15"
+                    value={totalUnits}
+                    onChange={(e) => setTotalUnits(e.target.value)}
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                Unit name
-              </label>
-              <input
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
-                placeholder="lessons, chapters, sessions…"
-                value={unitName}
-                onChange={(e) => setUnitName(e.target.value)}
-              />
-            </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-800">
+                    Unit name{" "}
+                    <span className="text-gray-400 font-normal" aria-hidden>
+                      *
+                    </span>
+                  </label>
+                  <input
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900/15"
+                    placeholder="lessons, chapters, sessions…"
+                    value={unitName}
+                    onChange={(e) => setUnitName(e.target.value)}
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                Start date
-              </label>
-              <input
-                type="date"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-            </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-800">
+                    Start date{" "}
+                    <span className="text-gray-400 font-normal" aria-hidden>
+                      *
+                    </span>
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900/15"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                </div>
 
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Available study days
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {WEEKDAYS.map((d) => {
-                  const selected = availableDays.includes(d.code);
-                  return (
-                    <button
-                      key={d.code}
-                      type="button"
-                      onClick={() => toggleDay(availableDays, d.code, setAvailableDays)}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                        selected
-                          ? "border-black bg-black text-white"
-                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      }`}
-                    >
-                      {d.label}
-                    </button>
-                  );
-                })}
+                <div className="space-y-1.5 md:col-span-2 md:max-w-md">
+                  <label className="text-sm font-medium text-gray-800">
+                    Target finish date{" "}
+                    <span className="text-gray-400 font-normal" aria-hidden>
+                      *
+                    </span>
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900/15"
+                    value={deadline}
+                    onChange={(e) => setDeadline(e.target.value)}
+                  />
+                </div>
               </div>
-              <p className="text-xs text-gray-500">
-                Leave all unselected to plan across all days.
+            </div>
+
+            <div className="rounded-xl border border-gray-100 bg-[#FAFAFA]/90 p-5 md:p-6 space-y-4">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.14em]">
+                Schedule preferences
               </p>
-            </div>
+              <div className="grid grid-cols-1 gap-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-800">
+                    Available study days
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {WEEKDAYS.map((d) => {
+                      const selected = availableDays.includes(d.code);
+                      return (
+                        <button
+                          key={d.code}
+                          type="button"
+                          onClick={() => toggleDay(availableDays, d.code, setAvailableDays)}
+                          className={`rounded-full border px-3.5 py-2 text-xs font-semibold ${
+                            selected
+                              ? "border-gray-900 bg-gray-900 text-white shadow-sm"
+                              : "border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
+                          }`}
+                        >
+                          {d.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed pt-0.5">
+                    Leave all unselected to plan across all days.
+                  </p>
+                </div>
 
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium text-gray-700 flex items-center justify-between">
-                Optional: unit sizes
-                <span className="text-xs text-gray-500">
-                  e.g. short, long, medium,… or 1,2,3
-                </span>
-              </label>
-              <input
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
-                placeholder="Example for 4 chapters: short, long, medium, medium"
-                value={weightsRaw}
-                onChange={(e) => setWeightsRaw(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">
-                If you leave this empty, FocusFlow spreads units evenly. If you fill it,
-                earlier entries map to earlier units (chapter 1, chapter 2, …).
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                Target finish date
-              </label>
-              <input
-                type="date"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700 flex items-center justify-between">
-                Max units per day
-                <span className="text-xs text-gray-500 font-normal">optional</span>
-              </label>
-              <input
-                type="number"
-                min={1}
-                placeholder="Unlimited"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black focus:ring-2 focus:ring-black/10"
-                value={maxUnitsPerDay}
-                onChange={(e) => setMaxUnitsPerDay(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">
-                Leave empty for no daily cap. If set, each scheduled day will have at most this many units.
-              </p>
-            </div>
-
-            <div className="md:col-span-2 flex items-center justify-between pt-2">
-              <div className="space-y-1">
-                {error && (
-                  <p className="text-sm text-red-600">{error}</p>
-                )}
-                {successMsg && (
-                  <p className="text-sm text-emerald-600">{successMsg}</p>
-                )}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-800 flex items-center justify-between gap-2">
+                    <span>Optional: unit sizes</span>
+                    <span className="text-[11px] font-normal text-gray-400 shrink-0">
+                      short, long, or 1,2,3…
+                    </span>
+                  </label>
+                  <input
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900/15"
+                    placeholder="Example for 4 chapters: short, long, medium, medium"
+                    value={weightsRaw}
+                    onChange={(e) => setWeightsRaw(e.target.value)}
+                  />
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    If you leave this empty, FocusFlow spreads units evenly. If you fill it,
+                    earlier entries map to earlier units (chapter 1, chapter 2, …).
+                  </p>
+                </div>
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={!canSubmit || creating}
-                className="rounded-lg bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-black/90 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {creating ? "Planning…" : "Create goal & tasks"}
-              </button>
+            <div className="rounded-xl border border-gray-100 bg-[#FAFAFA]/90 p-5 md:p-6 space-y-4">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.14em]">
+                Workload limits
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+                <div className="space-y-1.5 md:max-w-md">
+                  <label className="text-sm font-medium text-gray-800 flex items-center justify-between gap-2">
+                    <span>Max units per day</span>
+                    <span className="text-[11px] font-normal text-gray-400">Optional</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="Unlimited"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900/15"
+                    value={maxUnitsPerDay}
+                    onChange={(e) => setMaxUnitsPerDay(e.target.value)}
+                  />
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    Leave empty for no daily cap. Scheduled days will have at most this many
+                    units.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-gray-100 space-y-4">
+              {(error || successMsg) && (
+                <div className="space-y-1">
+                  {error && <p className="text-sm text-red-600">{error}</p>}
+                  {successMsg && <p className="text-sm text-emerald-600">{successMsg}</p>}
+                </div>
+              )}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[11px] text-gray-400 leading-relaxed max-w-md order-2 sm:order-1">
+                  You can rebalance this later with Agent Insight.
+                </p>
+                <button
+                  type="submit"
+                  disabled={!canSubmit || creating}
+                  className="order-1 sm:order-2 shrink-0 rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-900/90 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {creating ? "Planning…" : "Create goal & tasks"}
+                </button>
+              </div>
             </div>
           </form>
 
@@ -922,7 +971,7 @@ export default function GoalsPage() {
               ) : goalsList.length === 0 ? (
                 <div className="text-sm text-gray-500">No plans created yet.</div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-5">
                   {goalsList.map((g) => {
                 const isExpanded = expandedGoalIds[g.id] === true;
                 const tasksSorted = [...(g.tasks || [])].sort((a, b) => {
@@ -931,19 +980,54 @@ export default function GoalsPage() {
                   return ad - bd;
                 });
                 const activeCount = tasksSorted.filter((t) => t.status !== "done").length;
+                const completedUnits = sumCompletedUnits(tasksSorted);
+                const progressPct =
+                  g.totalUnits > 0
+                    ? Math.min(100, Math.round((completedUnits / g.totalUnits) * 100))
+                    : 0;
                 return (
-                  <div key={g.id} className="border border-gray-200 rounded-2xl p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-lg font-semibold truncate">{g.title}</p>
-                        <p className="text-sm text-gray-500">
-                          Deadline: {toDateInput(g.deadline)}
-                          {" • "}
-                          {activeCount} active steps
-                        </p>
+                  <div
+                    key={g.id}
+                    className="rounded-xl border border-gray-200 bg-[#F9F9F9] shadow-sm p-5 space-y-4"
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <h3 className="text-xl font-bold text-gray-900 leading-snug truncate">
+                          {g.title}
+                        </h3>
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="h-2 flex-1 min-w-0 rounded-full bg-gray-200/90 overflow-hidden"
+                            role="progressbar"
+                            aria-valuenow={progressPct}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label="Goal progress"
+                          >
+                            <div
+                              className="h-full rounded-full bg-[#8FABD4]"
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium tabular-nums text-gray-600 shrink-0">
+                            {progressPct}%
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                          <span>
+                            {completedUnits} / {g.totalUnits} {g.unitName}
+                          </span>
+                          <span>Deadline {toDateInput(g.deadline)}</span>
+                          <span>
+                            {activeCount} active {activeCount === 1 ? "step" : "steps"}
+                          </span>
+                          {g.maxUnitsPerDay != null && g.maxUnitsPerDay > 0 ? (
+                            <span>Max {g.maxUnitsPerDay}/day</span>
+                          ) : null}
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0 sm:pt-0.5">
                         <button
                           type="button"
                           onClick={() =>
@@ -953,11 +1037,11 @@ export default function GoalsPage() {
                               return { ...prev, [g.id]: willExpand };
                             })
                           }
-                          className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition"
+                          className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
                         >
                           <ChevronDown
                             size={16}
-                            className={isExpanded ? "rotate-180 transition" : "transition"}
+                            className={isExpanded ? "rotate-180" : ""}
                           />
                           {isExpanded ? "Hide" : "View plan"}
                         </button>
@@ -984,7 +1068,7 @@ export default function GoalsPage() {
                               return next;
                             })
                           }
-                          className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition"
+                          className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
                           aria-label="Edit goal"
                         >
                           <Pencil size={16} />
@@ -993,7 +1077,7 @@ export default function GoalsPage() {
                         <button
                           type="button"
                           onClick={() => openRebalance(g.id)}
-                          className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition"
+                          className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
                           aria-label="Rebalance or recover plan"
                           title="Rebalance or recover plan"
                         >
@@ -1003,7 +1087,7 @@ export default function GoalsPage() {
                         <button
                           type="button"
                           onClick={() => setGoalIdPendingDelete(g.id)}
-                          className="inline-flex items-center rounded-full border border-red-200 bg-white px-3 py-1.5 text-sm hover:bg-red-50 transition"
+                          className="inline-flex items-center rounded-full border border-red-200 bg-white px-3 py-1.5 text-sm hover:bg-red-50"
                           aria-label="Delete goal"
                         >
                           <Trash2 size={16} className="text-red-600" />
@@ -1012,8 +1096,8 @@ export default function GoalsPage() {
                     </div>
 
                     {isExpanded && (
-                      <div className="mt-4 space-y-3">
-                        <div className="rounded-2xl border border-gray-200 bg-[#FAFAFA] p-4 space-y-3">
+                      <div className="space-y-4 pt-1 border-t border-gray-200/80">
+                        <div className="rounded-lg border border-gray-200 bg-gray-100/90 p-4 space-y-3">
                           <div className="flex items-start justify-between gap-2">
                             <h3 className="text-sm font-semibold text-gray-900">Agent Insight</h3>
                             <button
@@ -1147,8 +1231,8 @@ export default function GoalsPage() {
                             tasksSorted.map((t) => (
                               <li
                                 key={t.id}
-                                className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${
-                                  t.status === "done" ? "bg-gray-50" : "bg-[#F9F9F9]"
+                                className={`flex items-center justify-between gap-3 rounded-lg border border-gray-200/90 px-3 py-2 ${
+                                  t.status === "done" ? "bg-white/80" : "bg-white"
                                 }`}
                               >
                                 <button
@@ -1180,7 +1264,7 @@ export default function GoalsPage() {
                     )}
 
                     {editingGoalId === g.id && (
-                      <div className="mt-4 border border-gray-200 rounded-2xl p-4 bg-white space-y-3">
+                      <div className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
                         <p className="text-sm font-medium text-gray-800">
                           Edit plan
                         </p>

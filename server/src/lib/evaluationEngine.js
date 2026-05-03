@@ -11,13 +11,25 @@ function round4(n) {
   return Math.round(n * 10000) / 10000;
 }
 
+function parseTrailingUnitRange(t) {
+  if (!t || typeof t !== "string") return null;
+  const m = t.trim().match(/(\d+)(?:-(\d+))?$/);
+  if (!m) return null;
+  const start = Number(m[1]);
+  const end = m[2] ? Number(m[2]) : start;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return { unitsPlanned: end - start + 1 };
+}
+
 function unitsForTask(task) {
   const s = task?.unitStart;
   const e = task?.unitEnd;
   if (Number.isInteger(s) && Number.isInteger(e) && e >= s) {
     return e - s + 1;
   }
-  // Legacy fallback (no metadata): treat task as one planned unit.
+  const parsed = parseTrailingUnitRange(task?.title);
+  if (parsed) return parsed.unitsPlanned;
+  // Legacy fallback (no metadata, unparseable title): one planned unit per task.
   return 1;
 }
 

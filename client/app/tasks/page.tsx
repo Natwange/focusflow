@@ -21,11 +21,27 @@ type ViewMode = "week" | "month" | "day";
 type TaskStatus = "todo" | "doing" | "done";
 type TaskPriority = "low" | "medium" | "high" | "urgent";
 
-const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
-  { value: "low", label: "Low", color: "bg-gray-200 text-gray-700" },
-  { value: "medium", label: "Medium", color: "bg-blue-100 text-blue-700" },
-  { value: "high", label: "High", color: "bg-orange-100 text-orange-700" },
-  { value: "urgent", label: "Urgent", color: "bg-red-100 text-red-700" },
+const PRIORITY_OPTIONS: { value: TaskPriority; label: string; pill: string }[] = [
+  {
+    value: "low",
+    label: "Low",
+    pill: "bg-slate-100 text-slate-700 border border-slate-200/90",
+  },
+  {
+    value: "medium",
+    label: "Medium",
+    pill: "bg-sky-50 text-sky-800 border border-sky-200/80",
+  },
+  {
+    value: "high",
+    label: "High",
+    pill: "bg-amber-50 text-amber-900 border border-amber-200/80",
+  },
+  {
+    value: "urgent",
+    label: "Urgent",
+    pill: "bg-red-50 text-red-800 border border-red-200/80",
+  },
 ];
 
 type Task = {
@@ -312,29 +328,60 @@ export default function TasksPage() {
   const completedTasks = tasks.filter((t) => t.status === "done");
 
   const todayStart = startOfDay(new Date());
-  const showOverdue = view === "day" && toISODate(startOfDay(cursor)) === toISODate(new Date());
+  const todayKey = toISODate(todayStart);
+  const isViewingToday = toISODate(startOfDay(cursor)) === todayKey;
+  const showOverdue = view === "day" && isViewingToday;
   const overdueCutoffMs = todayStart.getTime();
 
-  const baseBtn =
-    "rounded-2xl border border-gray-200 bg-[#F9F9F9] px-4 py-2.5 text-sm font-medium transition hover:border-gray-300 hover:shadow-sm";
-  const activeBtn = "border-black bg-black text-white hover:bg-black/90";
+  const { start: rangeStart, end: rangeEnd } = getRange();
+  const rangeIncludesToday =
+    todayStart.getTime() >= rangeStart.getTime() &&
+    todayStart.getTime() <= rangeEnd.getTime();
+
+  const workloadActive = tasks.filter((t) => t.status !== "done");
+  const tasksDueTodayCount = rangeIncludesToday
+    ? workloadActive.filter(
+        (t) => t.dueDate && toISODate(new Date(t.dueDate)) === todayKey
+      ).length
+    : null;
+  const overdueTodayCount = rangeIncludesToday
+    ? workloadActive.filter(
+        (t) => t.dueDate && new Date(t.dueDate).getTime() < overdueCutoffMs
+      ).length
+    : null;
 
   return (
-    <div className="min-h-screen bg-white text-black">
-      <main className="mx-auto max-w-6xl px-6 py-6 space-y-6">
-        {/* Header card — same theme as dashboard/journal */}
-        <section className="border rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
-            <p className="text-gray-600 text-sm mt-0.5">
-              View and manage tasks by week, month, or day.
+    <div className="min-h-screen bg-[#FAFAFA] text-black">
+      <main className="mx-auto max-w-6xl px-6 py-8 space-y-8">
+        {/* Header */}
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 md:p-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 shadow-sm">
+          <div className="space-y-2">
+            <h1 className="text-3xl font-semibold tracking-tight text-gray-900">Tasks</h1>
+            <p className="text-sm text-gray-500 max-w-md leading-relaxed">
+              Focus on what matters today.
             </p>
+            {rangeIncludesToday && tasksDueTodayCount !== null && overdueTodayCount !== null ? (
+              <p className="text-sm text-gray-600 pt-1">
+                You have {tasksDueTodayCount}{" "}
+                {tasksDueTodayCount === 1 ? "task" : "tasks"} today
+                {overdueTodayCount > 0 ? (
+                  <>
+                    {" "}
+                    • {overdueTodayCount} overdue
+                  </>
+                ) : null}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-400 pt-1">
+                Today’s counts appear when your selected range includes today.
+              </p>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={goToday}
-              className="rounded-full border border-black/25 px-4 py-2 text-sm font-medium hover:bg-black/[0.06] transition"
+              className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100"
             >
               Today
             </button>
@@ -342,15 +389,25 @@ export default function TasksPage() {
         </section>
 
         {/* View switcher + nav */}
-        <section className="rounded-2xl border border-black/25 bg-white p-4">
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex rounded-2xl border border-gray-200 bg-[#F9F9F9] p-1">
-              {(["week", "month", "day"] as ViewMode[]).map((v) => (
+            <div
+              className="inline-flex rounded-lg border border-gray-200 bg-gray-100/90 p-0.5"
+              role="tablist"
+              aria-label="Calendar range"
+            >
+              {(["day", "week", "month"] as ViewMode[]).map((v) => (
                 <button
                   key={v}
                   type="button"
+                  role="tab"
+                  aria-selected={view === v}
                   onClick={() => setView(v)}
-                  className={`capitalize ${baseBtn} ${view === v ? activeBtn : "border-transparent bg-transparent"}`}
+                  className={`rounded-md px-4 py-2 text-sm font-medium capitalize ${
+                    view === v
+                      ? "bg-gray-900 text-white shadow-sm"
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
                 >
                   {v}
                 </button>
@@ -361,11 +418,11 @@ export default function TasksPage() {
                 type="button"
                 onClick={goPrev}
                 aria-label="Previous"
-                className="rounded-full p-2 border border-black/25 hover:bg-black/[0.06] transition"
+                className="rounded-lg p-2 border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
               >
                 <ChevronLeft size={20} />
               </button>
-              <span className="min-w-[180px] text-center text-sm font-medium">
+              <span className="min-w-[180px] text-center text-sm font-semibold text-gray-800 tabular-nums">
                 {view === "week" &&
                   `${formatShort(startOfWeek(cursor))} – ${formatShort(endOfWeek(cursor))}`}
                 {view === "month" &&
@@ -376,7 +433,7 @@ export default function TasksPage() {
                 type="button"
                 onClick={goNext}
                 aria-label="Next"
-                className="rounded-full p-2 border border-black/25 hover:bg-black/[0.06] transition"
+                className="rounded-lg p-2 border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
               >
                 <ChevronRight size={20} />
               </button>
@@ -386,8 +443,8 @@ export default function TasksPage() {
 
         {/* Week view: day strip + task list */}
         {view === "week" && (
-          <section className="rounded-2xl border border-black/25 bg-white p-4">
-            <div className="grid grid-cols-7 gap-2 mb-4">
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm space-y-8">
+            <div className="grid grid-cols-7 gap-2 md:gap-3">
               {getWeekDays(startOfWeek(cursor)).map((d) => {
                 const key = toISODate(d);
                 const isToday = toISODate(d) === toISODate(new Date());
@@ -395,19 +452,25 @@ export default function TasksPage() {
                 return (
                   <div
                     key={key}
-                    className={`rounded-xl border p-3 text-center ${isToday ? "border-black bg-black/[0.04]" : "border-gray-200 bg-[#F9F9F9]"}`}
+                    className={`rounded-xl border p-3 text-center ${
+                      isToday
+                        ? "border-gray-900 bg-gray-50 ring-2 ring-gray-900/20 shadow-sm"
+                        : "border-gray-200 bg-[#FAFAFA]/80"
+                    }`}
                   >
-                    <div className="text-[11px] uppercase text-gray-500">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                       {d.toLocaleDateString(undefined, { weekday: "short" })}
                     </div>
-                    <div className="text-lg font-semibold mt-0.5">{formatDayNum(d)}</div>
-                    <div className="text-xs text-gray-500 mt-1">{dayTasks.length} tasks</div>
+                    <div className="text-lg font-semibold mt-1 text-gray-900">{formatDayNum(d)}</div>
+                    <div className="text-xs text-gray-500 mt-1.5">{dayTasks.length} tasks</div>
                   </div>
                 );
               })}
             </div>
-            <div className="border-t border-gray-200 pt-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Tasks this week</h2>
+            <div className="border-t border-gray-100 pt-8">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500 mb-4">
+                Tasks this week
+              </h2>
               {loading ? (
                 <div className="flex items-center gap-2 text-gray-500 py-6">
                   <Loader2 size={18} className="animate-spin" />
@@ -430,32 +493,39 @@ export default function TasksPage() {
 
         {/* Month view: grid + task list for selected range */}
         {view === "month" && (
-          <section className="rounded-2xl border border-black/25 bg-white p-4">
-            <div className="grid grid-cols-7 gap-1 mb-2">
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm space-y-8">
+            <div className="grid grid-cols-7 gap-1 mb-3">
               {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
-                <div key={w} className="text-center text-[11px] font-medium text-gray-500 py-1">
+                <div
+                  key={w}
+                  className="text-center text-[11px] font-semibold uppercase tracking-wide text-gray-400 py-2"
+                >
                   {w}
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-1.5">
               {getMonthGrid(startOfMonth(cursor)).flat().map((d, i) => {
-                if (!d) return <div key={`empty-${i}`} className="min-h-[72px] rounded-lg bg-gray-50/50" />;
+                if (!d) return <div key={`empty-${i}`} className="min-h-[76px] rounded-lg bg-gray-50/60" />;
                 const key = toISODate(d);
                 const isToday = key === toISODate(new Date());
                 const dayTasks = tasksByDate.get(key) || [];
                 return (
                   <div
                     key={key}
-                    className={`min-h-[72px] rounded-lg border p-2 ${isToday ? "border-black bg-black/[0.04]" : "border-gray-200 bg-[#F9F9F9]"}`}
+                    className={`min-h-[76px] rounded-lg border p-2 ${
+                      isToday
+                        ? "border-gray-900 bg-gray-50 ring-1 ring-gray-900/20 shadow-sm"
+                        : "border-gray-200 bg-[#FAFAFA]/80"
+                    }`}
                   >
-                    <span className="text-sm font-medium">{formatDayNum(d)}</span>
+                    <span className="text-sm font-semibold text-gray-900">{formatDayNum(d)}</span>
                     {dayTasks.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-0.5">
                         {dayTasks.slice(0, 3).map((t) => (
                           <span
                             key={t.id}
-                            className="inline-block max-w-full truncate rounded bg-black/10 px-1.5 py-0.5 text-[10px]"
+                            className="inline-block max-w-full truncate rounded bg-gray-200/80 px-1.5 py-0.5 text-[10px] text-gray-700"
                             title={t.title}
                           >
                             {t.title}
@@ -470,8 +540,10 @@ export default function TasksPage() {
                 );
               })}
             </div>
-            <div className="border-t border-gray-200 mt-4 pt-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Tasks this month</h2>
+            <div className="border-t border-gray-100 pt-8">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500 mb-4">
+                Tasks this month
+              </h2>
               {loading ? (
                 <div className="flex items-center gap-2 text-gray-500 py-6">
                   <Loader2 size={18} className="animate-spin" />
@@ -494,83 +566,152 @@ export default function TasksPage() {
 
         {/* Day view */}
         {view === "day" && (
-          <section className="rounded-2xl border border-black/25 bg-white p-4">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
-              Tasks for {formatShort(cursor)}
-            </h2>
-            {loading ? (
-              <div className="flex items-center gap-2 text-gray-500 py-6">
-                <Loader2 size={18} className="animate-spin" />
-                Loading…
-              </div>
-            ) : (
-              <TaskList
-                tasks={activeTasks}
-                onStatus={updateStatus}
-                onDelete={(id) => setTaskIdPendingDelete(id)}
-                onEdit={editTask}
-                statusLoading={statusLoading}
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm space-y-8">
+            <div>
+              {isViewingToday ? (
+                <p className="text-lg sm:text-xl font-semibold text-gray-900 tracking-tight">
+                  Today •{" "}
+                  {cursor.toLocaleDateString(undefined, {
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </p>
+              ) : (
+                <p className="text-base font-semibold text-gray-900">{formatShort(cursor)}</p>
+              )}
+            </div>
+            <div className="space-y-4">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                {isViewingToday ? "Today’s tasks" : "Tasks for this day"}
+              </h2>
+              {loading ? (
+                <div className="flex items-center gap-2 text-gray-500 py-6">
+                  <Loader2 size={18} className="animate-spin" />
+                  Loading…
+                </div>
+              ) : (
+                <TaskList
+                  tasks={activeTasks}
+                  onStatus={updateStatus}
+                  onDelete={(id) => setTaskIdPendingDelete(id)}
+                  onEdit={editTask}
+                  statusLoading={statusLoading}
                   showOverdue={showOverdue}
                   overdueCutoffMs={overdueCutoffMs}
-              />
+                />
+              )}
+            </div>
+
+            <div className="border-t border-gray-100 pt-8">
+              <button
+                type="button"
+                onClick={() => setShowCompleted((v) => !v)}
+                className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80"
+              >
+                <div className="flex items-center gap-2">
+                  <ChevronDown
+                    size={16}
+                    className={`text-gray-500 shrink-0 ${showCompleted ? "rotate-180" : ""}`}
+                  />
+                  <span className="text-sm font-semibold text-gray-800">Completed</span>
+                </div>
+                <span className="text-xs text-gray-500 tabular-nums">
+                  {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
+                </span>
+              </button>
+              {showCompleted && (
+                <div className="mt-4 space-y-2">
+                  {completedTasks.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-2">No completed tasks in this range.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {completedTasks.map((t) => (
+                        <li
+                          key={t.id}
+                          className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80"
+                        >
+                          <span className="line-through flex-1 min-w-0">{t.title}</span>
+                          {t.dueDate && (
+                            <span className="text-[11px] text-gray-400 shrink-0">
+                              {formatDueDateTime(t.dueDate)}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setTaskIdPendingDelete(t.id)}
+                            aria-label="Delete completed task"
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Completed tasks (week / month) */}
+        {view !== "day" && (
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowCompleted((v) => !v)}
+              className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80"
+            >
+              <div className="flex items-center gap-2">
+                <ChevronDown
+                  size={16}
+                  className={`text-gray-500 shrink-0 ${showCompleted ? "rotate-180" : ""}`}
+                />
+                <span className="text-sm font-semibold text-gray-800">Completed</span>
+              </div>
+              <span className="text-xs text-gray-500 tabular-nums">
+                {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
+              </span>
+            </button>
+            {showCompleted && (
+              <div className="mt-4 space-y-2">
+                {completedTasks.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-2">No completed tasks in this range.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {completedTasks.map((t) => (
+                      <li
+                        key={t.id}
+                        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80"
+                      >
+                        <span className="line-through flex-1 min-w-0">{t.title}</span>
+                        {t.dueDate && (
+                          <span className="text-[11px] text-gray-400 shrink-0">
+                            {formatDueDateTime(t.dueDate)}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setTaskIdPendingDelete(t.id)}
+                          aria-label="Delete completed task"
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
           </section>
         )}
 
-        {/* Completed tasks dropdown */}
-        <section className="rounded-2xl border border-black/25 bg-white p-4">
-          <button
-            type="button"
-            onClick={() => setShowCompleted((v) => !v)}
-            className="flex w-full items-center justify-between text-sm font-medium text-gray-700"
-          >
-            <div className="flex items-center gap-2">
-              <ChevronDown
-                size={16}
-                className={`transition-transform ${showCompleted ? "rotate-180" : ""}`}
-              />
-              <span>Completed tasks</span>
-            </div>
-            <span className="text-xs text-gray-500">
-              {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
-            </span>
-          </button>
-          {showCompleted && (
-            <div className="mt-3">
-              {completedTasks.length === 0 ? (
-                <p className="text-xs text-gray-500">No completed tasks yet.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {completedTasks.map((t) => (
-                    <li
-                      key={t.id}
-                      className="flex items-center gap-3 rounded-xl border border-gray-200 bg-[#F3F3F3] px-4 py-3 text-sm text-gray-600"
-                    >
-                      <span className="line-through flex-1 min-w-0">{t.title}</span>
-                      {t.dueDate && (
-                        <span className="text-[11px] text-gray-400 shrink-0">
-                          {formatDueDateTime(t.dueDate)}
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setTaskIdPendingDelete(t.id)}
-                        aria-label="Delete completed task"
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </section>
-
         {/* Add task */}
-        <section className="rounded-2xl border border-black/25 bg-white p-4">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Add task</h2>
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500 mb-4">
+            Add task
+          </h2>
           {error && (
             <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               {error}
@@ -590,7 +731,7 @@ export default function TasksPage() {
                 type="button"
                 onClick={createTask}
                 disabled={createLoading || !newTitle.trim()}
-                className="rounded-full bg-black text-white px-5 py-2.5 text-sm font-medium hover:bg-black/90 transition disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                className="rounded-full bg-gray-900 text-white px-5 py-2.5 text-sm font-medium hover:bg-gray-900/90 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
               >
                 {createLoading ? (
                   <Loader2 size={18} className="animate-spin" />
@@ -609,8 +750,8 @@ export default function TasksPage() {
                       key={p.value}
                       type="button"
                       onClick={() => setNewPriority(p.value)}
-                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                        newPriority === p.value ? p.color : "text-gray-400 hover:text-gray-600"
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                        newPriority === p.value ? p.pill : "text-gray-400 hover:text-gray-600"
                       }`}
                     >
                       {p.label}
@@ -668,8 +809,15 @@ export default function TasksPage() {
   );
 }
 
-function priorityColor(p: TaskPriority): string {
-  return PRIORITY_OPTIONS.find((o) => o.value === p)?.color ?? "bg-gray-200 text-gray-700";
+function priorityPill(p: TaskPriority): string {
+  return (
+    PRIORITY_OPTIONS.find((o) => o.value === p)?.pill ??
+    "bg-slate-100 text-slate-700 border border-slate-200/90"
+  );
+}
+
+function priorityLabel(p: TaskPriority): string {
+  return PRIORITY_OPTIONS.find((o) => o.value === p)?.label ?? p;
 }
 
 function formatDueDateTime(iso: string): string {
@@ -741,11 +889,11 @@ function TaskList({
 
   if (tasks.length === 0) {
     return (
-      <p className="text-sm text-gray-500 py-4">No tasks in this range. Add one below.</p>
+      <p className="text-sm text-gray-500 py-6">No tasks in this range. Add one below.</p>
     );
   }
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-4">
       {tasks.map((t) => {
         const isEditing = editingId === t.id;
 
@@ -768,7 +916,7 @@ function TaskList({
                   type="button"
                   onClick={() => saveEdit(t.id)}
                   disabled={saving || !editTitle.trim()}
-                  className="rounded-lg bg-black text-white px-3 py-1.5 text-xs font-medium hover:bg-black/90 transition disabled:opacity-60 inline-flex items-center gap-1"
+                  className="rounded-lg bg-gray-900 text-white px-3 py-1.5 text-xs font-medium hover:bg-gray-900/90 disabled:opacity-60 inline-flex items-center gap-1"
                 >
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                   Save
@@ -776,7 +924,7 @@ function TaskList({
                 <button
                   type="button"
                   onClick={cancelEdit}
-                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition inline-flex items-center gap-1"
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 inline-flex items-center gap-1"
                 >
                   <X size={14} />
                   Cancel
@@ -791,8 +939,8 @@ function TaskList({
                         key={p.value}
                         type="button"
                         onClick={() => setEditPriority(p.value)}
-                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                          editPriority === p.value ? p.color : "text-gray-400 hover:text-gray-600"
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                          editPriority === p.value ? p.pill : "text-gray-400 hover:text-gray-600"
                         }`}
                       >
                         {p.label}
@@ -831,7 +979,7 @@ function TaskList({
         return (
           <li
             key={t.id}
-            className="flex items-center gap-3 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-3 group"
+            className="group flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap rounded-xl border border-gray-200 bg-white px-4 py-4 hover:bg-gray-50 hover:border-gray-300"
           >
             <button
               type="button"
@@ -849,28 +997,30 @@ function TaskList({
               )}
             </button>
             <span
-              className={`flex-1 min-w-0 text-sm ${t.status === "done" ? "text-gray-500 line-through" : "font-medium"}`}
+              className={`flex-1 min-w-0 text-sm leading-snug ${t.status === "done" ? "text-gray-500 line-through font-normal" : "font-semibold text-gray-900"}`}
             >
               {t.title}
             </span>
-            <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${priorityColor(t.priority)}`}>
-              {t.priority}
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-medium opacity-80 ${priorityPill(t.priority)}`}
+            >
+              {priorityLabel(t.priority)}
             </span>
-            {t.dueDate && (
-              <span className="text-xs text-gray-500 shrink-0">
-                {formatDueDateTime(t.dueDate)}
+            {showOverdue && t.dueDate && new Date(t.dueDate).getTime() < overdueCutoffMs && (
+              <span className="shrink-0 text-[11px] font-semibold text-red-700 tabular-nums">
+                Overdue
               </span>
             )}
-            {showOverdue && t.dueDate && new Date(t.dueDate).getTime() < overdueCutoffMs && (
-              <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-red-100 text-red-700 uppercase">
-                Overdue
+            {t.dueDate && (
+              <span className="text-[11px] text-gray-400 shrink-0 tabular-nums">
+                {formatDueDateTime(t.dueDate)}
               </span>
             )}
             <button
               type="button"
               onClick={() => startEdit(t)}
               aria-label="Edit task"
-              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition"
+              className="shrink-0 p-2 rounded-lg text-gray-400 hover:text-gray-800 hover:bg-gray-100"
             >
               <Pencil size={16} />
             </button>
@@ -878,7 +1028,7 @@ function TaskList({
               type="button"
               onClick={() => onDelete(t.id)}
               aria-label="Delete task"
-              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+              className="shrink-0 p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
             >
               <Trash2 size={16} />
             </button>
