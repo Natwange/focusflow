@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "nodemon src/index.js",
+    "build": "prisma generate && prisma migrate deploy",
     "start": "node src/index.js",
     "test": "jest --runInBand"
   },

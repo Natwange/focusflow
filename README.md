@@ -143,6 +143,53 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Deploying
+
+FocusFlow is two deployables (Next.js `client/` + Express `server/`) and a **PostgreSQL** database. A common setup is **frontend on Vercel** and **API on Railway, Render, or Fly.io** with a managed Postgres (Neon, Supabase, Railway Postgres, etc.).
+
+### Database
+
+1. Create a Postgres database and set `DATABASE_URL` on the server (same shape as local).
+2. Run migrations against production (from `server/`):
+
+```bash
+npx prisma migrate deploy
+```
+
+Also run `npx prisma generate` during your API build or install if the host does not do it automatically.
+
+### API (Express)
+
+- Set **`NODE_ENV=production`**.
+- **`JWT_SECRET`**: long random string.
+- **`CLIENT_ORIGIN`**: your live site origin, exact scheme + host (no trailing slash), e.g. `https://my-app.vercel.app`. Multiple origins: comma-separated list.
+- **`PORT`**: whatever the platform assigns (often automatic).
+- **`TRUST_PROXY=1`** when the app sits behind a reverse proxy (Railway, Render, etc.) so rate limits and IPs behave.
+- **Split frontend/API domains:** the browser calls the API on a different site than the page, so set **`COOKIE_SAME_SITE=none`** so HttpOnly auth cookies are sent on credentialed `fetch` (HTTPS required). Same hostname for both can omit this and keep the default **strict** cookies.
+
+Start command: `npm run start` from `server/` after `npm install` and Prisma generate/migrate.
+
+### Frontend (Next.js)
+
+- **`NEXT_PUBLIC_API_URL`**: public API base URL, e.g. `https://your-api.up.railway.app` (no trailing slash).
+- Build: `npm run build` → `npm run start` (or use the host’s Next.js preset).
+
+### Render (API)
+
+This repo has no root `package.json`; the API lives under **`server/`**.
+
+- **Root Directory** (Dashboard): `server`
+- **Build Command**: `npm ci && npm run build` (runs `prisma generate` + `prisma migrate deploy`; needs **`DATABASE_URL`** available at build time — add it under *Environment* and enable it for builds if Render asks)
+- **Start Command**: `npm start`
+- Optional: connect the repo and use the root **`render.yaml`** Blueprint as a starting point
+
+The API binds to **`0.0.0.0`** so Render’s health checks and routing work.
+
+### Smoke checks
+
+- Open `GET {API}/health` — should return JSON `status: ok`.
+- From the deployed site, sign up / log in; if login succeeds but data calls fail with 401, confirm **`CLIENT_ORIGIN`** matches the browser origin and **`COOKIE_SAME_SITE=none`** when API and web run on different hosts.
+
 ## Screenshots
 
 _Note to self: Add screenshots/gifs here_

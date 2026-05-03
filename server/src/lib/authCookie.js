@@ -8,11 +8,25 @@ function isProduction() {
   return process.env.NODE_ENV === "production";
 }
 
+/**
+ * Auth cookies on a different host than the web app (e.g. Vercel + API on Railway) are cross-site.
+ * Use COOKIE_SAME_SITE=none in production so credentialed fetch() sends cookies (requires HTTPS / secure).
+ * Same-host deployments can keep the default strict in production.
+ */
 function httpOnlyCookieBaseOptions() {
+  const prod = isProduction();
+  const raw = (process.env.COOKIE_SAME_SITE || "").toLowerCase();
+  let sameSite = "lax";
+  if (raw === "none" || raw === "strict" || raw === "lax") {
+    sameSite = raw;
+  } else if (prod) {
+    sameSite = "strict";
+  }
+  const secure = sameSite === "none" ? true : prod;
   return {
     httpOnly: true,
-    secure: isProduction(),
-    sameSite: isProduction() ? "strict" : "lax",
+    secure,
+    sameSite,
     path: "/",
   };
 }

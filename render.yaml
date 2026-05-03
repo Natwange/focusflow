@@ -1,0 +1,18 @@
+# Render Blueprint: API only. Create a separate Static Site or Web Service for client/ (Next.js).
+# https://render.com/docs/blueprint-spec
+#
+# Required env vars on the service (Dashboard → Environment):
+#   DATABASE_URL, JWT_SECRET, CLIENT_ORIGIN (your live Next.js URL)
+# Split frontend/API hostnames → also set COOKIE_SAME_SITE=none
+# Behind Render proxy → TRUST_PROXY=1
+
+services:
+  - type: web
+    name: focusflow-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: server
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
