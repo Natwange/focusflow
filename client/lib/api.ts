@@ -1,5 +1,7 @@
 // Base URL for all API calls, read from client/.env.local
-// Example: http://localhost:4000
+// Local: http://localhost:4000
+// Production (two Render hosts / mobile cookie issues): https://<next-host>/api/bff
+//   and set server-only BACKEND_URL on the Next service to the real API origin.
 // The replace(...) just removes a trailing "/" if there is one,
 // so we don't accidentally end up with "http://...//auth/login"
 import { redirectToLoginAfterUnauthorized, requestBasePath } from "@/lib/authRedirect";

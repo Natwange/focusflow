@@ -2,6 +2,10 @@
 
 FocusFlow is a full-stack productivity app that helps users break goals into actionable tasks, track focus sessions, and reflect through journal notes and a lightweight daily reflection flow. The project emphasizes practical product engineering and secure backend design.
 
+## Live app
+
+**Production (Render):** [https://focusflow-client.onrender.com/](https://focusflow-client.onrender.com/)
+
 ## Project Overview
 
 FocusFlow combines:
@@ -31,9 +35,13 @@ FocusFlow combines:
 - **Auth/Security:** JWT in HttpOnly cookies, refresh token rotation, helmet, CORS, rate limiting, Zod, sanitize-html
 - **Testing:** Jest + Supertest
 
+**UI:** Shared light-gray app canvas (`.ff-page` in `client/app/globals.css`) and white cards with soft borders/shadows on primary pages (dashboard, goals, journal, tasks, analytics, auth).
+
 ## Architecture Overview
 
 - `client/` - Next.js UI and page routes
+- `client/app/api/bff/[[...path]]/route.ts` - optional **same-origin API proxy** (server-side forward to Express). Use in production when the web app and API are on different hosts so auth cookies stay **first-party** on the Next.js domain (fixes strict mobile browsers blocking cross-site cookies).
+- `server/prisma.config.ts` - Prisma CLI config (migrations): prefers **`DATABASE_URL_DIRECT`** when set, otherwise **`DATABASE_URL`** (helpful with Supabase pooler + direct URLs).
 - `server/src/app.js` - Express app composition (middleware + routes)
 - `server/src/index.js` - server bootstrap/listener startup
 - `server/src/routes/` - API route modules (`auth`, `goals`, `tasks`, `journal`, `focus`, `analytics`, `activity`)
@@ -105,6 +113,8 @@ Create `server/.env` (use your own real values):
 
 ```env
 DATABASE_URL="postgresql://<user>:<password>@<host>:<port>/<db>"
+# Optional (Supabase / pooler): use a direct or session URL for `prisma migrate` while the app uses a pooler URL above
+# DATABASE_URL_DIRECT="postgresql://..."
 JWT_SECRET="<long-random-secret>"
 CLIENT_ORIGIN="http://localhost:3000"
 JWT_EXPIRES_IN="7d"
@@ -114,12 +124,17 @@ JWT_EXPIRES_IN="7d"
 # AUTH_RATE_LIMIT_MAX="8"
 # PORT="4000"
 # TRUST_PROXY="1"
+# COOKIE_SAME_SITE="none"   # only when web + API are on different origins in production (see Deploying)
 ```
 
 Create `client/.env.local`:
 
 ```env
+# Local: talk to Express directly
 NEXT_PUBLIC_API_URL="http://localhost:4000"
+# Production (optional BFF — see Deploying): same-origin proxy on the Next host, e.g.
+# NEXT_PUBLIC_API_URL="https://your-next-host.onrender.com/api/bff"
+# Plus on the Next service only (server-side): BACKEND_URL="https://your-api-host.onrender.com"
 ```
 
 ### 3) Run DB migrations
@@ -145,50 +160,66 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Deploying
 
-FocusFlow is two deployables (Next.js `client/` + Express `server/`) and a **PostgreSQL** database. A common setup is **frontend on Vercel** and **API on Railway, Render, or Fly.io** with a managed Postgres (Neon, Supabase, Railway Postgres, etc.).
+FocusFlow is **two deployables** (Next.js `client/` + Express `server/`) plus **PostgreSQL**. The current production setup uses **[Supabase](https://supabase.com)** for the database and **[Render](https://render.com)** for both the web app and the API (each as its own Web Service).
 
-### Database
+Other stacks (e.g. Vercel + Railway) work too; env names stay the same.
 
-1. Create a Postgres database and set `DATABASE_URL` on the server (same shape as local).
-2. Run migrations against production (from `server/`):
+### Database (Supabase or any Postgres)
+
+1. Create a database and set **`DATABASE_URL`** on the API service (URI from the host, usually with `sslmode=require` or equivalent).
+2. **Supabase tip:** you may use a **pooler** URL for the app and a **direct / session** URL for migrations. This repo supports **`DATABASE_URL_DIRECT`**: Prisma CLI (`migrate`) prefers it when set (see `server/prisma.config.ts`). The runtime app still uses **`DATABASE_URL`** via `server/src/lib/prisma.js`.
+3. Migrations run on API startup: `npm start` in `server/` runs **`prisma migrate deploy`** then **`node src/index.js`**. You can also run manually from `server/`:
 
 ```bash
 npx prisma migrate deploy
 ```
 
-Also run `npx prisma generate` during your API build or install if the host does not do it automatically.
+4. **`prisma generate`** runs during API `npm run build` (no DB connection required for generate).
 
-### API (Express)
+**If deploy logs show Prisma `P1000` (authentication failed):** the username/password in **`DATABASE_URL`** (or **`DATABASE_URL_DIRECT`**) does not match the database — reset the DB password in Supabase, copy a fresh URI, URL-encode special characters in the password if you hand-edit the string, update Render env, redeploy.
 
-- Set **`NODE_ENV=production`**.
-- **`JWT_SECRET`**: long random string.
-- **`CLIENT_ORIGIN`**: your live site origin, exact scheme + host (no trailing slash), e.g. `https://my-app.vercel.app`. Multiple origins: comma-separated list.
-- **`PORT`**: whatever the platform assigns (often automatic).
-- **`TRUST_PROXY=1`** when the app sits behind a reverse proxy (Railway, Render, etc.) so rate limits and IPs behave.
-- **Split frontend/API domains:** the browser calls the API on a different site than the page, so set **`COOKIE_SAME_SITE=none`** so HttpOnly auth cookies are sent on credentialed `fetch` (HTTPS required). Same hostname for both can omit this and keep the default **strict** cookies.
+A root **`render.yaml`** is included for Render Blueprints; you can still configure two Web Services manually in the dashboard (typical for this repo).
 
-Start command: `npm start` from `server/` runs **`prisma migrate deploy`** then the API (production). Local dev still uses `npm run dev`.
+### API (Express) — e.g. Render service `focusflow-server`
 
-### Frontend (Next.js)
+- **Root Directory:** `server`
+- **Build Command:** `npm install && npm run build`
+- **Start Command:** `npm start`
+- **`NODE_ENV=production`**
+- **`JWT_SECRET`**: long random string (required).
+- **`CLIENT_ORIGIN`**: your **exact** live web origin, e.g. `https://focusflow-client.onrender.com` (no trailing slash). Multiple origins: comma-separated.
+- **`TRUST_PROXY=1`** behind Render’s proxy.
+- **Different hostnames for web + API:** set **`COOKIE_SAME_SITE=none`** so HttpOnly cookies work on credentialed cross-origin `fetch` (HTTPS only). If you use the **BFF proxy** below, the browser only talks to the Next origin for API calls and you can rely on first-party cookies instead (recommended for mobile Safari/Chrome).
 
-- **`NEXT_PUBLIC_API_URL`**: public API base URL, e.g. `https://your-api.up.railway.app` (no trailing slash).
-- Build: `npm run build` → `npm run start` (or use the host’s Next.js preset).
+The process listens on **`0.0.0.0`** and **`PORT`** from the platform (e.g. `10000` on Render). Your **public** URL is the Render HTTPS hostname — not `http://0.0.0.0:PORT`.
 
-### Render (API)
+### Frontend (Next.js) — e.g. Render service `focusflow-client`
 
-This repo has no root `package.json`; the API lives under **`server/`**.
+- **Root Directory:** `client`
+- **Build Command:** `npm install && npm run build`
+- **Start Command:** `npm start`
 
-- **Root Directory** (Dashboard): `server`
-- **Build Command**: `npm install && npm run build` (runs **`prisma generate` only** — no DB required at build time)
-- **Start Command**: `npm start` (runs **`prisma migrate deploy`** then `node`; needs **`DATABASE_URL`** at runtime in *Environment*)
-- Optional: connect the repo and use the root **`render.yaml`** Blueprint as a starting point
+**Option A — Direct API URL (simplest, can break on some mobile browsers when API is another site):**
 
-The API binds to **`0.0.0.0`** so Render’s health checks and routing work.
+```env
+NEXT_PUBLIC_API_URL="https://your-api.onrender.com"
+```
+
+**Option B — Same-origin BFF (recommended when web and API are two Render URLs):**
+
+Set on the **Next** service:
+
+```env
+NEXT_PUBLIC_API_URL="https://your-next-host.onrender.com/api/bff"
+BACKEND_URL="https://your-api-host.onrender.com"
+```
+
+`BACKEND_URL` is **server-only** (not `NEXT_PUBLIC_*`). The route at `client/app/api/bff/[[...path]]/route.ts` forwards requests and rewrites `Set-Cookie` so session cookies are stored on the **web** domain.
 
 ### Smoke checks
 
-- Open `GET {API}/health` — should return JSON `status: ok`.
-- From the deployed site, sign up / log in; if login succeeds but data calls fail with 401, confirm **`CLIENT_ORIGIN`** matches the browser origin and **`COOKIE_SAME_SITE=none`** when API and web run on different hosts.
+- `GET https://<api-host>/health` → JSON `{ "status": "ok", ... }`.
+- From the live site: sign up / log in, open dashboard. If you get sent back to login after a “successful” login, check **`CLIENT_ORIGIN`**, cookie env vars, and consider **Option B (BFF)** above.
 
 ## Screenshots
 
