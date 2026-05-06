@@ -15,8 +15,17 @@ export function redirectToLoginAfterUnauthorized(apiPath: string): void {
   if (base === "/auth/login" || base === "/auth/register") return;
 
   const p = window.location.pathname;
-  // Landing page calls `/me` to decide dashboard vs marketing; 401 must not force login.
-  if (p === "/" || p === "/login" || p === "/signup") return;
+  // Landing + auth flows: `/me` may 401; do not hijack the user away from these routes.
+  if (
+    p === "/" ||
+    p === "/login" ||
+    p === "/signup" ||
+    p === "/forgot-password" ||
+    p === "/reset-password" ||
+    p === "/verify-email"
+  ) {
+    return;
+  }
 
   window.location.assign("/login");
 }

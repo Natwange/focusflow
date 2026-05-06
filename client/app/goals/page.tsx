@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { api } from "@/lib/api";
 import { sumCompletedUnits } from "@/lib/goalTaskUnits";
@@ -228,6 +228,7 @@ export default function GoalsPage() {
   const [agentPreviewError, setAgentPreviewError] = useState<Record<string, string | null>>({});
   const [agentApplyLoading, setAgentApplyLoading] = useState<Record<string, boolean>>({});
   const [agentApplySuccess, setAgentApplySuccess] = useState<Record<string, string | null>>({});
+  const previewRefreshTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const [editTitle, setEditTitle] = useState("");
   const [editTotalUnits, setEditTotalUnits] = useState<string>("");
@@ -290,6 +291,27 @@ export default function GoalsPage() {
     }
   }, []);
 
+  /**
+   * Debounced auto-refresh: whenever schedule data changes, refresh agent preview
+   * for expanded goals without requiring a manual "Refresh" click.
+   */
+  const scheduleAgentPreviewRefresh = useCallback(
+    (goalIds: string[], delayMs = 250) => {
+      const uniqueGoalIds = Array.from(new Set(goalIds)).filter(Boolean);
+      for (const goalId of uniqueGoalIds) {
+        const existingTimer = previewRefreshTimersRef.current[goalId];
+        if (existingTimer) window.clearTimeout(existingTimer);
+        previewRefreshTimersRef.current[goalId] = window.setTimeout(() => {
+          if (expandedGoalIds[goalId]) {
+            void loadAgentPreview(goalId);
+          }
+          delete previewRefreshTimersRef.current[goalId];
+        }, delayMs);
+      }
+    },
+    [expandedGoalIds, loadAgentPreview]
+  );
+
   const applyAgentRebalance = useCallback(
     async (goalId: string) => {
       setAgentApplyLoading((prev) => ({ ...prev, [goalId]: true }));
@@ -305,7 +327,7 @@ export default function GoalsPage() {
           [goalId]: "Rebalance applied. Tasks updated.",
         }));
         await loadGoals();
-        await loadAgentPreview(goalId);
+        scheduleAgentPreviewRefresh([goalId], 0);
       } catch (e: unknown) {
         setAgentPreviewError((prev) => ({
           ...prev,
@@ -315,12 +337,21 @@ export default function GoalsPage() {
         setAgentApplyLoading((prev) => ({ ...prev, [goalId]: false }));
       }
     },
-    [loadGoals, loadAgentPreview]
+    [loadGoals, scheduleAgentPreviewRefresh]
   );
 
   useEffect(() => {
     loadGoals();
   }, [loadGoals]);
+
+  useEffect(() => {
+    return () => {
+      for (const timerId of Object.values(previewRefreshTimersRef.current)) {
+        window.clearTimeout(timerId);
+      }
+      previewRefreshTimersRef.current = {};
+    };
+  }, []);
 
   useEffect(() => {
     const id = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
@@ -450,6 +481,7 @@ export default function GoalsPage() {
         `Plan created: ${items.length} days of ${unitName} added as tasks.`
       );
       await loadGoals();
+      scheduleAgentPreviewRefresh([goal.id]);
       // Optionally clear inputs for the next goal
       setTitle("");
       setTotalUnits("");
@@ -480,13 +512,18 @@ export default function GoalsPage() {
     }
   }
 
-  const toggleGoalTaskStatus = async (taskId: string, current: GoalTask["status"]) => {
+  const toggleGoalTaskStatus = async (
+    goalId: string,
+    taskId: string,
+    current: GoalTask["status"]
+  ) => {
     const next = current === "done" ? "todo" : "done";
     await api(`/tasks/${taskId}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status: next }),
     });
     await loadGoals();
+    scheduleAgentPreviewRefresh([goalId]);
   };
 
   const deleteGoal = async (goalId: string) => {
@@ -543,6 +580,7 @@ export default function GoalsPage() {
       });
       closeRebalance();
       await loadGoals();
+      scheduleAgentPreviewRefresh([rebalanceGoalId]);
     } catch (e: unknown) {
       setRebalanceError(e instanceof Error ? e.message : "Could not apply rebalance");
     } finally {
@@ -620,6 +658,7 @@ export default function GoalsPage() {
 
       setEditingGoalId(null);
       await loadGoals();
+      scheduleAgentPreviewRefresh([goalId]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Save & re-plan failed");
     }
@@ -1238,7 +1277,7 @@ export default function GoalsPage() {
                               >
                                 <button
                                   type="button"
-                                  onClick={() => toggleGoalTaskStatus(t.id, t.status)}
+                                  onClick={() => toggleGoalTaskStatus(g.id, t.id, t.status)}
                                   className="flex-1 text-left min-w-0"
                                 >
                                   <div className={`text-sm font-medium truncate ${t.status === "done" ? "line-through text-gray-500" : ""}`}>
