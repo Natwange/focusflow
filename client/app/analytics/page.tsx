@@ -605,14 +605,6 @@ export default function AnalyticsPage() {
                 <h2 className="text-sm font-semibold text-gray-900">
                   Insights & recommendations
                 </h2>
-                <p className="text-xs text-gray-500 mt-0.5 max-w-md">
-                  Grounded in{" "}
-                  <code className="text-[11px] bg-gray-100 px-1 rounded">
-                    GET /analytics/activity-patterns
-                  </code>{" "}
-                  (last {ACTIVITY_PATTERN_WINDOW_DAYS} days). Charts use the interval
-                  toggle; weekday highs/lows here use UTC.
-                </p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <AssistantInsightsCard
