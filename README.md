@@ -18,7 +18,7 @@ FocusFlow combines:
 
 ## Core Features
 
-- Account system: register, login, refresh, logout, password change
+- Account system: register, login, refresh, logout, password change, **forgot password** (email link), **email verification** after signup
 - Goals: create/update/delete; plan preview/confirm and rebalance flows; optional **max units per day** and **available weekdays**; linked tasks store **unit ranges** (`unitStart`–`unitEnd`) so completion progress is measured in goal units (e.g. lessons), not only the number of tasks
 - Goal agent: preview endpoint combines evaluation, failure-style signals, and rebalance guidance; users can **apply agent rebalance**; results are stored as **`AgentRun`** rows for history and analytics
 - Tasks: create/update/delete with priority, due date, and status (`todo` / `doing` / `done`); UI grouped by day, week, or month
@@ -125,6 +125,11 @@ JWT_EXPIRES_IN="7d"
 # PORT="4000"
 # TRUST_PROXY="1"
 # COOKIE_SAME_SITE="none"   # only when web + API are on different origins in production (see Deploying)
+#
+# Email (Resend — password reset + verification links)
+# RESEND_API_KEY="re_..."   # https://resend.com/api-keys — required in production to actually send mail
+# EMAIL_FROM="FocusFlow <noreply@yourdomain.com>"   # must use a domain you verify in Resend (dev default: onboarding@resend.dev)
+# PUBLIC_APP_URL="http://localhost:3000"   # exact URL of the Next.js site (used in email links). In production: https://your-frontend-host
 ```
 
 Create `client/.env.local`:

@@ -58,6 +58,10 @@ function createApp() {
   app.use("/auth/login", authLimiter);
   app.use("/auth/register", authLimiter);
   app.use("/auth/refresh", authLimiter);
+  app.use("/auth/forgot-password", authLimiter);
+  app.use("/auth/reset-password", authLimiter);
+  app.use("/auth/verify-email", authLimiter);
+  app.use("/auth/resend-verification-email", authLimiter);
 
   app.use("/auth", authRoutes);
   app.use("/goals", auth, goalRoutes);
@@ -75,12 +79,17 @@ function createApp() {
     try {
       const user = await prisma.user.findUnique({
         where: { id: req.user.id },
-        select: { id: true, email: true, name: true },
+        select: { id: true, email: true, name: true, emailVerifiedAt: true },
       });
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-      return res.json({ user });
+      return res.json({
+        user: {
+          ...user,
+          emailVerified: Boolean(user.emailVerifiedAt),
+        },
+      });
     } catch (err) {
       console.error(err);
       return res.status(500).json({ error: prismaErrorMessage(err) });

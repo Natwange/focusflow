@@ -1,10 +1,12 @@
 "use client";
 
 // Top-level React/Next imports used by this page
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { api } from "@/lib/api";
+import { normalizeEmail } from "@/lib/emailValidation";
 
 // Small reusable component that shows the "eye" / "eye-off" icon
 // We pass in whether the password is currently visible, and it draws the right SVG
@@ -60,6 +62,13 @@ export default function LoginPage() {
   // UI state for showing a loading spinner/text and error messages
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [resetOk, setResetOk] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    setResetOk(q.get("reset") === "1");
+  }, []);
 
   // Simple check used to disable the button until the form looks valid
   const canSubmit =
@@ -81,7 +90,7 @@ export default function LoginPage() {
       // Call our shared API helper, which will POST to http://localhost:4000/auth/login
       await api("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: normalizeEmail(email), password }),
       });
 
       // Session is stored in an HttpOnly cookie by the API
@@ -113,17 +122,25 @@ export default function LoginPage() {
             Stay consistent. Finish what you start.
           </p>
 
+          {resetOk && (
+            <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              Password updated. Sign in with your new password.
+            </p>
+          )}
+
           {/* Actual login form: email + password + submit button */}
           <form onSubmit={onSubmit} className="mt-7 space-y-4">
             {/* Email input field */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-black/60">Email</label>
               <input
+                type="email"
                 className="w-full rounded-lg border border-black/10 bg-white px-3 py-2.5 text-sm text-black placeholder:text-black/30 outline-none transition focus:border-black/25 focus:ring-4 focus:ring-[#8FABD4]/25"
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
+                inputMode="email"
               />
             </div>
 
@@ -175,22 +192,20 @@ export default function LoginPage() {
             </button>
 
             {/* Extra links the design shows (not wired up to real flows yet) */}
-            <div className="flex items-center justify-between pt-1 text-xs text-black/55">
-              <button
-                type="button"
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pt-1 text-xs text-black/55">
+              <Link
+                href="/forgot-password"
                 className="underline underline-offset-4 hover:text-black"
-                onClick={() => alert("Not built yet.")}
               >
                 Forgot password?
-              </button>
+              </Link>
 
-              <button
-                type="button"
-                className="hover:text-black"
-                onClick={() => alert("Not built yet.")}
+              <Link
+                href="/signup"
+                className="hover:text-black underline-offset-4 hover:underline"
               >
                 First time? Create account
-              </button>
+              </Link>
             </div>
           </form>
         </div>

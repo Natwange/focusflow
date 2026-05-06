@@ -6,6 +6,11 @@ datasource db {
   provider = "postgresql"
 }
 
+enum OpaqueTokenPurpose {
+  PASSWORD_RESET
+  EMAIL_VERIFY
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -14,17 +19,35 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Set when the user completes the verification link sent after signup.
+  emailVerifiedAt DateTime?
+
   // Duolingo-style visit streak: increments when you visit on a new day,
   // resets if you miss a full day (timezone-aware via client offset).
   streakCount    Int      @default(0)
   streakDateKey  String?  // YYYY-MM-DD of the last day counted (user-local)
   lastActiveAt   DateTime?
 
-  sessions    FocusSession[]
-  goals       Goal[]
-  tasks       Task[]
-  journalNotes JournalNote[]
-  refreshTokens RefreshToken[]
+  sessions         FocusSession[]
+  goals            Goal[]
+  tasks            Task[]
+  journalNotes     JournalNote[]
+  refreshTokens    RefreshToken[]
+  opaqueAuthTokens OpaqueAuthToken[]
+}
+
+/// Single-use hashed tokens for password reset and email verification.
+model OpaqueAuthToken {
+  id        String              @id @default(cuid())
+  userId    String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   OpaqueTokenPurpose
+  tokenHash String              @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  @@index([userId, purpose])
 }
 
 /// Opaque refresh tokens (store hash only). Rotated on each use; reuse of a revoked hash fails.

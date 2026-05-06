@@ -1,4 +1,8 @@
 const { z } = require("zod");
+const {
+  normalizeEmailInput,
+  isReasonableEmailShape,
+} = require("../lib/emailPolicy");
 
 const taskPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 const taskStatusSchema = z.enum(["todo", "doing", "done"]);
@@ -27,12 +31,24 @@ const isoLikeString = z
   .max(64)
   .refine((s) => !Number.isNaN(Date.parse(s)), "Invalid date");
 
+/** Login, register, forgot-password: normalized + format + “real-looking” domain. */
+const emailSchemaForAuth = z
+  .string()
+  .trim()
+  .transform((s) => normalizeEmailInput(s))
+  .pipe(
+    z
+      .string()
+      .email({ message: "Invalid email address" })
+      .max(254)
+      .refine(isReasonableEmailShape, {
+        message:
+          "Enter a real email with a domain (for example you@gmail.com).",
+      })
+  );
+
 const registerBodySchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .email({ message: "Invalid email address" })
-    .max(254),
+  email: emailSchemaForAuth,
   password: z
     .string()
     .min(8, "Password must be at least 8 characters")
@@ -41,8 +57,24 @@ const registerBodySchema = z.object({
 });
 
 const loginBodySchema = z.object({
-  email: z.string().trim().email({ message: "Invalid email address" }).max(254),
+  email: emailSchemaForAuth,
   password: z.string().min(1, "Password is required").max(128),
+});
+
+const forgotPasswordBodySchema = z.object({
+  email: emailSchemaForAuth,
+});
+
+const resetPasswordBodySchema = z.object({
+  token: z.string().trim().min(1, "Reset link is missing or invalid"),
+  newPassword: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128),
+});
+
+const verifyEmailBodySchema = z.object({
+  token: z.string().trim().min(1, "Verification link is missing or invalid"),
 });
 
 const taskCreateBodySchema = z.object({
@@ -110,6 +142,9 @@ const rebalanceConfirmBodySchema = z.object({
 module.exports = {
   registerBodySchema,
   loginBodySchema,
+  forgotPasswordBodySchema,
+  resetPasswordBodySchema,
+  verifyEmailBodySchema,
   taskCreateBodySchema,
   taskUpdateBodySchema,
   taskStatusBodySchema,

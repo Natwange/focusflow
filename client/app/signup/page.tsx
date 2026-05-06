@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { isReasonableEmail, normalizeEmail } from "@/lib/emailValidation";
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -58,9 +59,11 @@ export default function SignupPage() {
   const [err, setErr] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const emailOk = email.trim().length === 0 || isReasonableEmail(email);
+
   const canSubmit =
     name.trim().length > 0 &&
-    email.trim().length > 0 &&
+    isReasonableEmail(email) &&
     password.length >= 8 &&
     confirmPassword === password;
 
@@ -71,6 +74,12 @@ export default function SignupPage() {
 
     if (!name.trim() || !email || !password || !confirmPassword) {
       setErr("Please fill in all fields.");
+      return;
+    }
+    if (!isReasonableEmail(email)) {
+      setErr(
+        "Enter a real email with a domain you can open (for example you@gmail.com)."
+      );
       return;
     }
     if (password.length < 8) {
@@ -87,10 +96,16 @@ export default function SignupPage() {
       // backend endpoint: POST /auth/register
       await api("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ name: name.trim(), email, password }),
+        body: JSON.stringify({
+          name: name.trim(),
+          email: normalizeEmail(email),
+          password,
+        }),
       });
 
-      setSuccess("Account created. Redirecting…");
+      setSuccess(
+        "Account created. Check your email for a verification link. Redirecting…"
+      );
       setTimeout(() => router.push("/dashboard"), 600);
     } catch (e: any) {
       setErr(e.message || "Signup failed.");
@@ -135,7 +150,14 @@ export default function SignupPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
+                  inputMode="email"
                 />
+                {email.trim().length > 0 && !emailOk && (
+                  <p className="text-xs text-amber-800">
+                    Use an address like <span className="font-medium">name@gmail.com</span>{" "}
+                    (must include a domain with a dot).
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">

@@ -15,7 +15,10 @@ function shouldAttemptRefresh(path: string, isRetry: boolean): boolean {
   return (
     b !== "/auth/login" &&
     b !== "/auth/register" &&
-    b !== "/auth/refresh"
+    b !== "/auth/refresh" &&
+    b !== "/auth/forgot-password" &&
+    b !== "/auth/reset-password" &&
+    b !== "/auth/verify-email"
   );
 }
 

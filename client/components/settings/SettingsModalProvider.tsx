@@ -68,7 +68,10 @@ function SettingsModalShell({ onClose }: { onClose: () => void }) {
   const [section, setSection] = useState<SectionId>("account");
 
   const [email, setEmail] = useState<string | null>(null);
+  const [emailVerified, setEmailVerified] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const [verifySubmitting, setVerifySubmitting] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -84,7 +87,9 @@ function SettingsModalShell({ onClose }: { onClose: () => void }) {
       .then((data) => {
         const em = data?.user?.email;
         setEmail(typeof em === "string" ? em : null);
+        setEmailVerified(data?.user?.emailVerified !== false);
         setLoadError(null);
+        setVerifyMsg(null);
       })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : "";
@@ -111,6 +116,26 @@ function SettingsModalShell({ onClose }: { onClose: () => void }) {
     return () => {
       document.body.style.overflow = prev;
     };
+  }, []);
+
+  const handleResendVerification = useCallback(async () => {
+    setVerifyMsg(null);
+    setVerifySubmitting(true);
+    try {
+      const data = await api("/auth/resend-verification-email", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setVerifyMsg(
+        typeof data?.message === "string" ? data.message : "Email sent."
+      );
+    } catch (e: unknown) {
+      setVerifyMsg(
+        e instanceof Error ? e.message : "Could not send verification email."
+      );
+    } finally {
+      setVerifySubmitting(false);
+    }
   }, []);
 
   const handleSignOut = useCallback(async () => {
@@ -232,6 +257,31 @@ function SettingsModalShell({ onClose }: { onClose: () => void }) {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6">
             {section === "account" && (
               <div className="space-y-8">
+                {!emailVerified && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/40 sm:p-5">
+                    <p className="text-sm font-medium text-amber-950 dark:text-amber-100">
+                      Verify your email
+                    </p>
+                    <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-200/90">
+                      We sent a link when you signed up. Confirm your address so
+                      you can recover your account if you forget your password.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={verifySubmitting}
+                      onClick={handleResendVerification}
+                      className="mt-3 rounded-lg bg-amber-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-50 dark:bg-amber-200 dark:text-amber-950"
+                    >
+                      {verifySubmitting ? "Sending…" : "Resend verification email"}
+                    </button>
+                    {verifyMsg && (
+                      <p className="mt-2 text-xs text-amber-900 dark:text-amber-100/90">
+                        {verifyMsg}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900 sm:p-5">
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                     Your account

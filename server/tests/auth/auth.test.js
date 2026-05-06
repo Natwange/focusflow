@@ -1,6 +1,11 @@
 const request = require("supertest");
 const bcrypt = require("bcrypt");
 
+jest.mock("../../src/lib/sendEmail", () => ({
+  sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+  sendEmailVerificationEmail: jest.fn().mockResolvedValue(undefined),
+}));
+
 const mockPrisma = {
   user: {
     findUnique: jest.fn(),
@@ -12,6 +17,12 @@ const mockPrisma = {
     findUnique: jest.fn(),
     delete: jest.fn(),
     deleteMany: jest.fn(),
+  },
+  opaqueAuthToken: {
+    create: jest.fn().mockResolvedValue({ id: "ot_1" }),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    findUnique: jest.fn(),
+    update: jest.fn(),
   },
   task: {
     findFirst: jest.fn(),
@@ -98,6 +109,7 @@ describe("Auth + /me API", () => {
         email: "alice@example.com",
         name: "Alice",
         password: "hashed",
+        emailVerifiedAt: null,
       });
       jest.spyOn(bcrypt, "compare").mockResolvedValue(true);
 
@@ -110,6 +122,7 @@ describe("Auth + /me API", () => {
       expect(res.body.user).toMatchObject({
         id: "user_1",
         email: "alice@example.com",
+        emailVerified: false,
       });
     });
 
@@ -119,6 +132,7 @@ describe("Auth + /me API", () => {
         email: "alice@example.com",
         name: "Alice",
         password: "hashed",
+        emailVerifiedAt: null,
       });
       jest.spyOn(bcrypt, "compare").mockResolvedValue(false);
 
@@ -137,6 +151,7 @@ describe("Auth + /me API", () => {
         email: "alice@example.com",
         name: "Alice",
         password: "hashed",
+        emailVerifiedAt: null,
       });
       jest.spyOn(bcrypt, "compare").mockResolvedValue(true);
 
@@ -168,6 +183,7 @@ describe("Auth + /me API", () => {
             email: "alice@example.com",
             name: "Alice",
             password: "hashed",
+            emailVerifiedAt: null,
           };
         }
         if (where?.id === "user_1") {
@@ -193,6 +209,7 @@ describe("Auth + /me API", () => {
       expect(meRes.body.user).toMatchObject({
         id: "user_1",
         email: "alice@example.com",
+        emailVerified: false,
       });
     });
   });

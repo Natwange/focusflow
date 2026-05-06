@@ -3,6 +3,11 @@ const bcrypt = require("bcrypt");
 const { hashRefreshToken } = require("../../src/lib/authTokens");
 const { loginAs, sleepMs } = require("../helpers/authTestHelpers");
 
+jest.mock("../../src/lib/sendEmail", () => ({
+  sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+  sendEmailVerificationEmail: jest.fn().mockResolvedValue(undefined),
+}));
+
 const db = {
   users: new Map(),
   tasks: new Map(),
@@ -45,6 +50,7 @@ const mockPrisma = {
         email: data.email,
         password: data.password,
         name: data.name || "",
+        emailVerifiedAt: data.emailVerifiedAt ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -90,14 +96,23 @@ const mockPrisma = {
     }),
     deleteMany: jest.fn(async ({ where }) => {
       let count = 0;
-      for (const [id, token] of db.refreshTokens.entries()) {
-        if (where?.tokenHash && token.tokenHash === where.tokenHash) {
+      for (const [id, token] of [...db.refreshTokens.entries()]) {
+        const byHash =
+          where?.tokenHash && token.tokenHash === where.tokenHash;
+        const byUser = where?.userId && token.userId === where.userId;
+        if (byHash || byUser) {
           db.refreshTokens.delete(id);
           count += 1;
         }
       }
       return { count };
     }),
+  },
+  opaqueAuthToken: {
+    create: jest.fn().mockResolvedValue({ id: "oat_1" }),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    findUnique: jest.fn(),
+    update: jest.fn(),
   },
   task: {
     create: jest.fn(async ({ data, select }) => {
@@ -212,6 +227,7 @@ async function seedUser({ id, email, password, name = "Test User" }) {
     email,
     password: hashed,
     name,
+    emailVerifiedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
