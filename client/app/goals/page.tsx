@@ -228,7 +228,9 @@ export default function GoalsPage() {
   const [agentPreviewError, setAgentPreviewError] = useState<Record<string, string | null>>({});
   const [agentApplyLoading, setAgentApplyLoading] = useState<Record<string, boolean>>({});
   const [agentApplySuccess, setAgentApplySuccess] = useState<Record<string, string | null>>({});
-  const previewRefreshTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const previewRefreshTimersRef = useRef<
+    Record<string, ReturnType<typeof window.setTimeout>>
+  >({});
 
   const [editTitle, setEditTitle] = useState("");
   const [editTotalUnits, setEditTotalUnits] = useState<string>("");
