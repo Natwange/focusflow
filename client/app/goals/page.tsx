@@ -229,7 +229,7 @@ export default function GoalsPage() {
   const [agentApplyLoading, setAgentApplyLoading] = useState<Record<string, boolean>>({});
   const [agentApplySuccess, setAgentApplySuccess] = useState<Record<string, string | null>>({});
   const previewRefreshTimersRef = useRef<
-    Record<string, ReturnType<typeof window.setTimeout>>
+    Record<string, ReturnType<typeof globalThis.setTimeout>>
   >({});
 
   const [editTitle, setEditTitle] = useState("");
@@ -302,8 +302,8 @@ export default function GoalsPage() {
       const uniqueGoalIds = Array.from(new Set(goalIds)).filter(Boolean);
       for (const goalId of uniqueGoalIds) {
         const existingTimer = previewRefreshTimersRef.current[goalId];
-        if (existingTimer) window.clearTimeout(existingTimer);
-        previewRefreshTimersRef.current[goalId] = window.setTimeout(() => {
+        if (existingTimer) globalThis.clearTimeout(existingTimer);
+        previewRefreshTimersRef.current[goalId] = globalThis.setTimeout(() => {
           if (expandedGoalIds[goalId]) {
             void loadAgentPreview(goalId);
           }
@@ -349,7 +349,7 @@ export default function GoalsPage() {
   useEffect(() => {
     return () => {
       for (const timerId of Object.values(previewRefreshTimersRef.current)) {
-        window.clearTimeout(timerId);
+        globalThis.clearTimeout(timerId);
       }
       previewRefreshTimersRef.current = {};
     };
@@ -358,11 +358,11 @@ export default function GoalsPage() {
   useEffect(() => {
     const id = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
     if (!id) return;
-    const t = window.setTimeout(() => {
+    const t = globalThis.setTimeout(() => {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 100);
-    return () => window.clearTimeout(t);
+    return () => globalThis.clearTimeout(t);
   }, []);
 
   const canSubmit =
