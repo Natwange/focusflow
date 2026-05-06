@@ -170,6 +170,7 @@ export default function SignupPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="new-password"
+                    minLength={8}
                   />
                   <button
                     type="button"
@@ -180,6 +181,11 @@ export default function SignupPage() {
                     <EyeIcon open={showPassword} />
                   </button>
                 </div>
+                {password.length > 0 && password.length < 8 && (
+                  <p className="text-xs text-amber-800">
+                    Password must be at least 8 characters.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -192,6 +198,7 @@ export default function SignupPage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     autoComplete="new-password"
+                    minLength={8}
                   />
                   <button
                     type="button"
@@ -202,6 +209,16 @@ export default function SignupPage() {
                     <EyeIcon open={showConfirmPassword} />
                   </button>
                 </div>
+                {confirmPassword.length > 0 && confirmPassword.length < 8 && (
+                  <p className="text-xs text-amber-800">
+                    Confirm password must be at least 8 characters.
+                  </p>
+                )}
+                {password.length >= 8 &&
+                  confirmPassword.length >= 8 &&
+                  password !== confirmPassword && (
+                    <p className="text-xs text-amber-800">Passwords do not match.</p>
+                  )}
               </div>
 
               {err && (
