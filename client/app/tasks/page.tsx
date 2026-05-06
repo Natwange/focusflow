@@ -606,33 +606,33 @@ export default function TasksPage() {
               <button
                 type="button"
                 onClick={() => setShowCompleted((v) => !v)}
-                className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80"
+                className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80 dark:border-[#2a303a] dark:bg-[#1c2028] dark:hover:bg-[#232936]"
               >
                 <div className="flex items-center gap-2">
                   <ChevronDown
                     size={16}
-                    className={`text-gray-500 shrink-0 ${showCompleted ? "rotate-180" : ""}`}
+                    className={`text-gray-500 shrink-0 dark:text-[#cfd6e2] ${showCompleted ? "rotate-180" : ""}`}
                   />
-                  <span className="text-sm font-semibold text-gray-800">Completed</span>
+                  <span className="text-sm font-semibold text-gray-800 dark:text-[#f5f7fb]">Completed</span>
                 </div>
-                <span className="text-xs text-gray-500 tabular-nums">
+                <span className="text-xs text-gray-500 tabular-nums dark:text-[#cfd6e2]">
                   {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
                 </span>
               </button>
               {showCompleted && (
                 <div className="mt-4 space-y-2">
                   {completedTasks.length === 0 ? (
-                    <p className="text-sm text-gray-500 py-2">No completed tasks in this range.</p>
+                    <p className="text-sm text-gray-500 py-2 dark:text-[#cfd6e2]">No completed tasks in this range.</p>
                   ) : (
                     <ul className="space-y-2">
                       {completedTasks.map((t) => (
                         <li
                           key={t.id}
-                          className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80"
+                          className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80 dark:border-[#2a303a] dark:bg-[#171a20] dark:text-[#cfd6e2] dark:hover:bg-[#1f2430]"
                         >
                           <span className="line-through flex-1 min-w-0">{t.title}</span>
                           {t.dueDate && (
-                            <span className="text-[11px] text-gray-400 shrink-0">
+                            <span className="text-[11px] text-gray-400 shrink-0 dark:text-[#9aa4b5]">
                               {formatDueDateTime(t.dueDate)}
                             </span>
                           )}
@@ -660,33 +660,33 @@ export default function TasksPage() {
             <button
               type="button"
               onClick={() => setShowCompleted((v) => !v)}
-              className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80"
+              className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80 dark:border-[#2a303a] dark:bg-[#1c2028] dark:hover:bg-[#232936]"
             >
               <div className="flex items-center gap-2">
                 <ChevronDown
                   size={16}
-                  className={`text-gray-500 shrink-0 ${showCompleted ? "rotate-180" : ""}`}
+                  className={`text-gray-500 shrink-0 dark:text-[#cfd6e2] ${showCompleted ? "rotate-180" : ""}`}
                 />
-                <span className="text-sm font-semibold text-gray-800">Completed</span>
+                <span className="text-sm font-semibold text-gray-800 dark:text-[#f5f7fb]">Completed</span>
               </div>
-              <span className="text-xs text-gray-500 tabular-nums">
+              <span className="text-xs text-gray-500 tabular-nums dark:text-[#cfd6e2]">
                 {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
               </span>
             </button>
             {showCompleted && (
               <div className="mt-4 space-y-2">
                 {completedTasks.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-2">No completed tasks in this range.</p>
+                  <p className="text-sm text-gray-500 py-2 dark:text-[#cfd6e2]">No completed tasks in this range.</p>
                 ) : (
                   <ul className="space-y-2">
                     {completedTasks.map((t) => (
                       <li
                         key={t.id}
-                        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80"
+                        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80 dark:border-[#2a303a] dark:bg-[#171a20] dark:text-[#cfd6e2] dark:hover:bg-[#1f2430]"
                       >
                         <span className="line-through flex-1 min-w-0">{t.title}</span>
                         {t.dueDate && (
-                          <span className="text-[11px] text-gray-400 shrink-0">
+                          <span className="text-[11px] text-gray-400 shrink-0 dark:text-[#9aa4b5]">
                             {formatDueDateTime(t.dueDate)}
                           </span>
                         )}

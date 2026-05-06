@@ -27,7 +27,15 @@ function NavLink({ href, label }: { href: string; label: string }) {
 
 export default function Navbar() {
   const pathname = usePathname();
-  const hideNav = pathname === "/login" || pathname === "/signup" || pathname === "/";
+  const authRoutes = new Set([
+    "/",
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/reset-password",
+    "/verify-email",
+  ]);
+  const hideNav = authRoutes.has(pathname);
   const { openSettings } = useSettingsModal();
 
   const [streak, setStreak] = useState<number | null>(null);

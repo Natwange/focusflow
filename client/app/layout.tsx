@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     "Turn big goals into daily tasks, track focus and progress, and adjust when life gets messy.",
 };
 
-const themeBootstrapScript = `(function(){try{var k=${JSON.stringify(THEME_STORAGE_KEY)};var v=localStorage.getItem(k);var d=document.documentElement;var dark=v==="dark"||(v!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);d.classList.toggle("dark",dark);}catch(e){}})();`;
+const themeBootstrapScript = `(function(){try{var k=${JSON.stringify(THEME_STORAGE_KEY)};var v=localStorage.getItem(k);var d=document.documentElement;var p=window.location.pathname||"";var publicLight=p==="/"||p==="/login"||p==="/signup"||p==="/forgot-password"||p==="/reset-password"||p==="/verify-email";if(publicLight){d.classList.remove("dark");return;}var dark=v==="dark"||(v!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);d.classList.toggle("dark",dark);}catch(e){}})();`;
 
 export default function RootLayout({
   children,

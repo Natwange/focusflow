@@ -14,7 +14,7 @@ export function redirectToLoginAfterUnauthorized(apiPath: string): void {
   const base = requestBasePath(apiPath);
   if (base === "/auth/login" || base === "/auth/register") return;
 
-  const p = window.location.pathname;
+  const p = window.location.pathname.replace(/\/+$/, "") || "/";
   // Landing + auth flows: `/me` may 401; do not hijack the user away from these routes.
   if (
     p === "/" ||

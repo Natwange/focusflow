@@ -53,13 +53,14 @@ function ResetPasswordForm() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const canSubmit =
     token.length > 0 &&
     password.length >= 8 &&
-    password === confirm;
+    confirm.length >= 8;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -134,17 +135,40 @@ function ResetPasswordForm() {
               <EyeIcon open={showPw} />
             </button>
           </div>
+          {password.length > 0 && password.length < 8 && (
+            <p className="text-xs text-amber-700">
+              Password must be at least 8 characters.
+            </p>
+          )}
         </div>
         <div className="space-y-2">
           <label className="text-xs font-medium text-black/60">Confirm password</label>
-          <input
-            type={showPw ? "text" : "password"}
-            className="w-full rounded-lg border border-black/10 bg-white px-3 py-2.5 text-sm text-black outline-none transition focus:border-black/25 focus:ring-4 focus:ring-[#8FABD4]/25"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            autoComplete="new-password"
-            minLength={8}
-          />
+          <div className="relative">
+            <input
+              type={showConfirmPw ? "text" : "password"}
+              className="w-full rounded-lg border border-black/10 bg-white px-3 py-2.5 pr-11 text-sm text-black outline-none transition focus:border-black/25 focus:ring-4 focus:ring-[#8FABD4]/25"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password"
+              minLength={8}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPw((v) => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-black/45 hover:text-black/70"
+              aria-label={showConfirmPw ? "Hide confirm password" : "Show confirm password"}
+            >
+              <EyeIcon open={showConfirmPw} />
+            </button>
+          </div>
+          {confirm.length > 0 && confirm.length < 8 && (
+            <p className="text-xs text-amber-700">
+              Confirm password must be at least 8 characters.
+            </p>
+          )}
+          {confirm.length >= 8 && password.length >= 8 && password !== confirm && (
+            <p className="text-xs text-amber-700">Passwords do not match.</p>
+          )}
         </div>
         {err && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
