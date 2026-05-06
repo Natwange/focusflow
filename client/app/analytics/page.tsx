@@ -297,16 +297,16 @@ function AssistantInsightsCard({
 }) {
   return (
     <Card className="overflow-hidden border-gray-200/90">
-      <div className="px-5 py-4 border-b border-gray-100/90 bg-gradient-to-br from-[#F8F9FB] to-white flex items-start gap-3">
+      <div className="px-5 py-4 border-b border-gray-100/90 bg-gradient-to-br from-[#F8F9FB] to-white flex items-start gap-3 dark:border-[#2a303a] dark:from-[#1c2028] dark:to-[#1c2028]">
         <div
-          className="w-9 h-9 rounded-xl bg-white border border-gray-200/80 flex items-center justify-center shrink-0"
+          className="w-9 h-9 rounded-xl bg-white border border-gray-200/80 flex items-center justify-center shrink-0 dark:bg-[#171a20] dark:border-[#2a303a]"
           style={{ color: "#7A94B8" }}
         >
           <Sparkles size={18} strokeWidth={1.75} aria-hidden />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900">Insights</p>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-sm font-semibold text-gray-900 dark:text-[#f5f7fb]">Insights</p>
+          <p className="text-xs text-gray-500 mt-0.5 dark:text-[#cfd6e2]">
             From your stored tasks, focus sessions, and agent runs (rolling window —
             UTC weekdays; see headline).
           </p>
@@ -336,16 +336,16 @@ function AssistantInsightsCard({
 function AssistantRecommendationsCard({ items }: { items: string[] }) {
   return (
     <Card className="overflow-hidden border-gray-200/90">
-      <div className="px-5 py-4 border-b border-gray-100/90 bg-gradient-to-br from-[#F8F9FB] to-white flex items-start gap-3">
+      <div className="px-5 py-4 border-b border-gray-100/90 bg-gradient-to-br from-[#F8F9FB] to-white flex items-start gap-3 dark:border-[#2a303a] dark:from-[#1c2028] dark:to-[#1c2028]">
         <div
-          className="w-9 h-9 rounded-xl bg-white border border-gray-200/80 flex items-center justify-center shrink-0"
+          className="w-9 h-9 rounded-xl bg-white border border-gray-200/80 flex items-center justify-center shrink-0 dark:bg-[#171a20] dark:border-[#2a303a]"
           style={{ color: "#7A94B8" }}
         >
           <Lightbulb size={18} strokeWidth={1.75} aria-hidden />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900">Recommendations</p>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-sm font-semibold text-gray-900 dark:text-[#f5f7fb]">Recommendations</p>
+          <p className="text-xs text-gray-500 mt-0.5 dark:text-[#cfd6e2]">
             Next steps tied to counts in the same activity sample — not generic filler.
           </p>
         </div>

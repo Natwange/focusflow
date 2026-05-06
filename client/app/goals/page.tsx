@@ -869,7 +869,7 @@ export default function GoalsPage() {
                 <button
                   type="submit"
                   disabled={!canSubmit || creating}
-                  className="order-1 sm:order-2 shrink-0 rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-900/90 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="order-1 sm:order-2 shrink-0 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm transition hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {creating ? "Planning…" : "Create goal & tasks"}
                 </button>
@@ -1097,21 +1097,21 @@ export default function GoalsPage() {
 
                     {isExpanded && (
                       <div className="space-y-4 pt-1 border-t border-gray-200/80">
-                        <div className="rounded-lg border border-gray-200 bg-gray-100/90 p-4 space-y-3">
+                        <div className="rounded-lg border border-gray-200 bg-gray-100/90 p-4 space-y-3 dark:border-[#2a303a] dark:bg-[#1c2028]">
                           <div className="flex items-start justify-between gap-2">
-                            <h3 className="text-sm font-semibold text-gray-900">Agent Insight</h3>
+                            <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f5f7fb]">Agent Insight</h3>
                             <button
                               type="button"
                               onClick={() => void loadAgentPreview(g.id)}
                               disabled={agentPreviewLoading[g.id]}
-                              className="text-xs font-medium text-gray-600 hover:text-black underline underline-offset-2 disabled:opacity-50"
+                              className="text-xs font-medium text-gray-600 hover:text-black underline underline-offset-2 disabled:opacity-50 dark:text-[#cfd6e2] dark:hover:text-[#f5f7fb]"
                             >
                               {agentPreviewLoading[g.id] ? "Refreshing…" : "Refresh"}
                             </button>
                           </div>
 
                           {agentPreviewLoading[g.id] && !agentPreviewByGoal[g.id] && (
-                            <p className="text-xs text-gray-500">Loading agent preview…</p>
+                            <p className="text-xs text-gray-500 dark:text-[#cfd6e2]">Loading agent preview…</p>
                           )}
                           {agentPreviewError[g.id] && (
                             <p className="text-xs text-red-600">{agentPreviewError[g.id]}</p>
@@ -1124,7 +1124,7 @@ export default function GoalsPage() {
                             <>
                               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
                                 <div>
-                                  <dt className="text-gray-500">Status</dt>
+                                  <dt className="text-gray-500 dark:text-[#cfd6e2]">Status</dt>
                                   <dd
                                     className={`font-semibold text-sm ${statusToneClass(
                                       agentPreviewByGoal[g.id]?.evaluation?.status
@@ -1134,8 +1134,8 @@ export default function GoalsPage() {
                                   </dd>
                                 </div>
                                 <div>
-                                  <dt className="text-gray-500">Completion</dt>
-                                  <dd className="font-medium text-gray-900">
+                                  <dt className="text-gray-500 dark:text-[#cfd6e2]">Completion</dt>
+                                  <dd className="font-medium text-gray-900 dark:text-[#f5f7fb]">
                                     {typeof agentPreviewByGoal[g.id]?.evaluation?.completionRate ===
                                     "number"
                                       ? `${(
@@ -1146,13 +1146,13 @@ export default function GoalsPage() {
                                   </dd>
                                 </div>
                                 <div>
-                                  <dt className="text-gray-500">
+                                  <dt className="text-gray-500 dark:text-[#cfd6e2]">
                                     {agentPreviewByGoal[g.id]?.failureAnalysis?.primaryFailureMode ===
                                     "no_failure_detected"
                                       ? "System Status"
                                       : "Primary issue"}
                                   </dt>
-                                  <dd className="font-medium text-gray-900">
+                                  <dd className="font-medium text-gray-900 dark:text-[#f5f7fb]">
                                     {agentPreviewByGoal[g.id]?.failureAnalysis?.primaryFailureMode ===
                                     "no_failure_detected"
                                       ? "No issues detected"
@@ -1162,17 +1162,17 @@ export default function GoalsPage() {
                                   </dd>
                                 </div>
                                 <div>
-                                  <dt className="text-gray-500">Severity</dt>
-                                  <dd className="font-medium text-gray-900">
+                                  <dt className="text-gray-500 dark:text-[#cfd6e2]">Severity</dt>
+                                  <dd className="font-medium text-gray-900 dark:text-[#f5f7fb]">
                                     {formatAgentSeverity(
                                       agentPreviewByGoal[g.id]?.failureAnalysis?.severity
                                     )}
                                   </dd>
                                 </div>
                               </dl>
-                              <p className="text-xs text-gray-800 leading-relaxed">
-                                <span className="font-medium text-gray-700">Recommendation: </span>
-                                <span className="font-semibold text-gray-950">
+                              <p className="text-xs text-gray-800 leading-relaxed dark:text-[#cfd6e2]">
+                                <span className="font-medium text-gray-700 dark:text-[#f5f7fb]">Recommendation: </span>
+                                <span className="font-semibold text-gray-950 dark:text-[#f5f7fb]">
                                   {recommendationFromStatus(
                                     agentPreviewByGoal[g.id]?.evaluation?.status
                                   )}
@@ -1200,23 +1200,23 @@ export default function GoalsPage() {
                                   type="button"
                                   disabled={!!agentApplyLoading[g.id]}
                                   onClick={() => void applyAgentRebalance(g.id)}
-                                  className="rounded-lg bg-black px-4 py-2 text-xs font-medium text-white hover:bg-black/90 disabled:opacity-50"
+                                  className="rounded-lg bg-black px-4 py-2 text-xs font-medium text-white hover:bg-black/90 disabled:opacity-50 dark:bg-white dark:text-[#0b0c0f] dark:hover:bg-white/90"
                                 >
                                   {agentApplyLoading[g.id] ? "Applying…" : "Apply Rebalance"}
                                 </button>
                               ) : (
-                                <div className="text-xs text-gray-600 space-y-1 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                                <div className="text-xs text-gray-600 space-y-1 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-[#2a303a] dark:bg-[#171a20] dark:text-[#cfd6e2]">
                                   <p>
-                                    <span className="font-medium text-gray-800">Next Action: </span>
+                                    <span className="font-medium text-gray-800 dark:text-[#f5f7fb]">Next Action: </span>
                                     <span>{formatNextAction(agentPreviewByGoal[g.id]?.nextAction)}</span>
                                   </p>
                                   {agentPreviewByGoal[g.id]?.rebalanceRecommendation?.reason && (
-                                    <p className="text-gray-700">
-                                      <span className="font-medium text-gray-800">Reason: </span>
+                                    <p className="text-gray-700 dark:text-[#cfd6e2]">
+                                      <span className="font-medium text-gray-800 dark:text-[#f5f7fb]">Reason: </span>
                                       {agentPreviewByGoal[g.id]!.rebalanceRecommendation.reason}
                                     </p>
                                   )}
-                                  <p className="text-gray-500">
+                                  <p className="text-gray-500 dark:text-[#cfd6e2]">
                                     Based on your current pace and workload, your schedule is achievable.
                                   </p>
                                 </div>

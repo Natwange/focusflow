@@ -122,7 +122,7 @@ export default function JournalPage() {
               type="button"
               onClick={createNote}
               disabled={createNoteLoading}
-              className="mt-1 rounded-full bg-gray-900 text-white px-5 py-2.5 text-sm font-medium hover:bg-gray-900/90 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="mt-1 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm transition hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {createNoteLoading ? "Creating…" : "New note"}
             </button>

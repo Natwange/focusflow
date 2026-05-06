@@ -69,49 +69,52 @@ export default function Navbar() {
   if (hideNav) return null;
 
   return (
-    <header className="relative z-10 bg-background">
-      <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-        <Link
-          href="/dashboard"
-          className="text-muted-foreground tracking-[0.22em] hover:text-foreground"
-        >
-          FOCUSFLOW
-        </Link>
-        <nav className="flex gap-6 text-sm">
-          <NavLink href="/dashboard" label="Dashboard" />
-          <NavLink href="/goals" label="Goals" />
-          <NavLink href="/tasks" label="Tasks" />
-          <NavLink href="/focus" label="Focus" />
-          <NavLink href="/analytics" label="Analytics" />
-          <NavLink href="/journal" label="Journal" />
-        </nav>
-        <div className="flex items-center gap-3">
-          {streak !== null && (
-            <div className="hidden sm:inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-foreground bg-card-muted">
-              <span className="text-muted-foreground">Streak</span>
-              <span className="font-semibold text-foreground">{streak}d</span>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={openSettings}
-            className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition hover:bg-card-muted hover:text-foreground"
-            aria-label="Open settings"
+    <>
+      <header className="fixed inset-x-0 top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b border-border">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <Link
+            href="/dashboard"
+            className="text-muted-foreground tracking-[0.22em] hover:text-foreground"
           >
-            <Settings size={18} strokeWidth={1.75} />
-          </button>
-          <button
-            type="button"
-            onClick={openSettings}
-            className="h-9 w-9 rounded-full border border-border flex items-center justify-center text-sm text-foreground hover:bg-card-muted"
-            aria-label="Account settings"
-          >
-            <span className="tabular-nums tracking-tight">
-              {avatarInitials ?? "…"}
-            </span>
-          </button>
+            FOCUSFLOW
+          </Link>
+          <nav className="flex gap-6 text-sm">
+            <NavLink href="/dashboard" label="Dashboard" />
+            <NavLink href="/goals" label="Goals" />
+            <NavLink href="/tasks" label="Tasks" />
+            <NavLink href="/focus" label="Focus" />
+            <NavLink href="/analytics" label="Analytics" />
+            <NavLink href="/journal" label="Journal" />
+          </nav>
+          <div className="flex items-center gap-3">
+            {streak !== null && (
+              <div className="hidden sm:inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-foreground bg-card-muted">
+                <span className="text-muted-foreground">Streak</span>
+                <span className="font-semibold text-foreground">{streak}d</span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={openSettings}
+              className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition hover:bg-card-muted hover:text-foreground"
+              aria-label="Open settings"
+            >
+              <Settings size={18} strokeWidth={1.75} />
+            </button>
+            <button
+              type="button"
+              onClick={openSettings}
+              className="h-9 w-9 rounded-full border border-border flex items-center justify-center text-sm text-foreground hover:bg-card-muted"
+              aria-label="Account settings"
+            >
+              <span className="tabular-nums tracking-tight">
+                {avatarInitials ?? "…"}
+              </span>
+            </button>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+      <div aria-hidden className="h-[73px]" />
+    </>
   );
 }

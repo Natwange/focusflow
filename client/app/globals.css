@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Tailwind v4: make `dark:*` utilities respond to `.dark` on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -65,6 +68,106 @@ body {
   }
 }
 
+/* In dark mode, the page wrapper should be dark too (not just the navbar). */
+.dark .ff-page {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Global dark palette for page surfaces (cards > page bg). */
+.dark {
+  --background: #0b0c0f;
+  --foreground: #f5f7fb;
+  --muted-foreground: #cfd6e2;
+  --card: #171a20;
+  --card-muted: #1c2028;
+  --border: #2a303a;
+  --input: #1a1d24;
+}
+
+.dark html,
+.dark body,
+.dark .ff-page {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Cards and light panels become lighter dark surfaces. */
+.dark .ff-page .bg-white,
+.dark .ff-page [class*="bg-[#FAFAFA]"],
+.dark .ff-page [class*="bg-[#F9F9F9]"],
+.dark .ff-page .bg-gray-50,
+.dark .ff-page .bg-gray-100,
+.dark .ff-page .bg-gray-200,
+.dark .ff-page [class*="bg-white/"] {
+  background-color: var(--card) !important;
+  color: var(--foreground) !important;
+}
+
+/* Keep contrast readable in dark mode. */
+.dark .ff-page .text-black,
+.dark .ff-page .text-gray-900,
+.dark .ff-page .text-gray-800,
+.dark .ff-page .text-gray-700 {
+  color: var(--foreground) !important;
+}
+
+.dark .ff-page .text-gray-600,
+.dark .ff-page .text-gray-500,
+.dark .ff-page .text-gray-400,
+.dark .ff-page .text-black\/55,
+.dark .ff-page .text-black\/45,
+.dark .ff-page .text-black\/40 {
+  color: var(--muted-foreground) !important;
+}
+
+.dark .ff-page .border-gray-100,
+.dark .ff-page .border-gray-200,
+.dark .ff-page .border-gray-300,
+.dark .ff-page [class*="border-black/10"] {
+  border-color: var(--border) !important;
+}
+
+/* Preserve card depth in dark mode (light shadow glow + soft drop). */
+.dark .ff-page .shadow-sm {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05),
+    0 8px 24px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Primary black buttons invert to white-on-dark style in page content. */
+.dark .ff-page button.bg-black,
+.dark .ff-page a.bg-black {
+  background-color: #ffffff !important;
+  color: #0b0c0f !important;
+}
+
+.dark .ff-page button.bg-gray-900,
+.dark .ff-page a.bg-gray-900 {
+  background-color: #ffffff !important;
+  color: #0b0c0f !important;
+}
+
+/* Secondary hover surfaces. */
+.dark .ff-page .hover\:bg-gray-50:hover,
+.dark .ff-page .hover\:bg-white:hover {
+  background-color: var(--card-muted) !important;
+}
+
+/* Improve legibility for pills/chips that still render light in some views. */
+.dark .ff-page .bg-white .text-white,
+.dark .ff-page .bg-gray-100 .text-white,
+.dark .ff-page .bg-gray-200 .text-white {
+  color: #0b0c0f !important;
+}
+
+/* Reverse/tune image tones for dark mode across pages. */
+.dark main img,
+.dark .ff-page img {
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.05) !important;
+  mix-blend-mode: screen;
+}
+
 header {
   border-top-width: 0 !important;
   border-top-style: none !important;
@@ -100,7 +203,7 @@ header {
 
 .dark .ink-text {
   color: rgba(255, 255, 255, 0.88);
-  text-shadow: 0 0 0.4px rgba(255, 255, 255, 0.2);
+  text-shadow: none;
 }
 
 .font-journal-playful {

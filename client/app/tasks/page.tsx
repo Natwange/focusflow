@@ -392,7 +392,7 @@ export default function TasksPage() {
         <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div
-              className="inline-flex rounded-lg border border-gray-200 bg-gray-100/90 p-0.5"
+              className="inline-flex rounded-full border border-gray-200 bg-[#F9F9F9] p-1"
               role="tablist"
               aria-label="Calendar range"
             >
@@ -403,10 +403,10 @@ export default function TasksPage() {
                   role="tab"
                   aria-selected={view === v}
                   onClick={() => setView(v)}
-                  className={`rounded-md px-4 py-2 text-sm font-medium capitalize ${
+                  className={`rounded-full px-4 py-2 text-sm font-medium capitalize transition ${
                     view === v
-                      ? "bg-gray-900 text-white shadow-sm"
-                      : "text-gray-500 hover:text-gray-800"
+                      ? "bg-white text-gray-900 shadow-sm border border-gray-200"
+                      : "text-gray-600 hover:text-gray-900"
                   }`}
                 >
                   {v}
