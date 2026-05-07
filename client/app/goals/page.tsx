@@ -709,7 +709,7 @@ export default function GoalsPage() {
             alt="Small steps. Big trajectory."
             width={360}
             height={240}
-            className="opacity-90 contrast-150 object-contain w-full max-w-[260px] sm:max-w-[340px] self-center md:self-auto md:-translate-x-16"
+            className="opacity-90 contrast-125 object-contain mix-blend-multiply w-full max-w-[260px] sm:max-w-[340px] self-center md:self-auto md:-translate-x-16"
           />
         </section>
 

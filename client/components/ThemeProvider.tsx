@@ -34,7 +34,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const [preference, setPreferenceState] = useState<ThemePreference>("system");
+  const [preference, setPreferenceState] = useState<ThemePreference>("light");
 
   const syncDocumentTheme = useCallback(() => {
     if (PUBLIC_LIGHT_ONLY.has(pathname)) {

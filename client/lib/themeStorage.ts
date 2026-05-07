@@ -3,14 +3,14 @@ export type ThemePreference = "light" | "dark" | "system";
 export const THEME_STORAGE_KEY = "focusflow_theme";
 
 export function readThemePreference(): ThemePreference {
-  if (typeof window === "undefined") return "system";
+  if (typeof window === "undefined") return "light";
   try {
     const v = localStorage.getItem(THEME_STORAGE_KEY);
     if (v === "light" || v === "dark" || v === "system") return v;
   } catch {
     /* ignore */
   }
-  return "system";
+  return "light";
 }
 
 export function writeThemePreference(pref: ThemePreference): void {

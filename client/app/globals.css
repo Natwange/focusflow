@@ -161,13 +161,6 @@ body {
   color: #0b0c0f !important;
 }
 
-/* Reverse/tune image tones for dark mode across pages. */
-.dark main img,
-.dark .ff-page img {
-  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(1.05) !important;
-  mix-blend-mode: screen;
-}
-
 header {
   border-top-width: 0 !important;
   border-top-style: none !important;
