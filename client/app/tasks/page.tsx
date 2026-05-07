@@ -352,7 +352,7 @@ export default function TasksPage() {
 
   return (
     <div className="ff-page">
-      <main className="mx-auto max-w-6xl px-6 py-8 space-y-8">
+      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-8 space-y-8">
         {/* Header */}
         <section className="rounded-2xl border border-gray-200 bg-white p-6 md:p-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 shadow-sm">
           <div className="space-y-2">
@@ -422,7 +422,7 @@ export default function TasksPage() {
               >
                 <ChevronLeft size={20} />
               </button>
-              <span className="min-w-[180px] text-center text-sm font-semibold text-gray-800 tabular-nums">
+              <span className="min-w-[150px] sm:min-w-[180px] text-center text-xs sm:text-sm font-semibold text-gray-800 tabular-nums">
                 {view === "week" &&
                   `${formatShort(startOfWeek(cursor))} – ${formatShort(endOfWeek(cursor))}`}
                 {view === "month" &&
@@ -444,8 +444,9 @@ export default function TasksPage() {
         {/* Week view: day strip + task list */}
         {view === "week" && (
           <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm space-y-8">
-            <div className="grid grid-cols-7 gap-2 md:gap-3">
-              {getWeekDays(startOfWeek(cursor)).map((d) => {
+            <div className="overflow-x-auto">
+              <div className="grid grid-cols-7 gap-2 md:gap-3 min-w-[700px]">
+                {getWeekDays(startOfWeek(cursor)).map((d) => {
                 const key = toISODate(d);
                 const isToday = toISODate(d) === toISODate(new Date());
                 const dayTasks = tasksByDate.get(key) || [];
@@ -465,7 +466,8 @@ export default function TasksPage() {
                     <div className="text-xs text-gray-500 mt-1.5">{dayTasks.length} tasks</div>
                   </div>
                 );
-              })}
+                })}
+              </div>
             </div>
             <div className="border-t border-gray-100 pt-8">
               <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500 mb-4">
@@ -494,18 +496,20 @@ export default function TasksPage() {
         {/* Month view: grid + task list for selected range */}
         {view === "month" && (
           <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm space-y-8">
-            <div className="grid grid-cols-7 gap-1 mb-3">
-              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
-                <div
-                  key={w}
-                  className="text-center text-[11px] font-semibold uppercase tracking-wide text-gray-400 py-2"
-                >
-                  {w}
+            <div className="overflow-x-auto">
+              <div className="min-w-[700px]">
+                <div className="grid grid-cols-7 gap-1 mb-3">
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
+                    <div
+                      key={w}
+                      className="text-center text-[11px] font-semibold uppercase tracking-wide text-gray-400 py-2"
+                    >
+                      {w}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-7 gap-1.5">
-              {getMonthGrid(startOfMonth(cursor)).flat().map((d, i) => {
+                <div className="grid grid-cols-7 gap-1.5">
+                  {getMonthGrid(startOfMonth(cursor)).flat().map((d, i) => {
                 if (!d) return <div key={`empty-${i}`} className="min-h-[76px] rounded-lg bg-gray-50/60" />;
                 const key = toISODate(d);
                 const isToday = key === toISODate(new Date());
@@ -538,7 +542,9 @@ export default function TasksPage() {
                     )}
                   </div>
                 );
-              })}
+                  })}
+                </div>
+              </div>
             </div>
             <div className="border-t border-gray-100 pt-8">
               <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500 mb-4">

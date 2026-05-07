@@ -141,14 +141,14 @@ export default function DashboardPage() {
 
   return (
     <div className="ff-page flex flex-col">
-      <main className="max-w-6xl mx-auto px-6 pt-10 pb-20 space-y-10">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-20 space-y-8 sm:space-y-10">
         {goalsError && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             {goalsError}
           </div>
         )}
         {/* HERO */}
-        <section className="rounded-2xl border border-gray-200 bg-white p-10 shadow-sm flex items-center justify-between">
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-8 md:p-10 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="max-w-xl space-y-4">
             <h1 className="text-3xl font-semibold leading-tight">
               Stay consistent. Finish
@@ -183,14 +183,14 @@ export default function DashboardPage() {
             alt="Focus and plan your day"
             width={300}
             height={200}
-            className="opacity-95 object-contain md:-translate-x-4"
+            className="opacity-95 object-contain w-full max-w-[260px] sm:max-w-[300px] self-center md:self-auto md:-translate-x-4"
           />
         </section>
 
         {/* GRID */}
-        <section className="grid grid-cols-3 gap-6">
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* TODAY'S TASKS */}
-          <div className="col-span-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm">
             <h2 className="text-lg font-semibold tracking-tight">Today&#39;s Tasks</h2>
 
             <div className="space-y-2 mt-3 text-sm">

@@ -668,9 +668,9 @@ export default function GoalsPage() {
 
   return (
     <div className="ff-page flex flex-col">
-      <main className="w-full max-w-6xl mx-auto px-6 pt-10 pb-20 space-y-10">
+      <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-20 space-y-8 sm:space-y-10">
         {/* HERO */}
-        <section className="rounded-2xl border border-gray-200 bg-white p-10 flex items-center justify-between shadow-sm">
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-8 md:p-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm">
           <div className="max-w-xl space-y-4">
             <h1 className="text-3xl font-semibold leading-tight">
               Small steps. Big trajectory.
@@ -709,7 +709,7 @@ export default function GoalsPage() {
             alt="Small steps. Big trajectory."
             width={360}
             height={240}
-            className="opacity-90 contrast-150 md:-translate-x-16 object-contain"
+            className="opacity-90 contrast-150 object-contain w-full max-w-[260px] sm:max-w-[340px] self-center md:self-auto md:-translate-x-16"
           />
         </section>
 

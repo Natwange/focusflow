@@ -101,9 +101,9 @@ export default function JournalPage() {
 
   return (
     <div className="ff-page">
-      <main className="mx-auto max-w-6xl px-6 py-6 space-y-8">
+      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 space-y-8">
         {/* Hero */}
-        <section className="border border-gray-200 rounded-2xl bg-white p-6 md:p-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 shadow-sm">
+        <section className="border border-gray-200 rounded-2xl bg-white p-5 sm:p-6 md:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6 shadow-sm">
           <div className="max-w-xl space-y-3">
             <h1 className="text-2xl md:text-3xl font-semibold leading-snug text-gray-900">
               Turn today into a page
@@ -133,7 +133,7 @@ export default function JournalPage() {
             alt="Journal – turn today into a page worth re-reading"
             width={260}
             height={174}
-            className="opacity-95 object-contain shrink-0 md:-translate-x-2"
+            className="opacity-95 object-contain w-full max-w-[240px] self-center md:self-auto shrink-0 md:-translate-x-2"
           />
         </section>
 

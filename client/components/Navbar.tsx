@@ -79,14 +79,14 @@ export default function Navbar() {
   return (
     <>
       <header className="fixed inset-x-0 top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b border-border">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
           <Link
             href="/dashboard"
-            className="text-muted-foreground tracking-[0.22em] hover:text-foreground"
+            className="text-muted-foreground tracking-[0.18em] sm:tracking-[0.22em] text-sm sm:text-base hover:text-foreground"
           >
             FOCUSFLOW
           </Link>
-          <nav className="flex gap-6 text-sm">
+          <nav className="hidden md:flex gap-6 text-sm">
             <NavLink href="/dashboard" label="Dashboard" />
             <NavLink href="/goals" label="Goals" />
             <NavLink href="/tasks" label="Tasks" />
@@ -94,7 +94,7 @@ export default function Navbar() {
             <NavLink href="/analytics" label="Analytics" />
             <NavLink href="/journal" label="Journal" />
           </nav>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             {streak !== null && (
               <div className="hidden sm:inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-foreground bg-card-muted">
                 <span className="text-muted-foreground">Streak</span>
@@ -112,7 +112,7 @@ export default function Navbar() {
             <button
               type="button"
               onClick={openSettings}
-              className="h-9 w-9 rounded-full border border-border flex items-center justify-center text-sm text-foreground hover:bg-card-muted"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full border border-border flex items-center justify-center text-sm text-foreground hover:bg-card-muted"
               aria-label="Account settings"
             >
               <span className="tabular-nums tracking-tight">
@@ -121,8 +121,18 @@ export default function Navbar() {
             </button>
           </div>
         </div>
+        <div className="md:hidden border-t border-border/80 px-4 pb-2 pt-1 overflow-x-auto">
+          <nav className="flex min-w-max items-center gap-4 text-sm">
+            <NavLink href="/dashboard" label="Dashboard" />
+            <NavLink href="/goals" label="Goals" />
+            <NavLink href="/tasks" label="Tasks" />
+            <NavLink href="/focus" label="Focus" />
+            <NavLink href="/analytics" label="Analytics" />
+            <NavLink href="/journal" label="Journal" />
+          </nav>
+        </div>
       </header>
-      <div aria-hidden className="h-[73px]" />
+      <div aria-hidden className="h-[92px] md:h-[73px]" />
     </>
   );
 }
