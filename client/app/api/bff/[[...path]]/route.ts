@@ -28,6 +28,24 @@ function rewriteSetCookieForBff(header: string): string {
   return h;
 }
 
+/**
+ * Runtime-safe Set-Cookie extraction.
+ * Some runtimes expose headers.getSetCookie(), others only expose a single combined header.
+ */
+function extractSetCookieLines(headers: Headers): string[] {
+  const native = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  if (typeof native === "function") {
+    return native.call(headers);
+  }
+
+  const combined = headers.get("set-cookie");
+  if (!combined) return [];
+
+  // Split on cookie boundaries (comma followed by next cookie key=...).
+  // This avoids splitting the Expires attribute, which contains a comma.
+  return combined.split(/,(?=\s*[^=;,\s]+=[^;]*)/g).map((v) => v.trim()).filter(Boolean);
+}
+
 async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResponse> {
   const backend = backendBase();
   if (!backend) {
@@ -65,10 +83,7 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
   const outCt = upstream.headers.get("content-type");
   if (outCt) res.headers.set("content-type", outCt);
 
-  const setCookies =
-    typeof upstream.headers.getSetCookie === "function"
-      ? upstream.headers.getSetCookie()
-      : [];
+  const setCookies = extractSetCookieLines(upstream.headers);
 
   for (const line of setCookies) {
     res.headers.append("Set-Cookie", rewriteSetCookieForBff(line));

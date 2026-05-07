@@ -10,8 +10,9 @@ function isProduction() {
 
 /**
  * Auth cookies on a different host than the web app (e.g. Vercel + API on Railway) are cross-site.
- * Use COOKIE_SAME_SITE=none in production so credentialed fetch() sends cookies (requires HTTPS / secure).
- * Same-host deployments can keep the default strict in production.
+ * Mobile browsers are especially strict with auth cookies on cross-origin fetch requests.
+ * Default production behavior to SameSite=None (+Secure) so sign-in persists on mobile.
+ * You can still override via COOKIE_SAME_SITE to "strict" or "lax" if needed.
  */
 function httpOnlyCookieBaseOptions() {
   const prod = isProduction();
@@ -20,7 +21,7 @@ function httpOnlyCookieBaseOptions() {
   if (raw === "none" || raw === "strict" || raw === "lax") {
     sameSite = raw;
   } else if (prod) {
-    sameSite = "strict";
+    sameSite = "none";
   }
   const secure = sameSite === "none" ? true : prod;
   return {
