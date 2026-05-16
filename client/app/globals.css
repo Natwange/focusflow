@@ -66,6 +66,19 @@ body {
   .ff-page {
     @apply min-h-screen bg-[#FAFAFA] text-black;
   }
+
+  /* Line-art hero PNGs: black strokes on white — blend into card in light/dark */
+  .ff-illustration {
+    object-fit: contain;
+    opacity: 0.95;
+    mix-blend-mode: multiply;
+  }
+
+  .dark .ff-illustration {
+    mix-blend-mode: screen;
+    filter: invert(1);
+    opacity: 0.92;
+  }
 }
 
 /* In dark mode, the page wrapper should be dark too (not just the navbar). */

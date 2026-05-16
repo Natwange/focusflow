@@ -133,7 +133,7 @@ export default function JournalPage() {
             alt="Journal – turn today into a page worth re-reading"
             width={260}
             height={174}
-            className="opacity-95 object-contain w-full max-w-[240px] self-center md:self-auto shrink-0 md:-translate-x-2"
+            className="ff-illustration w-full max-w-[240px] self-center md:self-auto shrink-0 md:-translate-x-2"
           />
         </section>
 

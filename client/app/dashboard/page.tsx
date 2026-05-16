@@ -190,7 +190,7 @@ export default function DashboardPage() {
             width={300}
             height={200}
             priority
-            className="opacity-95 object-contain w-full max-w-[260px] sm:max-w-[300px] self-center md:self-auto md:-translate-x-4"
+            className="ff-illustration w-full max-w-[260px] sm:max-w-[300px] self-center md:self-auto md:-translate-x-4"
           />
         </section>
 
