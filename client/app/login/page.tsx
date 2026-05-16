@@ -64,12 +64,14 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
   const [resetOk, setResetOk] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
+  const [registeredOk, setRegisteredOk] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search);
     setResetOk(q.get("reset") === "1");
     setTimedOut(q.get("timeout") === "1");
+    setRegisteredOk(q.get("registered") === "1");
   }, []);
 
   // Simple check used to disable the button until the form looks valid
@@ -123,6 +125,13 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-black/55">
             Stay consistent. Finish what you start.
           </p>
+
+          {registeredOk && (
+            <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              Account created. Sign in with the email and password you just set.
+              Check your inbox for a verification link when you have a moment.
+            </p>
+          )}
 
           {resetOk && (
             <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">

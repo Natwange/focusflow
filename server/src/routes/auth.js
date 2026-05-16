@@ -100,11 +100,12 @@ router.post("/register", validateBody(registerBodySchema), async (req, res) => {
       console.error("Verification email error:", err);
     }
 
-    await establishSession(res, user);
-
     return res.status(201).json({
-      ...user,
-      emailVerified: Boolean(user.emailVerifiedAt),
+      message: "Account created. Sign in with your email and password.",
+      user: {
+        ...user,
+        emailVerified: Boolean(user.emailVerifiedAt),
+      },
     });
   } catch (err) {
     console.error("Register error:", err);

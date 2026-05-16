@@ -104,9 +104,9 @@ export default function SignupPage() {
       });
 
       setSuccess(
-        "Account created. Check your email for a verification link. Redirecting…"
+        "Account created. Check your email for a verification link. Redirecting to sign in…"
       );
-      setTimeout(() => router.push("/dashboard"), 600);
+      setTimeout(() => router.push("/login?registered=1"), 600);
     } catch (e: any) {
       setErr(e.message || "Signup failed.");
     } finally {
