@@ -1,8 +1,13 @@
-const { durationToMs } = require("./durationMs");
 const { accessCookieMaxAgeMs, refreshTtlMs } = require("./authTokens");
 
 const ACCESS_TOKEN_COOKIE = "access_token";
 const REFRESH_TOKEN_COOKIE = "refresh_token";
+
+/** When false (default), auth cookies are session cookies (cleared when the browser closes). */
+function usePersistentAuthCookies() {
+  const raw = (process.env.COOKIE_PERSIST || "").toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
 
 function isProduction() {
   return process.env.NODE_ENV === "production";
@@ -33,17 +38,19 @@ function httpOnlyCookieBaseOptions() {
 }
 
 function setAccessTokenCookie(res, token) {
-  res.cookie(ACCESS_TOKEN_COOKIE, token, {
-    ...httpOnlyCookieBaseOptions(),
-    maxAge: accessCookieMaxAgeMs(),
-  });
+  const opts = { ...httpOnlyCookieBaseOptions() };
+  if (usePersistentAuthCookies()) {
+    opts.maxAge = accessCookieMaxAgeMs();
+  }
+  res.cookie(ACCESS_TOKEN_COOKIE, token, opts);
 }
 
 function setRefreshTokenCookie(res, plainToken) {
-  res.cookie(REFRESH_TOKEN_COOKIE, plainToken, {
-    ...httpOnlyCookieBaseOptions(),
-    maxAge: refreshTtlMs(),
-  });
+  const opts = { ...httpOnlyCookieBaseOptions() };
+  if (usePersistentAuthCookies()) {
+    opts.maxAge = refreshTtlMs();
+  }
+  res.cookie(REFRESH_TOKEN_COOKIE, plainToken, opts);
 }
 
 function clearAccessTokenCookie(res) {
