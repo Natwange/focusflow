@@ -70,27 +70,33 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setGoalsError(null);
-    api("/goals")
-      .then(setGoals)
-      .catch((err) => {
+    setTasksLoading(true);
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(start);
+    end.setHours(23, 59, 59, 999);
+    const tzOffsetMinutes = new Date().getTimezoneOffset();
+
+    Promise.all([
+      api("/goals").catch((err) => {
         console.error(err);
         setGoalsError(err instanceof Error ? err.message : "Failed to load goals");
-      });
-
-    fetchTodayTasks();
-  }, [fetchTodayTasks]);
-
-  useEffect(() => {
-    const tzOffsetMinutes = new Date().getTimezoneOffset();
-    api(`/focus/summary?tzOffsetMinutes=${tzOffsetMinutes}`)
-      .then((data) => {
-        if (typeof data?.streak === "number") setStreak(data.streak);
-        if (typeof data?.todayMinutes === "number") setTodayFocusMinutes(data.todayMinutes);
+        return [];
+      }),
+      api(
+        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true`
+      ).catch(() => []),
+      api(`/focus/summary?tzOffsetMinutes=${tzOffsetMinutes}`).catch(() => null),
+    ])
+      .then(([goalsData, tasksData, focusData]) => {
+        setGoals(Array.isArray(goalsData) ? goalsData : []);
+        setTasks(Array.isArray(tasksData) ? tasksData : []);
+        if (focusData && typeof focusData.streak === "number") setStreak(focusData.streak);
+        if (focusData && typeof focusData.todayMinutes === "number") {
+          setTodayFocusMinutes(focusData.todayMinutes);
+        }
       })
-      .catch(() => {
-        setStreak(null);
-        setTodayFocusMinutes(null);
-      });
+      .finally(() => setTasksLoading(false));
   }, []);
 
   const formatFocusTime = (mins: number | null) => {
@@ -183,6 +189,7 @@ export default function DashboardPage() {
             alt="Focus and plan your day"
             width={300}
             height={200}
+            priority
             className="opacity-95 object-contain w-full max-w-[260px] sm:max-w-[300px] self-center md:self-auto md:-translate-x-4"
           />
         </section>

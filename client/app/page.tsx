@@ -7,16 +7,19 @@ import { api } from "@/lib/api";
 
 export default function HomePage() {
   const router = useRouter();
-  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         await api("/me");
-        if (!cancelled) router.replace("/dashboard");
+        if (!cancelled) {
+          setRedirecting(true);
+          router.replace("/dashboard");
+        }
       } catch {
-        if (!cancelled) setCheckingAuth(false);
+        /* landing stays visible for signed-out visitors */
       }
     })();
     return () => {
@@ -24,16 +27,13 @@ export default function HomePage() {
     };
   }, [router]);
 
-  if (checkingAuth) {
-    return (
-      <div className="min-h-[calc(100vh-0px)] flex items-center justify-center bg-[#FAFAFA] text-gray-500 text-sm">
-        Loading…
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#FAFAFA] text-gray-900 px-4 py-8 md:py-12">
+    <div className="min-h-screen flex items-center justify-center bg-[#FAFAFA] text-gray-900 px-4 py-8 md:py-12 relative">
+      {redirecting && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#FAFAFA]/90 text-gray-600 text-sm">
+          Opening your dashboard…
+        </div>
+      )}
       <div className="w-full max-w-5xl">
         <div className="rounded-[28px] border border-gray-200 bg-white px-6 py-8 shadow-sm sm:px-10 sm:py-10 md:px-12 md:py-12">
           <header className="flex flex-wrap items-center justify-between gap-4 pb-10 md:pb-12 border-b border-gray-100">

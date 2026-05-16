@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "build": "prisma generate",
-    "start": "prisma migrate deploy && node src/index.js",
+    "start": "node src/index.js",
+    "start:migrate": "prisma migrate deploy && node src/index.js",
     "test": "jest --runInBand"
   },
   "keywords": [],

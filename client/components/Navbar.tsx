@@ -60,18 +60,27 @@ export default function Navbar() {
         setAvatarInitials("?");
       });
 
-    const tzOffsetMinutes = new Date().getTimezoneOffset();
-    // Ping activity so "visiting the app today" counts toward streak (Duolingo-style)
-    api(`/activity/ping`, {
-      method: "POST",
-      body: JSON.stringify({ tzOffsetMinutes }),
-    })
-      .then((data) => {
-        if (typeof data?.streak === "number") setStreak(data.streak);
+    const pingActivity = () => {
+      const tzOffsetMinutes = new Date().getTimezoneOffset();
+      api(`/activity/ping`, {
+        method: "POST",
+        body: JSON.stringify({ tzOffsetMinutes }),
       })
-      .catch(() => {
-        // silent in nav
-      });
+        .then((data) => {
+          if (typeof data?.streak === "number") setStreak(data.streak);
+        })
+        .catch(() => {
+          // silent in nav
+        });
+    };
+
+    // Defer streak ping so it does not compete with page data on first paint
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(pingActivity, { timeout: 4000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timerId = window.setTimeout(pingActivity, 2000);
+    return () => window.clearTimeout(timerId);
   }, [hideNav]);
 
   if (hideNav) return null;
