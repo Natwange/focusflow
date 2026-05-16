@@ -98,3 +98,9 @@ export function clearFocusTimerStorage(): void {
     /* ignore */
   }
 }
+
+/** True while a focus session is running or paused (do not idle-logout mid-session). */
+export function isFocusSessionInProgress(): boolean {
+  const r = readFocusTimerFromStorage();
+  return Boolean(r && (r.running || r.sessionStart));
+}

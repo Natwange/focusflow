@@ -63,11 +63,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [resetOk, setResetOk] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search);
     setResetOk(q.get("reset") === "1");
+    setTimedOut(q.get("timeout") === "1");
   }, []);
 
   // Simple check used to disable the button until the form looks valid
@@ -125,6 +127,13 @@ export default function LoginPage() {
           {resetOk && (
             <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
               Password updated. Sign in with your new password.
+            </p>
+          )}
+
+          {timedOut && (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              You were signed out after being inactive for a while. Sign in again
+              to continue.
             </p>
           )}
 
