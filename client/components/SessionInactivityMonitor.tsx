@@ -31,7 +31,7 @@ export function SessionInactivityMonitor() {
   const [secondsLeft, setSecondsLeft] = useState(SESSION_WARN_MS / 1000);
 
   const warnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const logoutTimerRef = useRef<typeof setTimeout> | null>(null);
+  const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastThrottleRef = useRef(0);
   const logoutAtRef = useRef<number | null>(null);
