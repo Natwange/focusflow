@@ -129,7 +129,6 @@ export default function LoginPage() {
           {registeredOk && (
             <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
               Account created. Sign in with the email and password you just set.
-              Check your inbox for a verification link when you have a moment.
             </p>
           )}
 
