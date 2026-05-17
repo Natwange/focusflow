@@ -5,6 +5,7 @@
 // The replace(...) just removes a trailing "/" if there is one,
 // so we don't accidentally end up with "http://...//auth/login"
 import { redirectToLoginAfterUnauthorized, requestBasePath } from "@/lib/authRedirect";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
 let refreshInFlight: Promise<boolean> | null = null;
@@ -25,7 +26,7 @@ function shouldAttemptRefresh(path: string, isRetry: boolean): boolean {
 async function tryRefreshSession(): Promise<boolean> {
   if (!API_URL) return false;
   const url = `${API_URL}/auth/refresh`;
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -61,7 +62,7 @@ async function apiOnce(
 
   const url = path.startsWith("/") ? `${API_URL}${path}` : `${API_URL}/${path}`;
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     ...opts,
     credentials: "include",
     headers: {

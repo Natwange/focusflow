@@ -208,7 +208,7 @@ function SettingsModalShell({ onClose }: { onClose: () => void }) {
         onClick={onClose}
       />
       <div
-        className="relative z-[101] isolate flex w-full max-w-3xl max-h-[min(90vh,720px)] flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white text-neutral-900 shadow-2xl dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 sm:flex-row"
+        className="relative z-[101] isolate flex w-full max-w-3xl max-h-[min(90vh,720px)] cursor-default flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white text-neutral-900 shadow-2xl dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 sm:flex-row"
         onClick={(e) => e.stopPropagation()}
       >
         <aside className="flex shrink-0 flex-col gap-2 border-b border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 sm:w-52 sm:border-b-0 sm:border-r">

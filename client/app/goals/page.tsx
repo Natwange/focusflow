@@ -1423,7 +1423,7 @@ export default function GoalsPage() {
         >
           <div className="absolute inset-0 bg-black/40 backdrop-blur-md" aria-hidden />
           <div
-            className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-gray-200"
+            className="relative w-full max-w-lg max-h-[85vh] cursor-default overflow-y-auto bg-white rounded-2xl shadow-2xl border border-gray-200"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"

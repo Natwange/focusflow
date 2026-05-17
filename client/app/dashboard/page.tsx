@@ -396,7 +396,7 @@ export default function DashboardPage() {
       {/* Today's Plan Sheet Overlay */}
       {showPlan && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-14 p-4"
+          className="fixed inset-0 z-50 flex cursor-pointer items-start justify-center pt-10 sm:pt-14 p-4"
           onClick={() => setShowPlan(false)}
         >
           {/* Blurred backdrop */}
@@ -404,7 +404,7 @@ export default function DashboardPage() {
 
           {/* Paper sheet */}
           <div
-            className="relative w-full max-w-lg max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col animate-in fade-in zoom-in-95 duration-200"
+            className="relative w-full max-w-lg max-h-[85vh] cursor-default bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}

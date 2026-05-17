@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar";
 import { SettingsModalProvider } from "@/components/settings/SettingsModalProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SessionInactivityMonitor } from "@/components/SessionInactivityMonitor";
+import { ApiTabWake } from "@/components/ApiTabWake";
 import { THEME_STORAGE_KEY } from "@/lib/themeStorage";
 
 
@@ -72,6 +73,7 @@ export default function RootLayout({
         <ThemeProvider>
           <SettingsModalProvider>
             <SessionInactivityMonitor />
+            <ApiTabWake />
             <Navbar />
             {children}
           </SettingsModalProvider>

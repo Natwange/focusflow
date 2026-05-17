@@ -7,13 +7,14 @@ import { isFocusSessionInProgress } from "@/lib/focusTimerStorage";
 import {
   formatSecondsRemaining,
   isPublicAuthRoute,
+  SESSION_IDLE_MS,
   SESSION_WARN_AT_MS,
   SESSION_WARN_MS,
 } from "@/lib/sessionInactivity";
 
+/** Meaningful interaction only — avoid mousemove, which fires constantly. */
 const ACTIVITY_EVENTS = [
   "mousedown",
-  "mousemove",
   "keydown",
   "scroll",
   "touchstart",
@@ -34,9 +35,9 @@ export function SessionInactivityMonitor() {
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastThrottleRef = useRef(0);
+  const lastActivityAtRef = useRef(Date.now());
   const logoutAtRef = useRef<number | null>(null);
-  const scheduleIdleTimersRef = useRef<() => void>(() => {});
-  const startWarningPhaseRef = useRef<() => void>(() => {});
+  const performLogoutRef = useRef<() => Promise<void>>(async () => {});
   const showWarningRef = useRef(false);
   showWarningRef.current = showWarning;
 
@@ -62,74 +63,106 @@ export function SessionInactivityMonitor() {
     router.refresh();
   }, [clearTimers, router]);
 
-  const scheduleIdleTimers = useCallback(() => {
+  performLogoutRef.current = performLogout;
+
+  const beginWarningCountdown = useCallback(
+    (remainingMs: number) => {
+      const remaining = Math.max(0, remainingMs);
+      if (remaining <= 0) {
+        void performLogoutRef.current();
+        return;
+      }
+
+      const logoutAt = Date.now() + remaining;
+      logoutAtRef.current = logoutAt;
+      setShowWarning(true);
+      setSecondsLeft(Math.ceil(remaining / 1000));
+
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      countdownRef.current = setInterval(() => {
+        if (isFocusSessionInProgress()) {
+          setShowWarning(false);
+          clearTimers();
+          lastActivityAtRef.current = Date.now();
+          return;
+        }
+        const at = logoutAtRef.current;
+        if (at == null) return;
+        const left = Math.max(0, Math.ceil((at - Date.now()) / 1000));
+        setSecondsLeft(left);
+        if (left <= 0) {
+          void performLogoutRef.current();
+        }
+      }, 1000);
+
+      if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+      logoutTimerRef.current = setTimeout(() => {
+        void performLogoutRef.current();
+      }, remaining);
+    },
+    [clearTimers]
+  );
+
+  const reconcileIdleState = useCallback(() => {
+    if (isPublic || isFocusSessionInProgress()) {
+      clearTimers();
+      setShowWarning(false);
+      return;
+    }
+
+    const idleMs = Date.now() - lastActivityAtRef.current;
+
+    if (idleMs >= SESSION_IDLE_MS) {
+      void performLogoutRef.current();
+      return;
+    }
+
+    if (idleMs >= SESSION_WARN_AT_MS) {
+      clearTimers();
+      if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+      warnTimerRef.current = null;
+      beginWarningCountdown(SESSION_IDLE_MS - idleMs);
+      return;
+    }
+
     clearTimers();
     setShowWarning(false);
 
-    if (isPublic || isFocusSessionInProgress()) return;
-
+    const untilWarn = SESSION_WARN_AT_MS - idleMs;
     warnTimerRef.current = setTimeout(() => {
-      startWarningPhaseRef.current();
-    }, SESSION_WARN_AT_MS);
-  }, [clearTimers, isPublic]);
-
-  const startWarningPhase = useCallback(() => {
-    if (isFocusSessionInProgress()) {
-      scheduleIdleTimersRef.current();
-      return;
-    }
-
-    const logoutAt = Date.now() + SESSION_WARN_MS;
-    logoutAtRef.current = logoutAt;
-    setShowWarning(true);
-    setSecondsLeft(Math.ceil(SESSION_WARN_MS / 1000));
-
-    if (countdownRef.current) clearInterval(countdownRef.current);
-    countdownRef.current = setInterval(() => {
-      if (isFocusSessionInProgress()) {
-        setShowWarning(false);
-        clearTimers();
-        scheduleIdleTimersRef.current();
-        return;
-      }
-      const at = logoutAtRef.current;
-      if (at == null) return;
-      const remaining = Math.max(0, Math.ceil((at - Date.now()) / 1000));
-      setSecondsLeft(remaining);
-    }, 1000);
-
-    if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
-    logoutTimerRef.current = setTimeout(() => {
-      void performLogout();
-    }, SESSION_WARN_MS);
-  }, [clearTimers, performLogout]);
-
-  scheduleIdleTimersRef.current = scheduleIdleTimers;
-  startWarningPhaseRef.current = startWarningPhase;
+      beginWarningCountdown(SESSION_WARN_MS);
+    }, untilWarn);
+  }, [isPublic, clearTimers, beginWarningCountdown]);
 
   const onUserActivity = useCallback(() => {
     if (isPublic) return;
-    if (isFocusSessionInProgress()) {
-      scheduleIdleTimers();
-      return;
-    }
-    if (showWarningRef.current) {
-      lastThrottleRef.current = Date.now();
-      scheduleIdleTimers();
-      return;
-    }
 
     const now = Date.now();
+
+    if (isFocusSessionInProgress()) {
+      lastActivityAtRef.current = now;
+      reconcileIdleState();
+      return;
+    }
+
+    if (showWarningRef.current) {
+      lastActivityAtRef.current = now;
+      lastThrottleRef.current = now;
+      reconcileIdleState();
+      return;
+    }
+
     if (now - lastThrottleRef.current < ACTIVITY_THROTTLE_MS) return;
     lastThrottleRef.current = now;
-
-    scheduleIdleTimers();
-  }, [isPublic, scheduleIdleTimers]);
+    lastActivityAtRef.current = now;
+    reconcileIdleState();
+  }, [isPublic, reconcileIdleState]);
 
   const staySignedIn = useCallback(() => {
+    lastActivityAtRef.current = Date.now();
     lastThrottleRef.current = Date.now();
-    scheduleIdleTimers();
-  }, [scheduleIdleTimers]);
+    reconcileIdleState();
+  }, [reconcileIdleState]);
 
   useEffect(() => {
     if (isPublic) {
@@ -138,26 +171,36 @@ export function SessionInactivityMonitor() {
       return;
     }
 
-    scheduleIdleTimers();
+    lastActivityAtRef.current = Date.now();
+    reconcileIdleState();
 
     for (const ev of ACTIVITY_EVENTS) {
       window.addEventListener(ev, onUserActivity, { passive: true });
     }
 
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        reconcileIdleState();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     const focusPoll = setInterval(() => {
       if (isFocusSessionInProgress()) {
-        scheduleIdleTimers();
+        lastActivityAtRef.current = Date.now();
+        reconcileIdleState();
       }
     }, 15_000);
 
     return () => {
       clearTimers();
       clearInterval(focusPoll);
+      document.removeEventListener("visibilitychange", onVisibility);
       for (const ev of ACTIVITY_EVENTS) {
         window.removeEventListener(ev, onUserActivity);
       }
     };
-  }, [isPublic, pathname, clearTimers, scheduleIdleTimers, onUserActivity]);
+  }, [isPublic, pathname, clearTimers, reconcileIdleState, onUserActivity]);
 
   if (!showWarning || isPublic) return null;
 
