@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { MoreHorizontal, ArrowLeft, Trash2, Save } from "lucide-react";
+import { MoreHorizontal, ArrowLeft, Trash2, Save, CheckCircle2 } from "lucide-react";
 
 type FontStyle = "playful" | "balanced" | "professional";
 
@@ -67,6 +67,7 @@ export default function JournalNotePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveToastOpen, setSaveToastOpen] = useState(false);
 
   const [draftTitle, setDraftTitle] = useState("");
   const [draftContent, setDraftContent] = useState("");
@@ -96,8 +97,14 @@ export default function JournalNotePage() {
       .finally(() => setLoading(false));
   }, [noteId]);
 
-  const debouncedSave = useDebouncedCallback(async (payload: Partial<JournalNote>) => {
-    if (!noteId) return;
+  useEffect(() => {
+    if (!saveToastOpen) return;
+    const timer = window.setTimeout(() => setSaveToastOpen(false), 3500);
+    return () => window.clearTimeout(timer);
+  }, [saveToastOpen]);
+
+  async function persistNote(payload: Partial<JournalNote>): Promise<boolean> {
+    if (!noteId) return false;
     setSaveStatus("saving");
     try {
       const updated = await api(`/journal/notes/${noteId}`, {
@@ -110,17 +117,25 @@ export default function JournalNotePage() {
       });
       setSaveStatus("saved");
       setNote(updated);
+      return true;
     } catch {
       setSaveStatus("error");
+      return false;
     }
+  }
+
+  const debouncedSave = useDebouncedCallback((payload: Partial<JournalNote>) => {
+    void persistNote(payload);
   }, 650);
 
-  function manualSave() {
-    debouncedSave({
+  async function manualSave() {
+    setMenuOpen(false);
+    const ok = await persistNote({
       title: draftTitle,
       content: draftContent,
       font_style: draftFont,
     });
+    if (ok) setSaveToastOpen(true);
   }
 
   function requestDelete() {
@@ -210,7 +225,7 @@ export default function JournalNotePage() {
                     <div className="h-px bg-border my-2" />
                     <button
                       type="button"
-                      onClick={manualSave}
+                      onClick={() => void manualSave()}
                       className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-card-muted"
                     >
                       <Save size={16} />
@@ -274,6 +289,17 @@ export default function JournalNotePage() {
         onCancel={() => setDeleteConfirmOpen(false)}
         onConfirm={() => void executeDelete()}
       />
+
+      {saveToastOpen && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200"
+        >
+          <CheckCircle2 size={18} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+          Your note has been automatically saved.
+        </div>
+      )}
     </div>
   );
 }
