@@ -46,7 +46,9 @@ function FontPill({
       onClick={onClick}
       className={cx(
         "rounded-lg border px-2 py-1 text-xs",
-        active ? "border-black bg-black text-white" : "border-black/20 hover:bg-black/[0.03]"
+        active
+          ? "border-foreground bg-foreground text-background"
+          : "border-border text-foreground hover:bg-card-muted"
       )}
     >
       {label}
@@ -157,16 +159,16 @@ export default function JournalNotePage() {
   if (loading) {
     return (
       <div className="ff-page flex items-center justify-center">
-        <p className="text-black/60">Loading note…</p>
+        <p className="text-muted-foreground">Loading note…</p>
       </div>
     );
   }
 
   if (error || !note) {
     return (
-      <div className="min-h-screen bg-white text-black flex flex-col items-center justify-center gap-4 p-6">
-        <p className="text-black/60">{error ?? "Note not found."}</p>
-        <Link href="/journal" className="text-sm underline">
+      <div className="ff-page flex flex-col items-center justify-center gap-4 p-6 min-h-screen">
+        <p className="text-muted-foreground">{error ?? "Note not found."}</p>
+        <Link href="/journal" className="text-sm text-foreground underline">
           Back to journal
         </Link>
       </div>
@@ -176,11 +178,11 @@ export default function JournalNotePage() {
   return (
     <div className="ff-page">
       <main className="mx-auto max-w-3xl px-6 py-6">
-        <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <Link
               href="/journal"
-              className="flex items-center gap-2 text-sm text-black/70 hover:text-black"
+              className="flex items-center gap-2 text-sm text-foreground hover:text-foreground/80"
             >
               <ArrowLeft size={18} />
               Back to journal
@@ -191,25 +193,25 @@ export default function JournalNotePage() {
                 <button
                   type="button"
                   onClick={() => setMenuOpen((v) => !v)}
-                  className="h-9 w-9 rounded-full border border-black/20 hover:bg-black/[0.03] flex items-center justify-center"
+                  className="h-9 w-9 rounded-full border border-border text-foreground hover:bg-card-muted flex items-center justify-center"
                   aria-label="Note options"
                 >
                   <MoreHorizontal size={18} />
                 </button>
 
                 {menuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 rounded-xl border border-black/20 bg-white shadow-lg p-3 z-10">
+                  <div className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-card text-foreground shadow-lg p-3 z-10">
                     <div className="text-xs font-semibold mb-2">Font style</div>
                     <div className="grid grid-cols-3 gap-2 mb-3">
                       <FontPill label="Playful" active={draftFont === "playful"} onClick={() => onChangeFont("playful")} />
                       <FontPill label="Balanced" active={draftFont === "balanced"} onClick={() => onChangeFont("balanced")} />
                       <FontPill label="Pro" active={draftFont === "professional"} onClick={() => onChangeFont("professional")} />
                     </div>
-                    <div className="h-px bg-black/10 my-2" />
+                    <div className="h-px bg-border my-2" />
                     <button
                       type="button"
                       onClick={manualSave}
-                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-black/[0.03]"
+                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-card-muted"
                     >
                       <Save size={16} />
                       Save now
@@ -217,7 +219,7 @@ export default function JournalNotePage() {
                     <button
                       type="button"
                       onClick={requestDelete}
-                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-black/[0.03] text-red-600"
+                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-card-muted"
                     >
                       <Trash2 size={16} />
                       Delete
@@ -233,10 +235,10 @@ export default function JournalNotePage() {
               value={draftTitle}
               onChange={(e) => onChangeTitle(e.target.value)}
               placeholder="Give this note a short title"
-              className="w-full bg-transparent outline-none text-lg font-medium placeholder:text-black/35 border-0 mb-4"
+              className="w-full bg-transparent outline-none text-lg font-medium text-foreground placeholder:text-muted-foreground border-0 mb-4"
             />
 
-            <div className="paper-bg rounded-2xl border border-black/15 p-5">
+            <div className="paper-bg rounded-2xl border border-border p-5">
               <textarea
                 value={draftContent}
                 onChange={(e) => onChangeContent(e.target.value)}
@@ -248,7 +250,7 @@ export default function JournalNotePage() {
               />
             </div>
 
-            <div className="flex items-center justify-between mt-3 text-xs text-black/50 px-1">
+            <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground px-1">
               <span>Notes auto-save as you type.</span>
               <span>
                 {saveStatus === "saving"
