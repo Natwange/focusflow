@@ -80,7 +80,14 @@ body {
   input[type="submit"]:not(:disabled),
   input[type="button"]:not(:disabled),
   input[type="reset"]:not(:disabled),
-  input[type="file"]:not(:disabled) {
+  input[type="file"]:not(:disabled),
+  input[type="date"]:not(:disabled),
+  input[type="datetime-local"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     cursor: pointer;
   }
 
