@@ -28,6 +28,34 @@ function isListTodayTasksMessage(lower) {
   );
 }
 
+function isIncompleteTasksIntent(lower) {
+  return (
+    /\bincomplete\b.*\btasks?\b/.test(lower) ||
+    /\btasks?\b.*\bincomplete\b/.test(lower) ||
+    /\bremaining\b.*\btasks?\b/.test(lower) ||
+    /\bwhat\b.*\bleft\b.*\btoday\b/.test(lower)
+  );
+}
+
+/**
+ * When the user asks for today's / incomplete remaining work, apply the same
+ * filters as the rule-based parser (exclude done, include overdue).
+ */
+function listTasksArgsForTodayIntent(message, tzOffsetMinutes, partialArgs = {}) {
+  const lower = String(message).toLowerCase();
+  if (!isListTodayTasksMessage(lower) && !isIncompleteTasksIntent(lower)) {
+    return partialArgs;
+  }
+  const defaults = todayTaskListArgs(tzOffsetMinutes);
+  return {
+    ...partialArgs,
+    startDate: defaults.startDate,
+    endDate: defaults.endDate,
+    includeOverdue: true,
+    excludeDone: true,
+  };
+}
+
 function isCreateTaskMessage(lower) {
   return /\b(create|add)\s+(a\s+)?task\b/.test(lower);
 }
@@ -244,4 +272,7 @@ module.exports = {
   MESSAGE_MAX_LENGTH,
   parseRuleBasedMessage,
   todayTaskListArgs,
+  isListTodayTasksMessage,
+  isIncompleteTasksIntent,
+  listTasksArgsForTodayIntent,
 };

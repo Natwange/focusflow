@@ -1,7 +1,6 @@
 const express = require("express");
 const { z } = require("zod");
-const { executeTool } = require("../agent/toolExecutor");
-const { parseRuleBasedMessage, INTENTS } = require("../agent/ruleParser");
+const { run: runAgentChat } = require("../agent/chatOrchestrator");
 const { validateBody } = require("../middleware/validateBody");
 const { prismaErrorMessage } = require("../lib/prismaErrors");
 
@@ -17,54 +16,8 @@ function parseTzFromBody(body) {
   return body.tzOffsetMinutes;
 }
 
-function collectClientActions(toolResults) {
-  const actions = [];
-  for (const tr of toolResults) {
-    if (tr.tool !== "suggest_focus_session" || !tr.ok) continue;
-    const action = tr.result?.data?.clientAction;
-    if (action && typeof action === "object") {
-      actions.push(action);
-    }
-  }
-  return actions;
-}
-
-function formatListTasksReply(toolResults) {
-  const tr = toolResults.find((r) => r.tool === "list_tasks");
-  if (!tr?.ok) return tr?.result?.summary ?? "Could not load tasks.";
-  const tasks = tr.result?.data?.tasks ?? [];
-  if (tasks.length === 0) {
-    return "You have no tasks due today (including overdue).";
-  }
-  const lines = tasks.slice(0, 15).map((t) => {
-    const due = t.dueDate ? new Date(t.dueDate).toISOString() : "no due date";
-    return `• ${t.title} (${t.status}, due ${due})`;
-  });
-  const more = tasks.length > 15 ? `\n…and ${tasks.length - 15} more.` : "";
-  return `Here are your tasks for today:\n${lines.join("\n")}${more}`;
-}
-
-function buildAssistantMessage(intent, toolResults, plan) {
-  if (plan.type === "clarify" || plan.type === "unsupported") {
-    return plan.assistantMessage;
-  }
-
-  if (intent === INTENTS.LIST_TODAY_TASKS) {
-    return formatListTasksReply(toolResults);
-  }
-
-  const last = toolResults[toolResults.length - 1];
-  if (!last) {
-    return "I could not complete that request.";
-  }
-  if (!last.ok) {
-    return last.result?.summary ?? last.result?.error ?? "Something went wrong.";
-  }
-  return last.result.summary;
-}
-
 /**
- * POST /agent/chat — rule-based command router (Phase 2, no LLM).
+ * POST /agent/chat — LLM tool-calling with rule-based fallback when unconfigured.
  */
 router.post("/chat", validateBody(agentChatBodySchema), async (req, res) => {
   try {
@@ -72,45 +25,13 @@ router.post("/chat", validateBody(agentChatBodySchema), async (req, res) => {
     const { message } = req.body;
     const tzOffsetMinutes = parseTzFromBody(req.body);
 
-    const plan = parseRuleBasedMessage(message, tzOffsetMinutes);
-
-    if (plan.type === "clarify" || plan.type === "unsupported") {
-      return res.json({
-        assistantMessage: plan.assistantMessage,
-        intent: plan.intent,
-        toolResults: [],
-        pendingConfirmation: null,
-        clientActions: [],
-      });
-    }
-
-    const ctx = { userId, tzOffsetMinutes };
-    const toolResults = [];
-
-    for (const call of plan.toolCalls ?? []) {
-      const result = await executeTool(ctx, call.tool, call.args);
-      toolResults.push({
-        tool: call.tool,
-        args: call.args,
-        ok: result.ok,
-        result,
-      });
-    }
-
-    const clientActions = collectClientActions(toolResults);
-    const assistantMessage = buildAssistantMessage(
-      plan.intent,
-      toolResults,
-      plan
-    );
-
-    return res.json({
-      assistantMessage,
-      intent: plan.intent,
-      toolResults,
-      pendingConfirmation: null,
-      clientActions,
+    const payload = await runAgentChat({
+      userId,
+      message,
+      tzOffsetMinutes,
     });
+
+    return res.json(payload);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: prismaErrorMessage(err) });

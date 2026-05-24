@@ -111,8 +111,11 @@ function utcTodayAt(hour, minute = 0) {
   return d;
 }
 
-describe("POST /agent/chat", () => {
+describe("POST /agent/chat (rule-based fallback)", () => {
+  const savedKey = process.env.OPENAI_API_KEY;
+
   beforeEach(async () => {
+    delete process.env.OPENAI_API_KEY;
     jest.clearAllMocks();
     db.users.clear();
     db.goals.clear();
@@ -187,6 +190,10 @@ describe("POST /agent/chat", () => {
     );
   });
 
+  afterEach(() => {
+    if (savedKey) process.env.OPENAI_API_KEY = savedKey;
+  });
+
   test("requires auth", async () => {
     const app = createApp();
     const res = await request(app)
@@ -211,7 +218,6 @@ describe("POST /agent/chat", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.intent).toBe("list_today_tasks");
     expect(res.body.pendingConfirmation).toBeNull();
     expect(res.body.toolResults).toHaveLength(1);
     expect(res.body.toolResults[0].tool).toBe("list_tasks");
@@ -240,7 +246,6 @@ describe("POST /agent/chat", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.intent).toBe("list_today_tasks");
     expect(res.body.toolResults[0].args.excludeDone).toBe(true);
     expect(res.body.assistantMessage).toMatch(/Due today/);
     expect(res.body.assistantMessage).not.toMatch(/Already done today/);
@@ -261,7 +266,6 @@ describe("POST /agent/chat", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.intent).toBe("create_task");
     expect(res.body.toolResults).toHaveLength(1);
     expect(res.body.toolResults[0].tool).toBe("create_task");
     expect(res.body.toolResults[0].ok).toBe(true);
@@ -289,7 +293,6 @@ describe("POST /agent/chat", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.intent).toBe("clarify");
     expect(res.body.toolResults).toEqual([]);
     expect(res.body.pendingConfirmation).toBeNull();
     expect(res.body.assistantMessage).toMatch(/due date/i);
@@ -310,7 +313,6 @@ describe("POST /agent/chat", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.intent).toBe("start_focus");
     expect(res.body.toolResults[0].tool).toBe("suggest_focus_session");
     expect(res.body.toolResults[0].ok).toBe(true);
     expect(res.body.clientActions).toEqual([
@@ -338,7 +340,6 @@ describe("POST /agent/chat", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.intent).toBe("preview_goal_plan");
     expect(res.body.toolResults[0].ok).toBe(true);
     expect(res.body.toolResults[0].result.data.goal.id).toBe("goal_1");
     expect(Array.isArray(res.body.toolResults[0].result.data.items)).toBe(true);
@@ -358,7 +359,6 @@ describe("POST /agent/chat", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.intent).toBe("preview_goal_plan");
     expect(res.body.toolResults[0].ok).toBe(false);
     expect(res.body.toolResults[0].result.error).toMatch(/Forbidden|Goal not found/);
     expect(res.body.assistantMessage).toMatch(/Forbidden|Goal not found/);

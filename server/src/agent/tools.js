@@ -123,6 +123,127 @@ function getToolDefinitions() {
   }));
 }
 
+/** OpenAI Chat Completions `tools` array (JSON Schema parameters aligned with Zod). */
+const OPENAI_CHAT_TOOLS = Object.freeze([
+  {
+    type: "function",
+    function: {
+      name: "list_tasks",
+      description:
+        `${TOOL_CATALOG.list_tasks.description} For today's remaining work, set excludeDone true, includeOverdue true, and pass startDate/endDate as ISO UTC for the user's local today.`,
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["todo", "doing", "done"] },
+          goalId: { type: "string" },
+          startDate: { type: "string", description: "ISO 8601 UTC start" },
+          endDate: { type: "string", description: "ISO 8601 UTC end" },
+          includeOverdue: { type: "boolean" },
+          excludeDone: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_task",
+      description: TOOL_CATALOG.create_task.description,
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          goalId: { type: ["string", "null"] },
+          estimatedMin: { type: ["integer", "null"], minimum: 0 },
+          dueDate: { type: ["string", "null"], description: "ISO 8601 UTC" },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "urgent"],
+          },
+        },
+        required: ["title"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_focus_summary",
+      description: TOOL_CATALOG.get_focus_summary.description,
+      parameters: {
+        type: "object",
+        properties: {
+          tzOffsetMinutes: { type: "integer" },
+          date: { type: "string", description: "YYYY-MM-DD local day key" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "suggest_focus_session",
+      description: TOOL_CATALOG.suggest_focus_session.description,
+      parameters: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["focus", "short", "long"] },
+          durationMinutes: { type: "integer", minimum: 1, maximum: 240 },
+          label: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "preview_goal_plan",
+      description: TOOL_CATALOG.preview_goal_plan.description,
+      parameters: {
+        type: "object",
+        properties: {
+          goalId: { type: "string" },
+          startDate: { type: "string" },
+          availableDays: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
+            },
+          },
+          maxUnitsPerDay: { type: ["integer", "null"], minimum: 1 },
+        },
+        required: ["goalId"],
+        additionalProperties: false,
+      },
+    },
+  },
+]);
+
+function getOpenAIChatTools() {
+  return OPENAI_CHAT_TOOLS.map((tool) => ({
+    type: tool.type,
+    function: {
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+    },
+  }));
+}
+
+/** Anthropic Messages API `tools` array (same JSON Schema as Zod). */
+function getAnthropicTools() {
+  return OPENAI_CHAT_TOOLS.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    input_schema: tool.function.parameters,
+  }));
+}
+
 function isV1ToolName(name) {
   return V1_TOOL_NAMES.includes(name);
 }
@@ -133,5 +254,8 @@ module.exports = {
   toolArgSchemas,
   parseToolArgs,
   getToolDefinitions,
+  getOpenAIChatTools,
+  getAnthropicTools,
+  OPENAI_CHAT_TOOLS,
   isV1ToolName,
 };
