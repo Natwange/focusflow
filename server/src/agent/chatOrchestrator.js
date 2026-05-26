@@ -29,7 +29,7 @@ const { isV1ToolName, parseToolArgs } = require("./tools");
 function collectClientActions(toolResults) {
   const actions = [];
   for (const tr of toolResults) {
-    if (tr.tool !== "suggest_focus_session" || !tr.ok) continue;
+    if (!tr.ok) continue;
     const action = tr.result?.data?.clientAction;
     if (action && typeof action === "object") {
       actions.push(action);

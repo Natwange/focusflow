@@ -6,6 +6,9 @@ import { SettingsModalProvider } from "@/components/settings/SettingsModalProvid
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SessionInactivityMonitor } from "@/components/SessionInactivityMonitor";
 import { ApiTabWake } from "@/components/ApiTabWake";
+import { FocusTimerProvider } from "@/context/FocusTimerContext";
+import GlobalFocusTimerWidget from "@/components/GlobalFocusTimerWidget";
+import AgentChat from "@/components/AgentChat";
 import { THEME_STORAGE_KEY } from "@/lib/themeStorage";
 
 
@@ -71,12 +74,16 @@ export default function RootLayout({
           className="pointer-events-none fixed left-0 right-0 top-0 z-[2147483647] h-[3px] bg-background"
         />
         <ThemeProvider>
-          <SettingsModalProvider>
-            <SessionInactivityMonitor />
-            <ApiTabWake />
-            <Navbar />
-            {children}
-          </SettingsModalProvider>
+          <FocusTimerProvider>
+            <SettingsModalProvider>
+              <SessionInactivityMonitor />
+              <ApiTabWake />
+              <Navbar />
+              {children}
+              <GlobalFocusTimerWidget />
+              <AgentChat />
+            </SettingsModalProvider>
+          </FocusTimerProvider>
         </ThemeProvider>
       </body>
     </html>

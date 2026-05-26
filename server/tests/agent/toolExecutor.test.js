@@ -213,8 +213,7 @@ describe("agent toolExecutor", () => {
     });
     expect(result.ok).toBe(true);
     expect(result.data.clientAction).toEqual({
-      type: "navigate_focus",
-      path: "/focus",
+      type: "start_focus_session",
       mode: "focus",
       durationMinutes: 25,
       label: null,

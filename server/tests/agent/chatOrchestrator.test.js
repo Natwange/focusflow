@@ -183,8 +183,7 @@ describe("chatOrchestrator", () => {
     );
     expect(res.assistantMessage).not.toMatch(/Open the Focus page to start/);
     expect(res.clientActions[0]).toMatchObject({
-      type: "navigate_focus",
-      path: "/focus",
+      type: "start_focus_session",
     });
   });
 
@@ -229,7 +228,7 @@ describe("chatOrchestrator", () => {
       tzOffsetMinutes: 0,
     });
 
-    expect(res.assistantMessage).toMatch(/Open the Focus page to start a 25-minute focus session/);
+    expect(res.assistantMessage).toMatch(/Starting a 25-minute focus session/);
     expect(res.clientActions).toHaveLength(1);
   });
 

@@ -317,8 +317,7 @@ describe("POST /agent/chat (rule-based fallback)", () => {
     expect(res.body.toolResults[0].ok).toBe(true);
     expect(res.body.clientActions).toEqual([
       {
-        type: "navigate_focus",
-        path: "/focus",
+        type: "start_focus_session",
         mode: "focus",
         durationMinutes: 25,
         label: null,

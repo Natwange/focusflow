@@ -1,24 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import {
-  readFocusTimerFromStorage,
-  writeFocusTimerToStorage,
-  clearFocusTimerStorage,
-  type FocusTimerPersisted,
-  type FocusMode,
-  type RestoredFocusTimer,
-} from "@/lib/focusTimerStorage";
+import { useFocusTimer, type FocusMode } from "@/context/FocusTimerContext";
 import { Pause, RotateCcw, Square, Volume2, VolumeX } from "lucide-react";
 
 type Mode = FocusMode;
-
-const DEFAULT_DURATIONS: Record<Mode, number> = {
-  focus: 25 * 60,
-  short: 5 * 60,
-  long: 15 * 60,
-};
 
 const MODE_LABELS: Record<Mode, string> = {
   focus: "Focus",
@@ -32,83 +19,14 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-/** Seconds remaining from wall-clock end (ceil = friendlier countdown) */
-function remainingSecondsFromEnd(endMs: number): number {
-  return Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
-}
-
-function buildPersisted(args: {
-  mode: Mode;
-  totalDuration: number;
-  timeLeft: number;
-  running: boolean;
-  endWallTimeMs: number | null;
-  sessionStart: Date | null;
-}): FocusTimerPersisted {
-  return {
-    v: 1,
-    mode: args.mode,
-    totalDuration: args.totalDuration,
-    timeLeft: args.timeLeft,
-    running: args.running,
-    endWallTimeMs: args.endWallTimeMs,
-    sessionStartIso: args.sessionStart?.toISOString() ?? null,
-  };
-}
-
 export default function FocusPage() {
-  /** Snapshot once per mount (avoid reading sessionStorage every render). */
-  const [initialRestore] = useState<RestoredFocusTimer | null>(() =>
-    readFocusTimerFromStorage()
-  );
-
-  const [mode, setMode] = useState<Mode>(() => initialRestore?.mode ?? "focus");
-  const [totalDuration, setTotalDuration] = useState(
-    () => initialRestore?.totalDuration ?? DEFAULT_DURATIONS.focus
-  );
-  const [timeLeft, setTimeLeft] = useState(
-    () => initialRestore?.timeLeft ?? DEFAULT_DURATIONS.focus
-  );
-  const [running, setRunning] = useState(() => initialRestore?.running ?? false);
-  const [sessionStart, setSessionStart] = useState<Date | null>(
-    () => initialRestore?.sessionStart ?? null
-  );
-  const [expiredWhileAway, setExpiredWhileAway] = useState(
-    () => initialRestore?.expiredWhileAway ?? false
-  );
+  const timer = useFocusTimer();
 
   const [totalSessions, setTotalSessions] = useState(0);
   const [streak, setStreak] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [editingTime, setEditingTime] = useState(false);
   const [editMinutes, setEditMinutes] = useState("");
-
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const endTimeRef = useRef<number | null>(initialRestore?.endWallTimeMs ?? null);
-  const totalDurationRef = useRef(totalDuration);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUnlocked = useRef(false);
-  const workerRef = useRef<Worker | null>(null);
-  const pendingSound = useRef(false);
-  const completionLockRef = useRef(false);
-
-  const ensureAudio = useCallback(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio("/sounds/bell.mp3");
-      audioRef.current.volume = 0.7;
-    }
-    if (!audioUnlocked.current) {
-      audioRef.current
-        .play()
-        .then(() => {
-          audioRef.current!.pause();
-          audioRef.current!.currentTime = 0;
-          audioUnlocked.current = true;
-        })
-        .catch(() => {});
-    }
-  }, []);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -124,286 +42,23 @@ export default function FocusPage() {
     fetchStats();
   }, [fetchStats]);
 
-  const saveSession = useCallback(
-    async (start: Date, durationSec: number) => {
-      setSaving(true);
-      const end = new Date();
-      const durationMin = Math.max(1, Math.round(durationSec / 60));
-      try {
-        await api("/focus", {
-          method: "POST",
-          body: JSON.stringify({
-            label: MODE_LABELS[mode],
-            duration: durationMin,
-            startedAt: start.toISOString(),
-            endedAt: end.toISOString(),
-          }),
-        });
-        fetchStats();
-      } catch {
-        /* silent */
-      } finally {
-        setSaving(false);
-      }
-    },
-    [mode, fetchStats]
-  );
-
-  const playSound = useCallback(() => {
-    if (soundEnabled && audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {});
-    }
-  }, [soundEnabled]);
-
-  totalDurationRef.current = totalDuration;
-
-  const persist = useCallback(() => {
-    const idleNoSession =
-      !running &&
-      sessionStart === null &&
-      (timeLeft === totalDuration || timeLeft === 0);
-    if (idleNoSession && timeLeft !== 0) {
-      clearFocusTimerStorage();
-      return;
-    }
-    if (timeLeft === 0 && !running && !sessionStart) {
-      clearFocusTimerStorage();
-      return;
-    }
-    writeFocusTimerToStorage(
-      buildPersisted({
-        mode,
-        totalDuration,
-        timeLeft,
-        running,
-        endWallTimeMs: endTimeRef.current,
-        sessionStart,
-      })
-    );
-  }, [mode, totalDuration, timeLeft, running, sessionStart]);
-
+  // Refresh stats when timer finishes (timeLeft transitions to 0)
   useEffect(() => {
-    persist();
-  }, [persist]);
-
-  const completeTimer = useCallback(() => {
-    if (completionLockRef.current) return;
-    if (endTimeRef.current === null && !pendingSound.current) return;
-
-    completionLockRef.current = true;
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = null;
-    workerRef.current?.postMessage({ type: "stop" });
-
-    const start = sessionStart;
-    const wasFocus = mode === "focus";
-    const planned = totalDurationRef.current;
-
-    endTimeRef.current = null;
-    setTimeLeft(0);
-    setRunning(false);
-    setSessionStart(null);
-    pendingSound.current = false;
-
-    playSound();
-
-    if (start && wasFocus) {
-      const elapsedSec = Math.min(
-        planned,
-        Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000))
-      );
-      if (elapsedSec >= 60) {
-        saveSession(start, elapsedSec);
-      }
+    if (timer.timeLeft === 0 && !timer.running) {
+      fetchStats();
     }
-
-    clearFocusTimerStorage();
-    completionLockRef.current = false;
-  }, [playSound, sessionStart, mode, saveSession]);
-
-  // Finish session that expired while user was on another route
-  useEffect(() => {
-    if (!expiredWhileAway) return;
-    setExpiredWhileAway(false);
-    ensureAudio();
-    playSound();
-    const start = sessionStart;
-    if (start && mode === "focus") {
-      const planned = totalDurationRef.current;
-      const elapsedSec = Math.min(
-        planned,
-        Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000))
-      );
-      if (elapsedSec >= 60) {
-        saveSession(start, elapsedSec);
-      }
-    }
-    setSessionStart(null);
-    clearFocusTimerStorage();
-  }, [expiredWhileAway, sessionStart, mode, ensureAudio, playSound, saveSession]);
-
-  // Single Web Worker for background tab; re-arm once from restore snapshot on mount
-  useEffect(() => {
-    const code = `
-      let tid = null;
-      self.onmessage = function(e) {
-        if (tid) { clearTimeout(tid); tid = null; }
-        if (e.data && e.data.type === "start" && e.data.ms > 0) {
-          tid = setTimeout(function() { self.postMessage("done"); }, e.data.ms);
-        }
-      };
-    `;
-    const blob = new Blob([code], { type: "application/javascript" });
-    const url = URL.createObjectURL(blob);
-    workerRef.current = new Worker(url);
-    URL.revokeObjectURL(url);
-
-    const r = initialRestore;
-    if (r?.running && r.endWallTimeMs != null) {
-      const ms = Math.max(0, r.endWallTimeMs - Date.now());
-      if (ms > 0) {
-        workerRef.current.postMessage({ type: "start", ms });
-      }
-    }
-
-    return () => {
-      workerRef.current?.terminate();
-      workerRef.current = null;
-    };
-    // initialRestore is fixed at first mount; worker must not be recreated on pause/resume
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Worker "done" — single path when end time still set
-  useEffect(() => {
-    const w = workerRef.current;
-    if (!w) return;
-    const handler = (e: MessageEvent) => {
-      if (e.data !== "done") return;
-      if (endTimeRef.current === null) return;
-      if (document.visibilityState === "visible") {
-        completeTimer();
-      } else {
-        pendingSound.current = true;
-      }
-    };
-    w.addEventListener("message", handler);
-    return () => w.removeEventListener("message", handler);
-  }, [completeTimer]);
-
-  // Tab visibility: sync display + drain pending completion
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      if (pendingSound.current) {
-        completeTimer();
-        return;
-      }
-      if (endTimeRef.current !== null) {
-        const remaining = remainingSecondsFromEnd(endTimeRef.current);
-        if (remaining <= 0) {
-          completeTimer();
-        } else {
-          setTimeLeft(remaining);
-        }
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [completeTimer]);
-
-  // Display loop — wall clock only (no tick counting)
-  useEffect(() => {
-    if (!running || endTimeRef.current === null) return;
-    const tick = () => {
-      const end = endTimeRef.current;
-      if (end === null) return;
-      const remaining = remainingSecondsFromEnd(end);
-      if (remaining <= 0) {
-        completeTimer();
-      } else {
-        setTimeLeft(remaining);
-      }
-    };
-    tick();
-    intervalRef.current = setInterval(tick, 250);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [running, completeTimer]);
+  }, [timer.timeLeft, timer.running, fetchStats]);
 
   const handleStart = () => {
-    ensureAudio();
-    const duration = timeLeft === 0 ? totalDuration : timeLeft;
-    if (timeLeft === 0) setTimeLeft(totalDuration);
-    const end = Date.now() + duration * 1000;
-    endTimeRef.current = end;
-    pendingSound.current = false;
-    workerRef.current?.postMessage({ type: "start", ms: duration * 1000 });
-    setSessionStart(new Date());
-    setRunning(true);
+    timer.startSession({
+      durationMinutes: Math.round(timer.totalDuration / 60),
+      mode: timer.mode,
+    });
   };
 
-  const handlePause = () => {
-    setRunning(false);
-    const remaining = endTimeRef.current
-      ? remainingSecondsFromEnd(endTimeRef.current)
-      : timeLeft;
-    endTimeRef.current = null;
-    pendingSound.current = false;
-    workerRef.current?.postMessage({ type: "stop" });
-    setTimeLeft(Math.max(0, remaining));
-  };
-
-  const handleResume = () => {
-    ensureAudio();
-    const end = Date.now() + timeLeft * 1000;
-    endTimeRef.current = end;
-    pendingSound.current = false;
-    workerRef.current?.postMessage({ type: "start", ms: timeLeft * 1000 });
-    setRunning(true);
-  };
-
-  const handleReset = () => {
-    setRunning(false);
-    endTimeRef.current = null;
-    pendingSound.current = false;
-    workerRef.current?.postMessage({ type: "stop" });
-    setSessionStart(null);
-    setTimeLeft(totalDuration);
-    clearFocusTimerStorage();
-  };
-
-  const handleStop = () => {
-    if (sessionStart && mode === "focus") {
-      const elapsed = totalDuration - timeLeft;
-      if (elapsed >= 60) {
-        saveSession(sessionStart, elapsed);
-      }
-    }
-    setRunning(false);
-    endTimeRef.current = null;
-    pendingSound.current = false;
-    workerRef.current?.postMessage({ type: "stop" });
-    setSessionStart(null);
-    setTimeLeft(totalDuration);
-    clearFocusTimerStorage();
-  };
-
-  const switchMode = (m: Mode) => {
-    if (running) return;
-    setMode(m);
-    const dur = DEFAULT_DURATIONS[m];
-    setTotalDuration(dur);
-    setTimeLeft(dur);
-    setSessionStart(null);
-    clearFocusTimerStorage();
-  };
-
-  const isIdle = !running && sessionStart === null && timeLeft === totalDuration;
-  const isPaused = !running && sessionStart !== null;
-  const isFinished = !running && timeLeft === 0;
+  const isIdle = timer.isIdle;
+  const isPaused = timer.isPaused;
+  const isFinished = !timer.running && timer.timeLeft === 0;
 
   return (
     <div className="h-[calc(100vh-56px)] bg-[#FAFAFA] text-black dark:bg-[#0b0c0f] dark:text-[#f5f7fb] flex flex-col items-center justify-between relative overflow-hidden">
@@ -419,10 +74,10 @@ export default function FocusPage() {
             <button
               key={m}
               type="button"
-              onClick={() => switchMode(m)}
-              disabled={running}
+              onClick={() => timer.switchMode(m)}
+              disabled={timer.running}
               className={`rounded-full px-5 py-2 text-sm font-medium transition ${
-                mode === m
+                timer.mode === m
                   ? "bg-black text-white shadow-sm dark:bg-white dark:text-[#0b0c0f]"
                   : "text-gray-600 hover:text-black disabled:opacity-50 dark:text-[#b8bec9] dark:hover:text-[#f5f7fb]"
               }`}
@@ -444,16 +99,14 @@ export default function FocusPage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   const mins = Math.max(1, Math.min(180, Number(editMinutes) || 1));
-                  setTotalDuration(mins * 60);
-                  setTimeLeft(mins * 60);
+                  timer.setDuration(mins);
                   setEditingTime(false);
                 }
                 if (e.key === "Escape") setEditingTime(false);
               }}
               onBlur={() => {
                 const mins = Math.max(1, Math.min(180, Number(editMinutes) || 1));
-                setTotalDuration(mins * 60);
-                setTimeLeft(mins * 60);
+                timer.setDuration(mins);
                 setEditingTime(false);
               }}
               autoFocus
@@ -465,15 +118,15 @@ export default function FocusPage() {
           <button
             type="button"
             onClick={() => {
-              if (!running) {
-                setEditMinutes(String(Math.ceil(timeLeft / 60)));
+              if (!timer.running) {
+                setEditMinutes(String(Math.ceil(timer.timeLeft / 60)));
                 setEditingTime(true);
               }
             }}
-            disabled={running}
+            disabled={timer.running}
             className="text-7xl font-bold tracking-tight tabular-nums hover:text-black/70 transition disabled:hover:text-black cursor-text dark:hover:text-white/80 dark:disabled:hover:text-[#f5f7fb]"
           >
-            {formatTime(timeLeft)}
+            {formatTime(timer.timeLeft)}
           </button>
         )}
 
@@ -482,7 +135,6 @@ export default function FocusPage() {
           <button
             type="button"
             onClick={handleStart}
-            disabled={saving}
             className="bg-black text-white px-8 py-3 rounded-full text-sm font-semibold tracking-wide hover:bg-black/90 transition disabled:opacity-60 dark:bg-white dark:text-[#0b0c0f] dark:hover:bg-white/90"
           >
             {isFinished ? "Start again" : "Start focus session"}
@@ -490,7 +142,7 @@ export default function FocusPage() {
         ) : isPaused ? (
           <button
             type="button"
-            onClick={handleResume}
+            onClick={timer.resume}
             className="bg-black text-white px-8 py-3 rounded-full text-sm font-semibold tracking-wide hover:bg-black/90 transition dark:bg-white dark:text-[#0b0c0f] dark:hover:bg-white/90"
           >
             Resume
@@ -498,7 +150,7 @@ export default function FocusPage() {
         ) : (
           <button
             type="button"
-            onClick={handlePause}
+            onClick={timer.pause}
             className="bg-black text-white px-8 py-3 rounded-full text-sm font-semibold tracking-wide hover:bg-black/90 transition dark:bg-white dark:text-[#0b0c0f] dark:hover:bg-white/90"
           >
             Pause
@@ -509,8 +161,8 @@ export default function FocusPage() {
         <div className="flex items-center gap-4">
           <button
             type="button"
-            onClick={handlePause}
-            disabled={!running}
+            onClick={timer.pause}
+            disabled={!timer.running}
             aria-label="Pause"
             className="rounded-full border border-gray-300 bg-white/70 backdrop-blur p-3 hover:bg-white transition disabled:opacity-30 dark:border-[#2a303a] dark:bg-[#171a20] dark:hover:bg-[#1c2028]"
           >
@@ -518,7 +170,7 @@ export default function FocusPage() {
           </button>
           <button
             type="button"
-            onClick={handleReset}
+            onClick={timer.reset}
             aria-label="Reset"
             className="rounded-full border border-gray-300 bg-white/70 backdrop-blur p-3 hover:bg-white transition dark:border-[#2a303a] dark:bg-[#171a20] dark:hover:bg-[#1c2028]"
           >
@@ -526,7 +178,7 @@ export default function FocusPage() {
           </button>
           <button
             type="button"
-            onClick={handleStop}
+            onClick={timer.stop}
             disabled={isIdle}
             aria-label="Stop and save"
             className="rounded-full border border-gray-300 bg-white/70 backdrop-blur p-3 hover:bg-white transition disabled:opacity-30 dark:border-[#2a303a] dark:bg-[#171a20] dark:hover:bg-[#1c2028]"

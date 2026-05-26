@@ -117,8 +117,7 @@ function runSuggestFocusSession(args) {
     args.durationMinutes ?? DEFAULT_FOCUS_MINUTES[mode] ?? 25;
 
   const clientAction = {
-    type: "navigate_focus",
-    path: "/focus",
+    type: "start_focus_session",
     mode,
     durationMinutes,
     label: args.label ?? null,
@@ -127,9 +126,9 @@ function runSuggestFocusSession(args) {
   return success({
     data: {
       clientAction,
-      note: "Focus timers run in the browser; use the client action to open /focus and start the session.",
+      note: "Focus timers run in the browser; the client action starts the session immediately.",
     },
-    summary: `Open the Focus page to start a ${durationMinutes}-minute ${mode} session.`,
+    summary: `Starting a ${durationMinutes}-minute ${mode} session.`,
   });
 }
 
