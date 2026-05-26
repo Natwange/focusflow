@@ -72,4 +72,25 @@ async function createTaskForUser(
   });
 }
 
-module.exports = { listTasksForUser, createTaskForUser };
+/**
+ * Update allowed fields on a task (already ownership-checked).
+ */
+async function updateTaskForUser(taskId, { title, dueDate, status }) {
+  const data = {};
+  if (title !== undefined) data.title = sanitizeUserText(title);
+  if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
+  if (status !== undefined) {
+    data.status = String(status);
+    if (status === "done") data.completedAt = new Date();
+  }
+  return prisma.task.update({ where: { id: taskId }, data });
+}
+
+/**
+ * Delete a task (already ownership-checked).
+ */
+async function deleteTaskForUser(taskId) {
+  return prisma.task.delete({ where: { id: taskId } });
+}
+
+module.exports = { listTasksForUser, createTaskForUser, updateTaskForUser, deleteTaskForUser };

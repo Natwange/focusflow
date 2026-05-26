@@ -9,6 +9,15 @@ const router = express.Router();
 const agentChatBodySchema = z.object({
   message: z.string().trim().min(1, "message is required").max(2000),
   tzOffsetMinutes: z.coerce.number().int().min(-840).max(840).optional(),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        text: z.string().max(2000),
+      })
+    )
+    .max(50)
+    .optional(),
 });
 
 function parseTzFromBody(body) {
@@ -22,13 +31,14 @@ function parseTzFromBody(body) {
 router.post("/chat", validateBody(agentChatBodySchema), async (req, res) => {
   try {
     const userId = req.user.id;
-    const { message } = req.body;
+    const { message, history } = req.body;
     const tzOffsetMinutes = parseTzFromBody(req.body);
 
     const payload = await runAgentChat({
       userId,
       message,
       tzOffsetMinutes,
+      history: history ?? [],
     });
 
     return res.json(payload);

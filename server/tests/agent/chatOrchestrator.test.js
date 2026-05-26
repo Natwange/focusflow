@@ -312,7 +312,7 @@ describe("chatOrchestrator", () => {
     });
 
     expect(res.toolResults).toEqual([]);
-    expect(res.assistantMessage).toMatch(/only help/i);
+    expect(res.assistantMessage).toMatch(/can help/i);
     expect(mockGetTestDb().tasks).toHaveLength(0);
   });
 

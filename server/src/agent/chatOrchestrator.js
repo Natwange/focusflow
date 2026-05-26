@@ -16,6 +16,7 @@ const { isV1ToolName, parseToolArgs } = require("./tools");
  * @property {string} userId
  * @property {string} message
  * @property {number} [tzOffsetMinutes]
+ * @property {Array<{role: string, text: string}>} [history]
  */
 
 /**
@@ -176,9 +177,9 @@ async function assistantMessageAfterToolExecution(input) {
  * @param {ChatRunInput} input
  * @returns {Promise<AgentChatResponse>}
  */
-async function runLlmTurn({ userId, message, tzOffsetMinutes = 0 }) {
+async function runLlmTurn({ userId, message, tzOffsetMinutes = 0, history = [] }) {
   const ctx = { userId, tzOffsetMinutes };
-  const llmResult = await completeAgentTurn({ message, tzOffsetMinutes });
+  const llmResult = await completeAgentTurn({ message, tzOffsetMinutes, history });
 
   if (llmResult.type === "message") {
     const text =
@@ -196,7 +197,7 @@ async function runLlmTurn({ userId, message, tzOffsetMinutes = 0 }) {
   if (!isV1ToolName(toolName)) {
     return {
       assistantMessage:
-        "I can only help with listing or creating tasks, focus summary, starting focus, or previewing a goal plan.",
+        "I can help with listing, creating, updating, completing, or deleting tasks, focus summary, starting focus, or previewing a goal plan.",
       toolResults: [],
       pendingConfirmation: null,
       clientActions: [],
@@ -232,6 +233,9 @@ async function runLlmTurn({ userId, message, tzOffsetMinutes = 0 }) {
     },
   ];
 
+  // Handle pending confirmation (e.g. delete_task without confirmed:true)
+  const pendingConfirmation = result.data?.pendingConfirmation ?? null;
+
   const assistantMessage = await assistantMessageAfterToolExecution({
     message,
     tzOffsetMinutes,
@@ -243,7 +247,7 @@ async function runLlmTurn({ userId, message, tzOffsetMinutes = 0 }) {
   return {
     assistantMessage,
     toolResults,
-    pendingConfirmation: null,
+    pendingConfirmation,
     clientActions: collectClientActions(toolResults),
   };
 }
@@ -252,13 +256,13 @@ async function runLlmTurn({ userId, message, tzOffsetMinutes = 0 }) {
  * @param {ChatRunInput} input
  * @returns {Promise<AgentChatResponse>}
  */
-async function run({ userId, message, tzOffsetMinutes = 0 }) {
+async function run({ userId, message, tzOffsetMinutes = 0, history = [] }) {
   if (!isLlmConfigured()) {
     return runRuleBasedFallback({ userId, message, tzOffsetMinutes });
   }
 
   try {
-    return await runLlmTurn({ userId, message, tzOffsetMinutes });
+    return await runLlmTurn({ userId, message, tzOffsetMinutes, history });
   } catch (err) {
     console.error("Agent LLM turn failed, using rule-based fallback:", err);
     return runRuleBasedFallback({ userId, message, tzOffsetMinutes });

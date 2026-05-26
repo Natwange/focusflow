@@ -9,10 +9,16 @@ You may call at most one tool per turn. All writes go through validated tools on
 
 Guidelines:
 - list_tasks: For "today's tasks" or remaining work, use excludeDone true, includeOverdue true, and today's date range in ISO UTC. Respect tzOffsetMinutes when provided in context.
-- create_task: Require a clear title and dueDate (ISO UTC). If due date/time is missing, ask a short follow-up question instead of calling create_task.
+- create_task: Require a clear title. If due date/time is mentioned, convert to ISO UTC. If info is incomplete (no due date or priority), ask ONE short follow-up like "When is it due?" or "What priority?" If the user says no or skip, create the task with what you have.
+- update_task: Use to change a task's title, due date, or status. Identify by taskTitle (user's words) or taskId. Pass only changed fields in updates.
+- complete_task: Use when the user wants to mark a task done. Identify by taskTitle or taskId.
+- delete_task: Use when the user wants to remove a task. NEVER set confirmed:true on the first call. First call without confirmed to get confirmation prompt. Only set confirmed:true if the user has ALREADY said yes/confirmed in the conversation history.
 - get_focus_summary: Use when the user asks about focus time or streak.
 - suggest_focus_session: When the user wants to start focus; timers run in the browser.
 - preview_goal_plan: Read-only plan preview; requires goalId owned by the user.
+
+Task identification:
+- When the user refers to a task by topic, category, or synonym (not the exact title), use taskTitle with the MOST specific keyword from their description. For example: if user says "grocery task" → use taskTitle "grocery". If user says "the vegetables one" → use taskTitle "vegetables". The resolver does partial matching.
 - If you only need to answer conversationally, reply in plain text without calling a tool.
 - Be concise and helpful.`;
 
@@ -79,7 +85,10 @@ function getAgentModel() {
 function buildUserTurnContent(message, tzOffsetMinutes) {
   const tz =
     tzOffsetMinutes !== undefined ? Number(tzOffsetMinutes) : 0;
-  return `User message: ${message}\n\nContext: tzOffsetMinutes=${tz} (same as Date.getTimezoneOffset() in the browser).`;
+  const now = new Date();
+  const localMs = now.getTime() - tz * 60 * 1000;
+  const localIso = new Date(localMs).toISOString().slice(0, 16);
+  return `User message: ${message}\n\nContext: tzOffsetMinutes=${tz}. Current UTC time: ${now.toISOString()}. User's local time: ${localIso}. When the user says "today" or "tomorrow", use their local date to compute the correct ISO UTC date/time.`;
 }
 
 function buildObserveUserContent(input) {
@@ -187,12 +196,22 @@ function getAnthropicClient() {
   return anthropicSingleton;
 }
 
+function buildHistoryMessages(history) {
+  if (!Array.isArray(history) || history.length === 0) return [];
+  return history.slice(-10).map((m) => ({
+    role: m.role === "user" ? "user" : "assistant",
+    content: m.text,
+  }));
+}
+
 async function completeAgentTurnOpenAI(input) {
   const client = getOpenAIClient();
+  const historyMsgs = buildHistoryMessages(input.history);
   const response = await client.chat.completions.create({
     model: getAgentModel(),
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
+      ...historyMsgs,
       {
         role: "user",
         content: buildUserTurnContent(input.message, input.tzOffsetMinutes),
@@ -211,14 +230,24 @@ async function completeAgentTurnOpenAI(input) {
   return parseOpenAIAssistantMessage(choice.message);
 }
 
+function buildAnthropicHistoryMessages(history) {
+  if (!Array.isArray(history) || history.length === 0) return [];
+  return history.slice(-10).map((m) => ({
+    role: m.role === "user" ? "user" : "assistant",
+    content: m.text,
+  }));
+}
+
 async function completeAgentTurnAnthropic(input) {
   const client = getAnthropicClient();
+  const historyMsgs = buildAnthropicHistoryMessages(input.history);
   const response = await client.messages.create({
     model: getAgentModel(),
     max_tokens: 600,
     system: SYSTEM_PROMPT,
     tools: getAnthropicTools(),
     messages: [
+      ...historyMsgs,
       {
         role: "user",
         content: buildUserTurnContent(input.message, input.tzOffsetMinutes),

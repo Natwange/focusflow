@@ -58,12 +58,45 @@ const toolArgSchemas = {
       ])
       .optional(),
   }),
+
+  update_task: z.object({
+    taskId: z.string().trim().min(1).max(64).optional(),
+    taskTitle: z.string().trim().min(1).max(500).optional(),
+    updates: z.object({
+      title: z.string().trim().min(1).max(500).optional(),
+      dueDate: z.union([isoLikeString, z.null()]).optional(),
+      status: z.enum(["todo", "done"]).optional(),
+    }),
+  }).refine(
+    (d) => d.taskId || d.taskTitle,
+    { message: "Provide taskId or taskTitle to identify the task." }
+  ),
+
+  complete_task: z.object({
+    taskId: z.string().trim().min(1).max(64).optional(),
+    taskTitle: z.string().trim().min(1).max(500).optional(),
+  }).refine(
+    (d) => d.taskId || d.taskTitle,
+    { message: "Provide taskId or taskTitle to identify the task." }
+  ),
+
+  delete_task: z.object({
+    taskId: z.string().trim().min(1).max(64).optional(),
+    taskTitle: z.string().trim().min(1).max(500).optional(),
+    confirmed: z.boolean().optional(),
+  }).refine(
+    (d) => d.taskId || d.taskTitle,
+    { message: "Provide taskId or taskTitle to identify the task." }
+  ),
 };
 
 /** V1 tool names exposed to the future LLM layer. */
 const V1_TOOL_NAMES = Object.freeze([
   "list_tasks",
   "create_task",
+  "update_task",
+  "complete_task",
+  "delete_task",
   "get_focus_summary",
   "suggest_focus_session",
   "preview_goal_plan",
@@ -76,6 +109,18 @@ const TOOL_CATALOG = {
   },
   create_task: {
     description: "Create a single task for the user.",
+    readOnly: false,
+  },
+  update_task: {
+    description: "Update an existing task's title, due date, or status. Identify by taskId or taskTitle.",
+    readOnly: false,
+  },
+  complete_task: {
+    description: "Mark a task as done. Identify by taskId or taskTitle.",
+    readOnly: false,
+  },
+  delete_task: {
+    description: "Delete a task. Requires confirmation — set confirmed:true only after the user explicitly agrees.",
     readOnly: false,
   },
   get_focus_summary: {
@@ -163,6 +208,62 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
           },
         },
         required: ["title"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_task",
+      description: TOOL_CATALOG.update_task.description,
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "Exact task ID if known" },
+          taskTitle: { type: "string", description: "Task title to search for" },
+          updates: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "New title" },
+              dueDate: { type: ["string", "null"], description: "New due date ISO 8601 UTC, or null to clear" },
+              status: { type: "string", enum: ["todo", "done"] },
+            },
+            additionalProperties: false,
+          },
+        },
+        required: ["updates"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "complete_task",
+      description: TOOL_CATALOG.complete_task.description,
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "Exact task ID if known" },
+          taskTitle: { type: "string", description: "Task title to search for" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_task",
+      description: TOOL_CATALOG.delete_task.description,
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "Exact task ID if known" },
+          taskTitle: { type: "string", description: "Task title to search for" },
+          confirmed: { type: "boolean", description: "Must be true after user confirms deletion" },
+        },
         additionalProperties: false,
       },
     },

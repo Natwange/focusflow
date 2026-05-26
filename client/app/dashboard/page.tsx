@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import Link from "next/link";
 import Image from "next/image";
 import { Circle, CircleCheck, Loader2, X } from "lucide-react";
+import { onAgentMutation } from "@/lib/agentEvents";
 
 type TaskStatus = "todo" | "doing" | "done";
 type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -98,6 +99,12 @@ export default function DashboardPage() {
       })
       .finally(() => setTasksLoading(false));
   }, []);
+
+  useEffect(() => {
+    return onAgentMutation(() => {
+      fetchTodayTasks();
+    });
+  }, [fetchTodayTasks]);
 
   const formatFocusTime = (mins: number | null) => {
     if (mins == null) return "—";

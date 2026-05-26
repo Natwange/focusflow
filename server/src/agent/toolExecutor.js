@@ -1,7 +1,8 @@
 const { PlanInputError } = require("../lib/buildPlan");
 const { getFocusSummaryForUser } = require("../lib/focusSummary");
 const { previewGoalPlanForUser } = require("../lib/goalPlanPreview");
-const { listTasksForUser, createTaskForUser } = require("../lib/taskQueries");
+const { listTasksForUser, createTaskForUser, updateTaskForUser, deleteTaskForUser } = require("../lib/taskQueries");
+const { resolveTask } = require("../lib/taskResolver");
 const { isV1ToolName, parseToolArgs } = require("./tools");
 
 const DEFAULT_FOCUS_MINUTES = {
@@ -132,6 +133,85 @@ function runSuggestFocusSession(args) {
   });
 }
 
+async function runUpdateTask(userId, args) {
+  const resolved = await resolveTask(userId, { taskId: args.taskId, taskTitle: args.taskTitle });
+  if (!resolved.ok) {
+    return failure(resolved.error, {
+      summary: resolved.error,
+      data: resolved.matches ? { matches: resolved.matches } : null,
+    });
+  }
+
+  const task = resolved.task;
+  const updated = await updateTaskForUser(task.id, args.updates);
+  const changes = [];
+  if (args.updates.title) changes.push(`renamed to "${updated.title}"`);
+  if (args.updates.dueDate !== undefined) {
+    changes.push(args.updates.dueDate ? `due date set to ${new Date(args.updates.dueDate).toISOString()}` : "due date cleared");
+  }
+  if (args.updates.status) changes.push(`status set to ${updated.status}`);
+
+  return success({
+    data: { task: updated },
+    summary: `Updated "${updated.title}": ${changes.join(", ")}.`,
+  });
+}
+
+async function runCompleteTask(userId, args) {
+  const resolved = await resolveTask(userId, { taskId: args.taskId, taskTitle: args.taskTitle });
+  if (!resolved.ok) {
+    return failure(resolved.error, {
+      summary: resolved.error,
+      data: resolved.matches ? { matches: resolved.matches } : null,
+    });
+  }
+
+  const task = resolved.task;
+  if (task.status === "done") {
+    return success({
+      data: { task },
+      summary: `"${task.title}" is already marked complete.`,
+    });
+  }
+
+  const updated = await updateTaskForUser(task.id, { status: "done" });
+  return success({
+    data: { task: updated },
+    summary: `Marked "${updated.title}" as complete.`,
+  });
+}
+
+async function runDeleteTask(userId, args) {
+  const resolved = await resolveTask(userId, { taskId: args.taskId, taskTitle: args.taskTitle });
+  if (!resolved.ok) {
+    return failure(resolved.error, {
+      summary: resolved.error,
+      data: resolved.matches ? { matches: resolved.matches } : null,
+    });
+  }
+
+  const task = resolved.task;
+
+  if (!args.confirmed) {
+    return success({
+      data: {
+        pendingConfirmation: {
+          type: "delete_task",
+          taskId: task.id,
+          taskTitle: task.title,
+        },
+      },
+      summary: `Are you sure you want to delete "${task.title}"? Say "yes, delete it" to confirm.`,
+    });
+  }
+
+  await deleteTaskForUser(task.id);
+  return success({
+    data: { deletedTaskId: task.id, deletedTitle: task.title },
+    summary: `Deleted "${task.title}".`,
+  });
+}
+
 async function runPreviewGoalPlan(userId, args) {
   const { goalId, startDate, availableDays, maxUnitsPerDay } = args;
   const preview = await previewGoalPlanForUser(userId, goalId, {
@@ -184,6 +264,12 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runListTasks(ctx.userId, parsed.args);
       case "create_task":
         return await runCreateTask(ctx.userId, parsed.args);
+      case "update_task":
+        return await runUpdateTask(ctx.userId, parsed.args);
+      case "complete_task":
+        return await runCompleteTask(ctx.userId, parsed.args);
+      case "delete_task":
+        return await runDeleteTask(ctx.userId, parsed.args);
       case "get_focus_summary":
         return await runGetFocusSummary(ctx.userId, ctx, parsed.args);
       case "suggest_focus_session":

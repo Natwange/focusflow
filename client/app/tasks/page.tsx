@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { onAgentMutation } from "@/lib/agentEvents";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   ChevronLeft,
@@ -219,6 +220,12 @@ export default function TasksPage() {
 
   useEffect(() => {
     fetchTasks();
+  }, [fetchTasks]);
+
+  useEffect(() => {
+    return onAgentMutation(() => {
+      fetchTasks();
+    });
   }, [fetchTasks]);
 
   const createTask = async () => {

@@ -1,20 +1,70 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
-import { MessageCircle, X, Send, Loader2 } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { usePathname } from "next/navigation";
+import { MessageCircle, X, Send, Loader2, GripHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { useFocusTimer } from "@/context/FocusTimerContext";
 import { handleAgentClientActions } from "@/lib/agentClientActions";
+import { emitAgentMutation } from "@/lib/agentEvents";
+
+function clamp(val: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, val));
+}
+
+const PUBLIC_ROUTES = new Set([
+  "/",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+]);
 
 export default function AgentChat() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<
     { role: "user" | "assistant"; text: string }[]
   >([]);
   const [loading, setLoading] = useState(false);
+  const [position, setPosition] = useState({ x: 16, y: 64 });
   const inputRef = useRef<HTMLInputElement>(null);
   const focusTimer = useFocusTimer();
+  const dragging = useRef(false);
+  const didDrag = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragging.current) return;
+      didDrag.current = true;
+      const x = clamp(e.clientX - dragOffset.current.x, 0, window.innerWidth - 320);
+      const y = clamp(e.clientY - dragOffset.current.y, 0, window.innerHeight - 60);
+      setPosition({ x, y });
+    };
+    const onUp = () => {
+      dragging.current = false;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
+
+  const onDragStart = (e: React.PointerEvent) => {
+    dragging.current = true;
+    const rect = containerRef.current?.getBoundingClientRect();
+    dragOffset.current = {
+      x: e.clientX - (rect?.left ?? position.x),
+      y: e.clientY - (rect?.top ?? position.y),
+    };
+    e.preventDefault();
+  };
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -25,17 +75,30 @@ export default function AgentChat() {
       setLoading(true);
 
       try {
+        const history = messages.slice(-20).map((m) => ({ role: m.role, text: m.text }));
         const res = await api("/agent/chat", {
           method: "POST",
           body: JSON.stringify({
             message: userMsg,
             tzOffsetMinutes: new Date().getTimezoneOffset(),
+            history,
           }),
         });
 
         const assistantText =
           res.assistantMessage || "Sorry, I didn't get a response.";
         setMessages((prev) => [...prev, { role: "assistant", text: assistantText }]);
+
+        // Emit real-time mutation events for task changes
+        if (res.toolResults && Array.isArray(res.toolResults)) {
+          for (const tr of res.toolResults) {
+            if (!tr.ok) continue;
+            if (tr.tool === "create_task") emitAgentMutation({ type: "task_created" });
+            if (tr.tool === "update_task") emitAgentMutation({ type: "task_updated" });
+            if (tr.tool === "complete_task") emitAgentMutation({ type: "task_completed" });
+            if (tr.tool === "delete_task" && tr.result?.data?.deletedTaskId) emitAgentMutation({ type: "task_deleted" });
+          }
+        }
 
         if (res.clientActions && Array.isArray(res.clientActions)) {
           const outcomes = handleAgentClientActions(res.clientActions, focusTimer);
@@ -65,29 +128,58 @@ export default function AgentChat() {
     [loading, focusTimer]
   );
 
+  if (PUBLIC_ROUTES.has(pathname)) return null;
+
+  const onBubbleDragStart = (e: React.PointerEvent) => {
+    dragging.current = true;
+    didDrag.current = false;
+    dragOffset.current = {
+      x: e.clientX - position.x,
+      y: e.clientY - position.y,
+    };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+
+  const onBubbleClick = () => {
+    if (didDrag.current) return;
+    setOpen(true);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => {
-          setOpen(true);
-          setTimeout(() => inputRef.current?.focus(), 100);
-        }}
-        className="fixed bottom-16 left-4 z-[9998] rounded-full bg-black p-3 text-white shadow-lg hover:bg-black/90 transition dark:bg-white dark:text-black dark:hover:bg-white/90"
+      <div
+        ref={containerRef}
+        onPointerDown={onBubbleDragStart}
+        onClick={onBubbleClick}
+        style={{ left: position.x, top: position.y }}
+        className="fixed z-[9998] rounded-full bg-black p-3 text-white shadow-lg hover:bg-black/90 transition cursor-grab active:cursor-grabbing dark:bg-white dark:text-black dark:hover:bg-white/90"
+        role="button"
         aria-label="Open agent chat"
       >
         <MessageCircle size={20} />
-      </button>
+      </div>
     );
   }
 
   return (
-    <div className="fixed bottom-16 left-4 z-[9998] w-80 max-h-[420px] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-[#2a303a] dark:bg-[#13161b]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-[#2a303a]">
-        <span className="text-sm font-semibold dark:text-[#f5f7fb]">
-          FocusFlow Agent
-        </span>
+    <div
+      ref={containerRef}
+      style={{ left: position.x, top: position.y }}
+      className="fixed z-[9998] w-80 max-h-[420px] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-[#2a303a] dark:bg-[#13161b]"
+    >
+      {/* Header — draggable */}
+      <div
+        onPointerDown={onDragStart}
+        className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-[#2a303a] cursor-grab active:cursor-grabbing select-none"
+      >
+        <div className="flex items-center gap-1.5">
+          <GripHorizontal size={14} className="text-gray-400" />
+          <span className="text-sm font-semibold dark:text-[#f5f7fb]">
+            FocusFlow Agent
+          </span>
+        </div>
         <button
           type="button"
           onClick={() => setOpen(false)}

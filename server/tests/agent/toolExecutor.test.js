@@ -46,6 +46,9 @@ jest.mock("../../src/lib/prisma", () => {
       }),
     },
     task: {
+      findUnique: jest.fn(async ({ where }) => {
+        return db.tasks.find((t) => t.id === where.id) || null;
+      }),
       findMany: jest.fn(async ({ where }) => {
         return db.tasks.filter((t) => {
           if (t.userId !== where.userId) return false;
@@ -61,6 +64,14 @@ jest.mock("../../src/lib/prisma", () => {
             return false;
           if (where.dueDate?.lte && (!t.dueDate || t.dueDate > where.dueDate.lte))
             return false;
+          if (where.title) {
+            if (typeof where.title === "string") {
+              if (t.title !== where.title) return false;
+            } else if (where.title.contains) {
+              const search = where.title.contains.toLowerCase();
+              if (!t.title.toLowerCase().includes(search)) return false;
+            }
+          }
           return true;
         });
       }),
@@ -74,6 +85,18 @@ jest.mock("../../src/lib/prisma", () => {
         };
         db.tasks.push(row);
         return row;
+      }),
+      update: jest.fn(async ({ where, data }) => {
+        const task = db.tasks.find((t) => t.id === where.id);
+        if (!task) throw new Error("Not found");
+        Object.assign(task, data);
+        return task;
+      }),
+      delete: jest.fn(async ({ where }) => {
+        const idx = db.tasks.findIndex((t) => t.id === where.id);
+        if (idx === -1) throw new Error("Not found");
+        const [removed] = db.tasks.splice(idx, 1);
+        return removed;
       }),
     },
     focusSession: {
@@ -93,14 +116,15 @@ const { executeTool } = require("../../src/agent/toolExecutor");
 const { parseToolArgs, V1_TOOL_NAMES } = require("../../src/agent/tools");
 
 describe("agent tools.js", () => {
-  it("exports five V1 tool names", () => {
-    expect(V1_TOOL_NAMES).toEqual([
-      "list_tasks",
-      "create_task",
-      "get_focus_summary",
-      "suggest_focus_session",
-      "preview_goal_plan",
-    ]);
+  it("exports all V1 tool names", () => {
+    expect(V1_TOOL_NAMES).toContain("list_tasks");
+    expect(V1_TOOL_NAMES).toContain("create_task");
+    expect(V1_TOOL_NAMES).toContain("update_task");
+    expect(V1_TOOL_NAMES).toContain("complete_task");
+    expect(V1_TOOL_NAMES).toContain("delete_task");
+    expect(V1_TOOL_NAMES).toContain("get_focus_summary");
+    expect(V1_TOOL_NAMES).toContain("suggest_focus_session");
+    expect(V1_TOOL_NAMES).toContain("preview_goal_plan");
   });
 
   it("rejects invalid create_task args", () => {
@@ -245,5 +269,121 @@ describe("agent toolExecutor", () => {
     const result = await executeTool(ctx, "delete_everything", {});
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/Unknown tool/);
+  });
+
+  it("update_task changes title by taskId", async () => {
+    const result = await executeTool(ctx, "update_task", {
+      taskId: "task_1",
+      updates: { title: "Exercise" },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data.task.title).toBe("Exercise");
+    expect(result.summary).toMatch(/renamed to "Exercise"/);
+  });
+
+  it("update_task changes due date by title", async () => {
+    const result = await executeTool(ctx, "update_task", {
+      taskTitle: "Work out",
+      updates: { dueDate: "2026-06-01T19:00:00.000Z" },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.summary).toMatch(/due date set to/);
+  });
+
+  it("update_task rejects cross-user access", async () => {
+    mockGetTestDb().tasks.push({
+      id: "task_other",
+      userId: "user_2",
+      title: "Other task",
+      status: "todo",
+      priority: "low",
+      dueDate: null,
+      completedAt: null,
+      createdAt: new Date(),
+    });
+    const result = await executeTool(ctx, "update_task", {
+      taskId: "task_other",
+      updates: { title: "Hacked" },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/does not belong/);
+  });
+
+  it("complete_task marks task done", async () => {
+    const result = await executeTool(ctx, "complete_task", {
+      taskTitle: "Work out",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data.task.status).toBe("done");
+    expect(result.summary).toMatch(/complete/);
+  });
+
+  it("complete_task reports already done", async () => {
+    mockGetTestDb().tasks[0].status = "done";
+    const result = await executeTool(ctx, "complete_task", {
+      taskId: "task_1",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.summary).toMatch(/already/);
+  });
+
+  it("delete_task asks confirmation without confirmed flag", async () => {
+    const result = await executeTool(ctx, "delete_task", {
+      taskTitle: "Work out",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data.pendingConfirmation).toBeDefined();
+    expect(result.data.pendingConfirmation.type).toBe("delete_task");
+    expect(result.summary).toMatch(/sure you want to delete/);
+    expect(mockGetTestDb().tasks).toHaveLength(1);
+  });
+
+  it("delete_task executes with confirmed:true", async () => {
+    const result = await executeTool(ctx, "delete_task", {
+      taskId: "task_1",
+      confirmed: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.summary).toMatch(/Deleted/);
+    expect(mockGetTestDb().tasks).toHaveLength(0);
+  });
+
+  it("delete_task rejects cross-user", async () => {
+    mockGetTestDb().tasks.push({
+      id: "task_other",
+      userId: "user_2",
+      title: "Other",
+      status: "todo",
+      priority: "low",
+      dueDate: null,
+      completedAt: null,
+      createdAt: new Date(),
+    });
+    const result = await executeTool(ctx, "delete_task", {
+      taskId: "task_other",
+      confirmed: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/does not belong/);
+  });
+
+  it("update_task returns ambiguous when multiple tasks match title", async () => {
+    mockGetTestDb().tasks.push({
+      id: "task_dup",
+      userId: "user_1",
+      goalId: null,
+      title: "Work out",
+      status: "doing",
+      priority: "low",
+      dueDate: null,
+      completedAt: null,
+      createdAt: new Date(),
+    });
+    const result = await executeTool(ctx, "update_task", {
+      taskTitle: "Work out",
+      updates: { status: "done" },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Multiple tasks/);
   });
 });
