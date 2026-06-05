@@ -68,6 +68,15 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
   const cookie = req.headers.get("cookie");
   if (cookie) headers.set("cookie", cookie);
 
+  // Forward real client IP so the API rate-limiter keys per user, not per BFF server.
+  const xff = req.headers.get("x-forwarded-for");
+  const realIp = req.headers.get("x-real-ip");
+  if (xff) {
+    headers.set("x-forwarded-for", xff);
+  } else if (realIp) {
+    headers.set("x-forwarded-for", realIp);
+  }
+
   const method = req.method.toUpperCase();
   const hasBody = !["GET", "HEAD"].includes(method);
   const init: RequestInit = {

@@ -27,12 +27,33 @@ function createApp() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  const authLimiter = rateLimit({
+  const clientIpKey = (req) => {
+    const xff = req.headers["x-forwarded-for"];
+    if (typeof xff === "string" && xff.trim()) {
+      return xff.split(",")[0].trim();
+    }
+    return req.ip || req.socket?.remoteAddress || "unknown";
+  };
+
+  const rateLimitOpts = {
     windowMs: 60 * 1000,
-    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 8),
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: clientIpKey,
+  };
+
+  // Brute-force protection for credential endpoints (login, register, password flows).
+  const authSensitiveLimiter = rateLimit({
+    ...rateLimitOpts,
+    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 20),
     message: { error: "Too many auth requests, please try again shortly." },
+  });
+
+  // Looser limit for token refresh — separate bucket so refresh retries don't block login.
+  const authRefreshLimiter = rateLimit({
+    ...rateLimitOpts,
+    max: Number(process.env.AUTH_REFRESH_RATE_LIMIT_MAX || 60),
+    message: { error: "Too many refresh requests, please try again shortly." },
   });
 
   if (process.env.TRUST_PROXY === "1") {
@@ -56,13 +77,13 @@ function createApp() {
   app.use(express.json({ limit: "50kb" }));
   app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 
-  app.use("/auth/login", authLimiter);
-  app.use("/auth/register", authLimiter);
-  app.use("/auth/refresh", authLimiter);
-  app.use("/auth/forgot-password", authLimiter);
-  app.use("/auth/reset-password", authLimiter);
-  app.use("/auth/verify-email", authLimiter);
-  app.use("/auth/resend-verification-email", authLimiter);
+  app.use("/auth/login", authSensitiveLimiter);
+  app.use("/auth/register", authSensitiveLimiter);
+  app.use("/auth/forgot-password", authSensitiveLimiter);
+  app.use("/auth/reset-password", authSensitiveLimiter);
+  app.use("/auth/verify-email", authSensitiveLimiter);
+  app.use("/auth/resend-verification-email", authSensitiveLimiter);
+  app.use("/auth/refresh", authRefreshLimiter);
 
   app.use("/auth", authRoutes);
   app.use("/goals", auth, goalRoutes);
