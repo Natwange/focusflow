@@ -5,6 +5,7 @@ function mockGetTestDb() {
       goals: new Map(),
       tasks: [],
       focusSessions: [],
+      agentRuns: [],
     };
   }
   return global.__ffAgentToolDb;
@@ -17,6 +18,7 @@ jest.mock("../../src/lib/prisma", () => {
       goals: new Map(),
       tasks: [],
       focusSessions: [],
+      agentRuns: [],
     };
   }
   const db = global.__ffAgentToolDb;
@@ -44,6 +46,23 @@ jest.mock("../../src/lib/prisma", () => {
         }
         return out;
       }),
+      create: jest.fn(async ({ data }) => {
+        const row = {
+          id: `goal_${db.goals.size + 1}`,
+          createdAt: new Date(),
+          availableDays: ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
+          maxUnitsPerDay: null,
+          ...data,
+        };
+        db.goals.set(row.id, row);
+        return row;
+      }),
+      findMany: jest.fn(async ({ where }) => {
+        return [...db.goals.values()].filter((g) => {
+          if (where.userId && g.userId !== where.userId) return false;
+          return true;
+        });
+      }),
     },
     task: {
       findUnique: jest.fn(async ({ where }) => {
@@ -51,7 +70,8 @@ jest.mock("../../src/lib/prisma", () => {
       }),
       findMany: jest.fn(async ({ where }) => {
         return db.tasks.filter((t) => {
-          if (t.userId !== where.userId) return false;
+          if (where.userId && t.userId !== where.userId) return false;
+          if (where.OR) return true;
           if (where.status) {
             if (typeof where.status === "object" && where.status.not) {
               if (t.status === where.status.not) return false;
@@ -98,13 +118,37 @@ jest.mock("../../src/lib/prisma", () => {
         const [removed] = db.tasks.splice(idx, 1);
         return removed;
       }),
+      count: jest.fn(async ({ where }) => {
+        return db.tasks.filter((t) => {
+          if (where.userId && t.userId !== where.userId) return false;
+          if (where.goalId && t.goalId !== where.goalId) return false;
+          return true;
+        }).length;
+      }),
     },
+    $transaction: jest.fn(async (ops) => {
+      const results = [];
+      for (const op of ops) {
+        results.push(await op);
+      }
+      return results;
+    }),
     focusSession: {
       findMany: jest.fn(async ({ where }) => {
         return db.focusSessions.filter((s) => {
-          if (s.userId !== where.userId) return false;
+          if (where.userId && s.userId !== where.userId) return false;
           if (where.startedAt?.gte && s.startedAt < where.startedAt.gte) return false;
-          if (where.startedAt?.lt && s.startedAt >= where.startedAt.lt) return false;
+          if (where.startedAt?.lte && s.startedAt > where.startedAt.lte) return false;
+          return true;
+        });
+      }),
+    },
+    agentRun: {
+      findMany: jest.fn(async ({ where }) => {
+        return db.agentRuns.filter((r) => {
+          if (where.userId && r.userId !== where.userId) return false;
+          if (where.createdAt?.gte && r.createdAt < where.createdAt.gte) return false;
+          if (where.createdAt?.lte && r.createdAt > where.createdAt.lte) return false;
           return true;
         });
       }),
@@ -123,8 +167,11 @@ describe("agent tools.js", () => {
     expect(V1_TOOL_NAMES).toContain("complete_task");
     expect(V1_TOOL_NAMES).toContain("delete_task");
     expect(V1_TOOL_NAMES).toContain("get_focus_summary");
+    expect(V1_TOOL_NAMES).toContain("get_user_behavior_context");
     expect(V1_TOOL_NAMES).toContain("suggest_focus_session");
+    expect(V1_TOOL_NAMES).toContain("create_goal");
     expect(V1_TOOL_NAMES).toContain("preview_goal_plan");
+    expect(V1_TOOL_NAMES).toContain("confirm_goal_plan");
   });
 
   it("rejects invalid create_task args", () => {
@@ -143,6 +190,7 @@ describe("agent toolExecutor", () => {
     db.goals.clear();
     db.tasks = [];
     db.focusSessions = [];
+    db.agentRuns = [];
 
     db.users.set("user_1", {
       id: "user_1",
@@ -253,7 +301,11 @@ describe("agent toolExecutor", () => {
     expect(result.ok).toBe(true);
     expect(Array.isArray(result.data.items)).toBe(true);
     expect(result.data.items.length).toBeGreaterThan(0);
-    expect(result.summary).toMatch(/Preview only/);
+    expect(result.data.pendingConfirmation).toMatchObject({
+      type: "confirm_goal_plan",
+      goalId: "goal_1",
+    });
+    expect(result.summary).toMatch(/Plan preview/i);
     expect(mockGetTestDb().tasks).toHaveLength(before);
   });
 
@@ -385,5 +437,150 @@ describe("agent toolExecutor", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/Multiple tasks/);
+  });
+
+  it("create_goal creates goal with relative deadline", async () => {
+    const result = await executeTool(ctx, "create_goal", {
+      title: "Study JavaScript",
+      totalUnits: 30,
+      deadline: "in 7 days",
+      unitName: "lessons",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data.goal.title).toBe("Study JavaScript");
+    expect(result.data.goal.totalUnits).toBe(30);
+  });
+
+  it("create_goal rejects invalid deadline", async () => {
+    const result = await executeTool(ctx, "create_goal", {
+      title: "Bad goal",
+      totalUnits: 5,
+      deadline: "someday maybe",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.summary).toMatch(/Invalid deadline/i);
+  });
+
+  it("confirm_goal_plan asks confirmation without confirmed flag", async () => {
+    const result = await executeTool(ctx, "confirm_goal_plan", { goalId: "goal_1" });
+    expect(result.ok).toBe(true);
+    expect(result.data.pendingConfirmation.type).toBe("confirm_goal_plan");
+    expect(result.summary).toMatch(/confirm/i);
+  });
+
+  it("confirm_goal_plan creates tasks when confirmed", async () => {
+    const before = mockGetTestDb().tasks.length;
+    const result = await executeTool(ctx, "confirm_goal_plan", {
+      goalId: "goal_1",
+      confirmed: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data.createdCount).toBeGreaterThan(0);
+    expect(mockGetTestDb().tasks.length).toBeGreaterThan(before);
+  });
+
+  it("confirm_goal_plan blocks duplicate confirm", async () => {
+    await executeTool(ctx, "confirm_goal_plan", {
+      goalId: "goal_1",
+      confirmed: true,
+    });
+    const second = await executeTool(ctx, "confirm_goal_plan", {
+      goalId: "goal_1",
+      confirmed: true,
+    });
+    expect(second.ok).toBe(false);
+    expect(second.error).toMatch(/already has tasks/i);
+  });
+
+  it("confirm_goal_plan forbids cross-user goal", async () => {
+    mockGetTestDb().goals.set("goal_other", {
+      id: "goal_other",
+      userId: "user_2",
+      title: "Other",
+      totalUnits: 5,
+      unitName: "units",
+      deadline: new Date(Date.now() + 7 * 86400000),
+      availableDays: ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
+      maxUnitsPerDay: null,
+    });
+    const result = await executeTool(ctx, "confirm_goal_plan", {
+      goalId: "goal_other",
+      confirmed: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Forbidden|Goal not found/);
+  });
+
+  it("rejects invalid create_goal units via Zod", () => {
+    const parsed = parseToolArgs("create_goal", {
+      title: "X",
+      totalUnits: 0,
+      deadline: "2026-12-01",
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it("get_user_behavior_context returns summarized signals", async () => {
+    const db = mockGetTestDb();
+    db.tasks.push(
+      ...Array.from({ length: 10 }, (_, i) => ({
+        id: `beh_${i}`,
+        userId: "user_1",
+        status: "done",
+        dueDate: new Date("2026-05-13T10:00:00.000Z"),
+        completedAt: new Date("2026-05-13T11:00:00.000Z"),
+      }))
+    );
+    db.focusSessions.push({
+      userId: "user_1",
+      duration: 25,
+      startedAt: new Date("2026-05-13T09:00:00.000Z"),
+    });
+
+    const result = await executeTool(ctx, "get_user_behavior_context", {
+      lookbackDays: 30,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.signals.dayOfWeekStats).toHaveLength(7);
+    expect(result.data.signals.dataQuality).toBeDefined();
+    expect(result.data.signals.dayOfWeekStats[0]).not.toHaveProperty("title");
+    expect(result.summary).toMatch(/Behavior context/i);
+  });
+
+  it("get_user_behavior_context scopes data to authenticated user", async () => {
+    const db = mockGetTestDb();
+    db.tasks = [];
+    db.focusSessions = [];
+    db.agentRuns = [];
+    db.tasks.push({
+      id: "other_task",
+      userId: "user_2",
+      status: "done",
+      dueDate: new Date("2026-05-13T10:00:00.000Z"),
+      completedAt: new Date("2026-05-13T11:00:00.000Z"),
+    });
+
+    const result = await executeTool(ctx, "get_user_behavior_context", {});
+    expect(result.ok).toBe(true);
+    const completed = result.data.signals.dayOfWeekStats.reduce(
+      (sum, row) => sum + row.completedTasks,
+      0
+    );
+    expect(completed).toBe(0);
+    expect(result.data.signals.dataQuality.hasEnoughData).toBe(false);
+  });
+
+  it("behavior analyzer does not mutate create_goal constraints", () => {
+    const parsed = parseToolArgs("create_goal", {
+      title: "Study JS",
+      totalUnits: 30,
+      deadline: "in 7 days",
+      availableDays: ["MON", "TUE", "WED", "THU", "FRI"],
+      maxUnitsPerDay: 2,
+    });
+    expect(parsed.ok).toBe(true);
+    expect(parsed.args.availableDays).toEqual(["MON", "TUE", "WED", "THU", "FRI"]);
+    expect(parsed.args.maxUnitsPerDay).toBe(2);
   });
 });

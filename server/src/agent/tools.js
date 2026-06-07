@@ -41,10 +41,29 @@ const toolArgSchemas = {
       .optional(),
   }),
 
+  get_user_behavior_context: z.object({
+    lookbackDays: z.coerce.number().int().min(7).max(366).optional(),
+    tzOffsetMinutes: z.coerce.number().int().min(-840).max(840).optional(),
+  }),
+
   suggest_focus_session: z.object({
     mode: focusModeSchema.optional(),
     durationMinutes: z.coerce.number().int().positive().max(240).optional(),
     label: z.string().trim().max(200).optional(),
+  }),
+
+  create_goal: z.object({
+    title: z.string().trim().min(1, "title is required").max(200),
+    totalUnits: z.coerce.number().int().positive().max(100_000),
+    unitName: z.string().trim().min(1).max(80).optional(),
+    deadline: z.string().trim().min(1).max(64),
+    availableDays: z.array(weekdaySchema).max(7).optional(),
+    maxUnitsPerDay: z
+      .union([
+        z.null(),
+        z.coerce.number().int().positive().max(10_000),
+      ])
+      .optional(),
   }),
 
   preview_goal_plan: z.object({
@@ -57,6 +76,11 @@ const toolArgSchemas = {
         z.coerce.number().int().positive().max(10_000),
       ])
       .optional(),
+  }),
+
+  confirm_goal_plan: z.object({
+    goalId: goalIdField,
+    confirmed: z.boolean().optional(),
   }),
 
   update_task: z.object({
@@ -98,8 +122,11 @@ const V1_TOOL_NAMES = Object.freeze([
   "complete_task",
   "delete_task",
   "get_focus_summary",
+  "get_user_behavior_context",
   "suggest_focus_session",
+  "create_goal",
   "preview_goal_plan",
+  "confirm_goal_plan",
 ]);
 
 const TOOL_CATALOG = {
@@ -127,15 +154,30 @@ const TOOL_CATALOG = {
     description: "Today's logged focus minutes and visit streak (timezone-aware).",
     readOnly: true,
   },
+  get_user_behavior_context: {
+    description:
+      "Summarized productivity behavioral signals from recent tasks, focus sessions, goals, and agent runs. Use before planning goals or recommending workload distribution.",
+    readOnly: true,
+  },
   suggest_focus_session: {
     description:
       "Suggest starting a focus timer in the client app (does not start a server session).",
     readOnly: true,
   },
+  create_goal: {
+    description:
+      "Create a new goal with title, total units, deadline, and optional schedule constraints.",
+    readOnly: false,
+  },
   preview_goal_plan: {
     description:
-      "Preview a goal study plan (read-only; does not create tasks or confirm a plan).",
+      "Preview a goal study plan (read-only; does not create tasks). Requires goalId.",
     readOnly: true,
+  },
+  confirm_goal_plan: {
+    description:
+      "Write scheduled tasks for a goal plan. NEVER set confirmed:true unless the user explicitly approved after seeing the preview.",
+    readOnly: false,
   },
 };
 
@@ -286,6 +328,26 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
   {
     type: "function",
     function: {
+      name: "get_user_behavior_context",
+      description: `${TOOL_CATALOG.get_user_behavior_context.description} Returns objective signals only — interpret them; do not invent statistics.`,
+      parameters: {
+        type: "object",
+        properties: {
+          lookbackDays: {
+            type: "integer",
+            minimum: 7,
+            maximum: 366,
+            description: "Days of history to analyze (default 30)",
+          },
+          tzOffsetMinutes: { type: "integer" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "suggest_focus_session",
       description: TOOL_CATALOG.suggest_focus_session.description,
       parameters: {
@@ -295,6 +357,32 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
           durationMinutes: { type: "integer", minimum: 1, maximum: 240 },
           label: { type: "string" },
         },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_goal",
+      description: `${TOOL_CATALOG.create_goal.description} Deadline may be ISO UTC or phrases like "in 7 days", "in 2 weeks", "by June 1".`,
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          totalUnits: { type: "integer", minimum: 1 },
+          unitName: { type: "string", description: "e.g. lessons, chapters" },
+          deadline: { type: "string", description: "ISO UTC or relative phrase" },
+          availableDays: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
+            },
+          },
+          maxUnitsPerDay: { type: ["integer", "null"], minimum: 1 },
+        },
+        required: ["title", "totalUnits", "deadline"],
         additionalProperties: false,
       },
     },
@@ -317,6 +405,25 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
             },
           },
           maxUnitsPerDay: { type: ["integer", "null"], minimum: 1 },
+        },
+        required: ["goalId"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "confirm_goal_plan",
+      description: TOOL_CATALOG.confirm_goal_plan.description,
+      parameters: {
+        type: "object",
+        properties: {
+          goalId: { type: "string" },
+          confirmed: {
+            type: "boolean",
+            description: "true only after user explicitly confirms plan creation",
+          },
         },
         required: ["goalId"],
         additionalProperties: false,

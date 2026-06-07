@@ -80,13 +80,18 @@ async function apiOnce(
   }
 
   if (!res.ok) {
-    const message =
+    let message =
       typeof data === "object" &&
       data !== null &&
       "error" in data &&
       typeof data.error === "string"
         ? data.error
         : `Request failed: ${res.status}`;
+
+    if (res.status === 429 && message === "Request failed: 429") {
+      message =
+        "Too many sign-in attempts. Please wait a minute and try again.";
+    }
 
     if (res.status === 401 && shouldAttemptRefresh(path, isRetry)) {
       const refreshed = await refreshSessionOnce();

@@ -15,7 +15,10 @@ Guidelines:
 - delete_task: Use when the user wants to remove a task. NEVER set confirmed:true on the first call. First call without confirmed to get confirmation prompt. Only set confirmed:true if the user has ALREADY said yes/confirmed in the conversation history.
 - get_focus_summary: Use when the user asks about focus time or streak.
 - suggest_focus_session: When the user wants to start focus; timers run in the browser.
-- preview_goal_plan: Read-only plan preview; requires goalId owned by the user.
+- get_user_behavior_context: Call BEFORE creating goals, study plans, workload plans, or rebalance recommendations. Returns objective behavioral signals from the user's own history (completion by weekday, focus patterns, workload tolerance). Interpret signals to inform planning explanations — never invent statistics. If dataQuality.hasEnoughData is false, tell the user there is insufficient history and use a balanced plan without fake insights.
+- create_goal: Use when the user wants a new goal. Required: title, totalUnits, deadline. Deadline may be ISO UTC or phrases like "in 7 days", "in 2 weeks", "by June 1". Optional: unitName (default units), availableDays (e.g. weekdays = MON-FRI), maxUnitsPerDay. If title/units/deadline missing, ask ONE short clarifying question. When planning, call get_user_behavior_context first unless the user gave explicit constraints (deadline, availableDays, maxUnitsPerDay) that fully define the schedule — user constraints always override behavioral suggestions.
+- preview_goal_plan: Read-only plan preview for an existing goalId. The backend may auto-preview after create_goal.
+- confirm_goal_plan: Writes scheduled tasks ONLY after user approval. NEVER set confirmed:true on first request. Only set confirmed:true when user explicitly says yes/create it in conversation history.
 
 Task identification:
 - When the user refers to a task by topic, category, or synonym (not the exact title), use taskTitle with the MOST specific keyword from their description. For example: if user says "grocery task" → use taskTitle "grocery". If user says "the vegetables one" → use taskTitle "vegetables". The resolver does partial matching.
@@ -100,13 +103,17 @@ function buildObserveUserContent(input) {
     error: input.toolResult.error ?? null,
     data: input.toolResult.data ?? null,
   };
-  return [
+  const parts = [
     `Original user message: ${input.message}`,
     `Context: tzOffsetMinutes=${tz}`,
     `Tool executed: ${input.toolName}`,
     `Validated arguments: ${JSON.stringify(input.args)}`,
     `Tool outcome: ${JSON.stringify(outcome)}`,
-  ].join("\n\n");
+  ];
+  if (Array.isArray(input.toolResults) && input.toolResults.length > 1) {
+    parts.push(`All tool steps: ${JSON.stringify(input.toolResults)}`);
+  }
+  return parts.join("\n\n");
 }
 
 /**

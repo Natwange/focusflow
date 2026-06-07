@@ -425,5 +425,31 @@ describe("Security-critical integration flows", () => {
       const results = await Promise.all(attempts);
       expect(results.some((r) => r.status === 429)).toBe(true);
     });
+
+    test("login rate limit is scoped per email, not shared across users", async () => {
+      await seedUser({
+        id: "user_1",
+        email: "alice@example.com",
+        password: "ValidPass123!",
+      });
+      await seedUser({
+        id: "user_2",
+        email: "bob@example.com",
+        password: "ValidPass123!",
+      });
+
+      for (let i = 0; i < 5; i += 1) {
+        await request(app).post("/auth/login").send({
+          email: "alice@example.com",
+          password: "WrongPassword",
+        });
+      }
+
+      const bobLogin = await request(app).post("/auth/login").send({
+        email: "bob@example.com",
+        password: "ValidPass123!",
+      });
+      expect(bobLogin.status).toBe(200);
+    });
   });
 });

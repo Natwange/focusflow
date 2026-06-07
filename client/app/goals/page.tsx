@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { api } from "@/lib/api";
+import { onAgentMutation } from "@/lib/agentEvents";
 import { sumCompletedUnits } from "@/lib/goalTaskUnits";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ChevronDown, Pencil, Trash2, RefreshCw, X } from "lucide-react";
@@ -344,6 +345,12 @@ export default function GoalsPage() {
 
   useEffect(() => {
     loadGoals();
+  }, [loadGoals]);
+
+  useEffect(() => {
+    return onAgentMutation(() => {
+      loadGoals();
+    });
   }, [loadGoals]);
 
   useEffect(() => {

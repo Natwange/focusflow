@@ -10,6 +10,10 @@ const {
   listTasksArgsForTodayIntent,
 } = require("./ruleParser");
 const { isV1ToolName, parseToolArgs } = require("./tools");
+const {
+  isAffirmativeConfirmation,
+  pendingConfirmationToToolCall,
+} = require("./pendingConfirmationResolver");
 
 /**
  * @typedef {object} ChatRunInput
@@ -17,6 +21,7 @@ const { isV1ToolName, parseToolArgs } = require("./tools");
  * @property {string} message
  * @property {number} [tzOffsetMinutes]
  * @property {Array<{role: string, text: string}>} [history]
+ * @property {object | null} [pendingConfirmation]
  */
 
 /**
@@ -127,12 +132,65 @@ function toolSummaryFallback(toolName, toolResults) {
   if (toolName === "list_tasks") {
     return formatListTasksReply(toolResults);
   }
+  if (toolResults.length > 1) {
+    const lines = toolResults
+      .map((tr) => {
+        if (!tr.ok) return tr.result?.summary ?? tr.result?.error ?? "Step failed.";
+        return tr.result?.summary;
+      })
+      .filter(Boolean);
+    if (lines.length > 0) return lines.join("\n");
+  }
   const last = toolResults[toolResults.length - 1];
   if (!last) return "I could not complete that request.";
   if (!last.ok) {
     return last.result?.summary ?? last.result?.error ?? "Something went wrong.";
   }
   return last.result.summary;
+}
+
+/**
+ * Run up to 2 tools in one turn (create_goal auto-chains preview_goal_plan).
+ */
+async function executeToolChain(ctx, toolName, toolArgs) {
+  const toolResults = [];
+  const first = await executeTool(ctx, toolName, toolArgs);
+  toolResults.push({
+    tool: toolName,
+    args: toolArgs,
+    ok: first.ok,
+    result: first,
+  });
+
+  if (
+    toolName === "create_goal" &&
+    first.ok &&
+    first.data?.goal?.id &&
+    toolResults.length < 2
+  ) {
+    const previewArgs = { goalId: first.data.goal.id };
+    const preview = await executeTool(ctx, "preview_goal_plan", previewArgs);
+    toolResults.push({
+      tool: "preview_goal_plan",
+      args: previewArgs,
+      ok: preview.ok,
+      result: preview,
+    });
+  }
+
+  return toolResults;
+}
+
+function extractPendingConfirmation(toolResults) {
+  for (let i = toolResults.length - 1; i >= 0; i -= 1) {
+    const tr = toolResults[i];
+    if (!tr?.ok) continue;
+    const pending = tr.result?.data?.pendingConfirmation;
+    if (pending && typeof pending === "object") {
+      return pending;
+    }
+  }
+  return null;
 }
 
 /**
@@ -147,15 +205,21 @@ function toolSummaryFallback(toolName, toolResults) {
 async function assistantMessageAfterToolExecution(input) {
   const { message, tzOffsetMinutes, toolName, args, toolResults } = input;
   const fallback = toolSummaryFallback(toolName, toolResults);
-  const entry = toolResults[0];
+  const entry = toolResults[toolResults.length - 1] ?? toolResults[0];
   if (!entry?.result) return fallback;
 
   try {
     const observed = await completeObserveRespond({
       message,
       tzOffsetMinutes,
-      toolName,
-      args,
+      toolName: entry.tool ?? toolName,
+      args: entry.args ?? args,
+      toolResults: toolResults.map((tr) => ({
+        tool: tr.tool,
+        ok: tr.ok,
+        summary: tr.result?.summary,
+        error: tr.result?.error,
+      })),
       toolResult: {
         ok: entry.result.ok,
         summary: entry.result.summary,
@@ -177,8 +241,49 @@ async function assistantMessageAfterToolExecution(input) {
  * @param {ChatRunInput} input
  * @returns {Promise<AgentChatResponse>}
  */
-async function runLlmTurn({ userId, message, tzOffsetMinutes = 0, history = [] }) {
+async function runLlmTurn({
+  userId,
+  message,
+  tzOffsetMinutes = 0,
+  history = [],
+  pendingConfirmation = null,
+}) {
   const ctx = { userId, tzOffsetMinutes };
+
+  if (isAffirmativeConfirmation(message)) {
+    const directCall = pendingConfirmationToToolCall(pendingConfirmation);
+    if (directCall) {
+      const result = await executeTool(
+        ctx,
+        directCall.toolName,
+        directCall.toolArgs
+      );
+      const toolResults = [
+        {
+          tool: directCall.toolName,
+          args: directCall.toolArgs,
+          ok: result.ok,
+          result,
+        },
+      ];
+      const nextPending = extractPendingConfirmation(toolResults);
+      const assistantMessage = await assistantMessageAfterToolExecution({
+        message,
+        tzOffsetMinutes,
+        toolName: directCall.toolName,
+        args: directCall.toolArgs,
+        toolResults,
+      });
+
+      return {
+        assistantMessage,
+        toolResults,
+        pendingConfirmation: nextPending,
+        clientActions: collectClientActions(toolResults),
+      };
+    }
+  }
+
   const llmResult = await completeAgentTurn({ message, tzOffsetMinutes, history });
 
   if (llmResult.type === "message") {
@@ -197,7 +302,7 @@ async function runLlmTurn({ userId, message, tzOffsetMinutes = 0, history = [] }
   if (!isV1ToolName(toolName)) {
     return {
       assistantMessage:
-        "I can help with listing, creating, updating, completing, or deleting tasks, focus summary, starting focus, or previewing a goal plan.",
+        "I can help with tasks, focus sessions, and goals — including creating goals, previewing plans, and confirming schedules.",
       toolResults: [],
       pendingConfirmation: null,
       clientActions: [],
@@ -223,18 +328,8 @@ async function runLlmTurn({ userId, message, tzOffsetMinutes = 0, history = [] }
     );
   }
 
-  const result = await executeTool(ctx, toolName, toolArgs);
-  const toolResults = [
-    {
-      tool: toolName,
-      args: toolArgs,
-      ok: result.ok,
-      result,
-    },
-  ];
-
-  // Handle pending confirmation (e.g. delete_task without confirmed:true)
-  const pendingConfirmation = result.data?.pendingConfirmation ?? null;
+  const toolResults = await executeToolChain(ctx, toolName, toolArgs);
+  const responsePendingConfirmation = extractPendingConfirmation(toolResults);
 
   const assistantMessage = await assistantMessageAfterToolExecution({
     message,
@@ -247,7 +342,7 @@ async function runLlmTurn({ userId, message, tzOffsetMinutes = 0, history = [] }
   return {
     assistantMessage,
     toolResults,
-    pendingConfirmation,
+    pendingConfirmation: responsePendingConfirmation,
     clientActions: collectClientActions(toolResults),
   };
 }
@@ -256,13 +351,25 @@ async function runLlmTurn({ userId, message, tzOffsetMinutes = 0, history = [] }
  * @param {ChatRunInput} input
  * @returns {Promise<AgentChatResponse>}
  */
-async function run({ userId, message, tzOffsetMinutes = 0, history = [] }) {
+async function run({
+  userId,
+  message,
+  tzOffsetMinutes = 0,
+  history = [],
+  pendingConfirmation = null,
+}) {
   if (!isLlmConfigured()) {
     return runRuleBasedFallback({ userId, message, tzOffsetMinutes });
   }
 
   try {
-    return await runLlmTurn({ userId, message, tzOffsetMinutes, history });
+    return await runLlmTurn({
+      userId,
+      message,
+      tzOffsetMinutes,
+      history,
+      pendingConfirmation,
+    });
   } catch (err) {
     console.error("Agent LLM turn failed, using rule-based fallback:", err);
     return runRuleBasedFallback({ userId, message, tzOffsetMinutes });
@@ -277,4 +384,8 @@ module.exports = {
   formatListTasksReply,
   toolSummaryFallback,
   assistantMessageAfterToolExecution,
+  executeToolChain,
+  extractPendingConfirmation,
+  isAffirmativeConfirmation,
+  pendingConfirmationToToolCall,
 };

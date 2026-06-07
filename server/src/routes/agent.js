@@ -6,6 +6,18 @@ const { prismaErrorMessage } = require("../lib/prismaErrors");
 
 const router = express.Router();
 
+const pendingConfirmationSchema = z
+  .object({
+    type: z.enum(["confirm_goal_plan", "delete_task"]),
+    goalId: z.string().trim().min(1).max(64).optional(),
+    taskId: z.string().trim().min(1).max(64).optional(),
+    goalTitle: z.string().max(200).optional(),
+    taskTitle: z.string().max(500).optional(),
+    itemCount: z.coerce.number().int().nonnegative().optional(),
+  })
+  .nullable()
+  .optional();
+
 const agentChatBodySchema = z.object({
   message: z.string().trim().min(1, "message is required").max(2000),
   tzOffsetMinutes: z.coerce.number().int().min(-840).max(840).optional(),
@@ -18,6 +30,7 @@ const agentChatBodySchema = z.object({
     )
     .max(50)
     .optional(),
+  pendingConfirmation: pendingConfirmationSchema,
 });
 
 function parseTzFromBody(body) {
@@ -31,7 +44,7 @@ function parseTzFromBody(body) {
 router.post("/chat", validateBody(agentChatBodySchema), async (req, res) => {
   try {
     const userId = req.user.id;
-    const { message, history } = req.body;
+    const { message, history, pendingConfirmation } = req.body;
     const tzOffsetMinutes = parseTzFromBody(req.body);
 
     const payload = await runAgentChat({
@@ -39,6 +52,7 @@ router.post("/chat", validateBody(agentChatBodySchema), async (req, res) => {
       message,
       tzOffsetMinutes,
       history: history ?? [],
+      pendingConfirmation: pendingConfirmation ?? null,
     });
 
     return res.json(payload);

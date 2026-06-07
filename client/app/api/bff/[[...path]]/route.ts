@@ -20,6 +20,29 @@ function backendBase(): string | null {
   return raw.replace(/\/$/, "");
 }
 
+/** Best-effort client IP for upstream rate limiting (Render/Vercel/CDN headers). */
+function resolveClientIp(req: NextRequest): string | null {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+
+  const candidates = [
+    req.headers.get("x-real-ip"),
+    req.headers.get("cf-connecting-ip"),
+    req.headers.get("true-client-ip"),
+    req.headers.get("x-vercel-forwarded-for"),
+  ];
+
+  for (const value of candidates) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+
+  return null;
+}
+
 /** Strip Domain / Partitioned; use Lax so cookies work first-party on the Next host. */
 function rewriteSetCookieForBff(header: string): string {
   let h = header.replace(/;\s*Domain=[^;]*/gi, "");
@@ -68,13 +91,11 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
   const cookie = req.headers.get("cookie");
   if (cookie) headers.set("cookie", cookie);
 
-  // Forward real client IP so the API rate-limiter keys per user, not per BFF server.
-  const xff = req.headers.get("x-forwarded-for");
-  const realIp = req.headers.get("x-real-ip");
-  if (xff) {
-    headers.set("x-forwarded-for", xff);
-  } else if (realIp) {
-    headers.set("x-forwarded-for", realIp);
+  // Always forward a client IP so the API rate-limiter keys per user, not per BFF host.
+  const clientIp = resolveClientIp(req);
+  if (clientIp) {
+    headers.set("x-forwarded-for", clientIp);
+    headers.set("x-real-ip", clientIp);
   }
 
   const method = req.method.toUpperCase();

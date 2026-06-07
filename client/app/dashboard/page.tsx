@@ -101,8 +101,13 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    return onAgentMutation(() => {
+    return onAgentMutation((detail) => {
       fetchTodayTasks();
+      if (detail.type === "goal_created" || detail.type === "goal_plan_confirmed") {
+        api("/goals")
+          .then((data) => setGoals(Array.isArray(data) ? data : []))
+          .catch(() => {});
+      }
     });
   }, [fetchTodayTasks]);
 

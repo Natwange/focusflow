@@ -32,7 +32,21 @@ function createApp() {
     if (typeof xff === "string" && xff.trim()) {
       return xff.split(",")[0].trim();
     }
+    const realIp = req.headers["x-real-ip"];
+    if (typeof realIp === "string" && realIp.trim()) {
+      return realIp.trim();
+    }
     return req.ip || req.socket?.remoteAddress || "unknown";
+  };
+
+  /** Per-IP + email so BFF egress IP does not share one bucket across all users. */
+  const authSensitiveKey = (req) => {
+    const ip = clientIpKey(req);
+    const email = req.body?.email;
+    if (typeof email === "string" && email.trim()) {
+      return `${ip}:${email.trim().toLowerCase().slice(0, 200)}`;
+    }
+    return ip;
   };
 
   const rateLimitOpts = {
@@ -45,7 +59,9 @@ function createApp() {
   // Brute-force protection for credential endpoints (login, register, password flows).
   const authSensitiveLimiter = rateLimit({
     ...rateLimitOpts,
-    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 20),
+    keyGenerator: authSensitiveKey,
+    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 30),
+    skipSuccessfulRequests: true,
     message: { error: "Too many auth requests, please try again shortly." },
   });
 
@@ -56,7 +72,7 @@ function createApp() {
     message: { error: "Too many refresh requests, please try again shortly." },
   });
 
-  if (process.env.TRUST_PROXY === "1") {
+  if (process.env.TRUST_PROXY === "1" || isProduction) {
     app.set("trust proxy", 1);
   }
 

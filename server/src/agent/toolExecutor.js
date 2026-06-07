@@ -1,7 +1,10 @@
 const { PlanInputError } = require("../lib/buildPlan");
 const { getFocusSummaryForUser } = require("../lib/focusSummary");
+const { getUserBehaviorContextForUser } = require("../lib/userBehaviorContext");
 const { previewGoalPlanForUser } = require("../lib/goalPlanPreview");
 const { listTasksForUser, createTaskForUser, updateTaskForUser, deleteTaskForUser } = require("../lib/taskQueries");
+const { createGoalForUser, confirmGoalPlanForUser } = require("../lib/goalQueries");
+const { parseGoalDeadline } = require("../lib/goalDeadlineParser");
 const { resolveTask } = require("../lib/taskResolver");
 const { isV1ToolName, parseToolArgs } = require("./tools");
 
@@ -64,6 +67,9 @@ function mapThrownError(err) {
   if (err?.code === "INVALID_DATE") {
     return failure(err.message, { summary: err.message });
   }
+  if (err?.code === "ALREADY_PLANNED") {
+    return failure(err.message, { summary: err.message });
+  }
   console.error("toolExecutor unexpected error:", err);
   return failure("Internal tool error", { summary: "Something went wrong running that action." });
 }
@@ -92,6 +98,28 @@ async function runCreateTask(userId, args) {
     summary: due
       ? `Created task "${task.title}" due ${due}.`
       : `Created task "${task.title}" with no due date.`,
+  });
+}
+
+async function runGetUserBehaviorContext(userId, ctx, args) {
+  const tzOffsetMinutes =
+    args.tzOffsetMinutes !== undefined
+      ? args.tzOffsetMinutes
+      : ctx.tzOffsetMinutes ?? 0;
+
+  const payload = await getUserBehaviorContextForUser(userId, {
+    lookbackDays: args.lookbackDays,
+    tzOffsetMinutes,
+  });
+
+  const quality = payload.signals?.dataQuality;
+  const qualityNote = quality?.hasEnoughData
+    ? `confidence ${quality.confidence}`
+    : "insufficient history";
+
+  return success({
+    data: payload,
+    summary: `Behavior context (${payload.lookbackDays}d, ${qualityNote}): ${payload.summary}`,
   });
 }
 
@@ -212,6 +240,27 @@ async function runDeleteTask(userId, args) {
   });
 }
 
+async function runCreateGoal(userId, ctx, args) {
+  let deadlineIso;
+  try {
+    deadlineIso = parseGoalDeadline(args.deadline, ctx.tzOffsetMinutes ?? 0);
+  } catch (err) {
+    return failure(err.message, { summary: err.message });
+  }
+
+  const goal = await createGoalForUser(userId, {
+    ...args,
+    deadline: deadlineIso,
+    unitName: args.unitName ?? "units",
+  });
+
+  const deadlineLabel = new Date(goal.deadline).toISOString().slice(0, 10);
+  return success({
+    data: { goal },
+    summary: `Created goal "${goal.title}" (${goal.totalUnits} ${goal.unitName}, deadline ${deadlineLabel}).`,
+  });
+}
+
 async function runPreviewGoalPlan(userId, args) {
   const { goalId, startDate, availableDays, maxUnitsPerDay } = args;
   const preview = await previewGoalPlanForUser(userId, goalId, {
@@ -223,12 +272,64 @@ async function runPreviewGoalPlan(userId, args) {
   const itemCount = Array.isArray(preview.items) ? preview.items.length : 0;
   const risk = preview.planning?.riskLevel ?? "unknown";
 
+  const data = { ...preview };
+  if (itemCount > 0) {
+    data.pendingConfirmation = {
+      type: "confirm_goal_plan",
+      goalId: preview.goal.id,
+      goalTitle: preview.goal.title,
+      itemCount,
+    };
+  }
+
   return success({
-    data: preview,
+    data,
     summary:
       itemCount === 0
         ? `Plan preview for "${preview.goal.title}": no schedulable items (risk: ${risk}). Nothing was saved.`
-        : `Plan preview for "${preview.goal.title}": ${itemCount} proposed task group${itemCount === 1 ? "" : "s"} (risk: ${risk}). Preview only — not saved.`,
+        : `Plan preview for "${preview.goal.title}": ${itemCount} proposed task group${itemCount === 1 ? "" : "s"} (risk: ${risk}). Say "yes, create it" to schedule tasks.`,
+  });
+}
+
+async function runConfirmGoalPlan(userId, args) {
+  const preview = await previewGoalPlanForUser(userId, args.goalId, {});
+  const itemCount = Array.isArray(preview.items) ? preview.items.length : 0;
+
+  if (itemCount === 0) {
+    return failure("Plan is not feasible for this goal. Adjust deadline or constraints.", {
+      summary: "Plan is not feasible for this goal. Adjust deadline or constraints.",
+      data: { preview },
+    });
+  }
+
+  if (!args.confirmed) {
+    return success({
+      data: {
+        preview,
+        pendingConfirmation: {
+          type: "confirm_goal_plan",
+          goalId: preview.goal.id,
+          goalTitle: preview.goal.title,
+          itemCount,
+        },
+      },
+      summary: `Ready to create ${itemCount} scheduled tasks for "${preview.goal.title}". Say "yes, create it" to confirm.`,
+    });
+  }
+
+  const created = await confirmGoalPlanForUser(userId, args.goalId, {
+    items: preview.items,
+    availableDays: preview.goal.availableDays,
+    maxUnitsPerDay: preview.goal.maxUnitsPerDay,
+  });
+
+  return success({
+    data: {
+      goalId: args.goalId,
+      createdCount: created.length,
+      tasks: created,
+    },
+    summary: `Created ${created.length} scheduled tasks for "${preview.goal.title}".`,
   });
 }
 
@@ -272,10 +373,16 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runDeleteTask(ctx.userId, parsed.args);
       case "get_focus_summary":
         return await runGetFocusSummary(ctx.userId, ctx, parsed.args);
+      case "get_user_behavior_context":
+        return await runGetUserBehaviorContext(ctx.userId, ctx, parsed.args);
       case "suggest_focus_session":
         return runSuggestFocusSession(parsed.args);
+      case "create_goal":
+        return await runCreateGoal(ctx.userId, ctx, parsed.args);
       case "preview_goal_plan":
         return await runPreviewGoalPlan(ctx.userId, parsed.args);
+      case "confirm_goal_plan":
+        return await runConfirmGoalPlan(ctx.userId, parsed.args);
       default:
         return failure(`Unknown tool: ${toolName}`, {
           summary: `Tool "${toolName}" is not available.`,

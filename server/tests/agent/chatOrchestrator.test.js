@@ -2,6 +2,8 @@ const {
   run,
   runLlmTurn,
   runRuleBasedFallback,
+  executeToolChain,
+  extractPendingConfirmation,
 } = require("../../src/agent/chatOrchestrator");
 const {
   isLlmConfigured,
@@ -17,6 +19,7 @@ function mockGetTestDb() {
       goals: new Map(),
       tasks: [],
       focusSessions: [],
+      agentRuns: [],
     };
   }
   return global.__ffChatOrchDb;
@@ -29,6 +32,7 @@ jest.mock("../../src/lib/prisma", () => {
       goals: new Map(),
       tasks: [],
       focusSessions: [],
+      agentRuns: [],
     };
   }
   const db = global.__ffChatOrchDb;
@@ -56,11 +60,29 @@ jest.mock("../../src/lib/prisma", () => {
         }
         return out;
       }),
+      create: jest.fn(async ({ data }) => {
+        const row = {
+          id: `goal_${db.goals.size + 1}`,
+          createdAt: new Date(),
+          availableDays: ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
+          maxUnitsPerDay: null,
+          ...data,
+        };
+        db.goals.set(row.id, row);
+        return row;
+      }),
+      findMany: jest.fn(async ({ where }) =>
+        [...db.goals.values()].filter((g) => {
+          if (where.userId && g.userId !== where.userId) return false;
+          return true;
+        })
+      ),
     },
     task: {
       findMany: jest.fn(async ({ where }) =>
         db.tasks.filter((t) => {
-          if (t.userId !== where.userId) return false;
+          if (where.userId && t.userId !== where.userId) return false;
+          if (where.OR) return true;
           if (where.status) {
             if (typeof where.status === "object" && where.status.not) {
               if (t.status === where.status.not) return false;
@@ -69,7 +91,7 @@ jest.mock("../../src/lib/prisma", () => {
           return true;
         })
       ),
-      create: jest.fn(async ({ data }) => {
+      create: jest.fn(async ({ data, select }) => {
         const row = {
           id: `task_${db.tasks.length + 1}`,
           createdAt: new Date(),
@@ -77,11 +99,45 @@ jest.mock("../../src/lib/prisma", () => {
           ...data,
         };
         db.tasks.push(row);
+        if (select) {
+          const out = {};
+          for (const key of Object.keys(select)) {
+            if (select[key]) out[key] = row[key];
+          }
+          return out;
+        }
         return row;
       }),
+      count: jest.fn(async ({ where }) =>
+        db.tasks.filter((t) => {
+          if (where.userId && t.userId !== where.userId) return false;
+          if (where.goalId && t.goalId !== where.goalId) return false;
+          return true;
+        }).length
+      ),
     },
+    $transaction: jest.fn(async (ops) => {
+      const results = [];
+      for (const op of ops) {
+        results.push(await op);
+      }
+      return results;
+    }),
     focusSession: {
-      findMany: jest.fn(async () => []),
+      findMany: jest.fn(async ({ where }) =>
+        db.focusSessions.filter((s) => {
+          if (where?.userId && s.userId !== where.userId) return false;
+          return true;
+        })
+      ),
+    },
+    agentRun: {
+      findMany: jest.fn(async ({ where }) =>
+        db.agentRuns.filter((r) => {
+          if (where?.userId && r.userId !== where.userId) return false;
+          return true;
+        })
+      ),
     },
   };
 });
@@ -358,5 +414,117 @@ describe("chatOrchestrator", () => {
     });
     expect(res.toolResults[0].tool).toBe("create_task");
     expect(res.toolResults[0].ok).toBe(true);
+  });
+
+  test("executeToolChain auto-previews after create_goal", async () => {
+    const ctx = { userId: "user_1", tzOffsetMinutes: 0 };
+    const chain = await executeToolChain(ctx, "create_goal", {
+      title: "Study JavaScript",
+      totalUnits: 30,
+      deadline: "in 7 days",
+      unitName: "lessons",
+    });
+
+    expect(chain).toHaveLength(2);
+    expect(chain[0].tool).toBe("create_goal");
+    expect(chain[0].ok).toBe(true);
+    expect(chain[1].tool).toBe("preview_goal_plan");
+    expect(chain[1].ok).toBe(true);
+    expect(chain[1].result.data.pendingConfirmation.type).toBe(
+      "confirm_goal_plan"
+    );
+  });
+
+  test("extractPendingConfirmation reads chained preview", async () => {
+    const ctx = { userId: "user_1", tzOffsetMinutes: 0 };
+    const chain = await executeToolChain(ctx, "create_goal", {
+      title: "Learn DSA",
+      totalUnits: 10,
+      deadline: "in 14 days",
+    });
+    const pending = extractPendingConfirmation(chain);
+    expect(pending).toMatchObject({ type: "confirm_goal_plan" });
+    expect(pending.goalId).toBeTruthy();
+  });
+
+  test("runLlmTurn confirms goal plan using client pendingConfirmation", async () => {
+    const chain = await executeToolChain(
+      { userId: "user_1", tzOffsetMinutes: 0 },
+      "create_goal",
+      {
+        title: "Study JS",
+        totalUnits: 30,
+        deadline: "in 7 days",
+      }
+    );
+    const goalId = chain[0].result.data.goal.id;
+
+    const res = await runLlmTurn({
+      userId: "user_1",
+      message: "yes, create it",
+      tzOffsetMinutes: 0,
+      pendingConfirmation: {
+        type: "confirm_goal_plan",
+        goalId,
+        goalTitle: "Study JS",
+        itemCount: 8,
+      },
+    });
+
+    expect(res.toolResults).toHaveLength(1);
+    expect(res.toolResults[0].tool).toBe("confirm_goal_plan");
+    expect(res.toolResults[0].args.goalId).toBe(goalId);
+    expect(res.toolResults[0].args.confirmed).toBe(true);
+    expect(res.toolResults[0].ok).toBe(true);
+    expect(res.pendingConfirmation).toBeNull();
+  });
+
+  test("runLlmTurn can return behavior context for planning", async () => {
+    setCompleteAgentTurnForTests(async () => ({
+      type: "tool_call",
+      toolName: "get_user_behavior_context",
+      rawArgs: { lookbackDays: 30 },
+    }));
+    setCompleteObserveRespondForTests(async () => ({
+      type: "message",
+      content: "I reviewed your recent activity patterns.",
+    }));
+
+    const res = await runLlmTurn({
+      userId: "user_1",
+      message: "Help me study JavaScript in 7 days",
+      tzOffsetMinutes: 0,
+    });
+
+    expect(res.toolResults[0].tool).toBe("get_user_behavior_context");
+    expect(res.toolResults[0].ok).toBe(true);
+    expect(res.toolResults[0].result.data.signals).toBeDefined();
+    expect(res.toolResults[0].result.data.signals.dayOfWeekStats).toHaveLength(7);
+  });
+
+  test("runLlmTurn create_goal returns pendingConfirmation for plan approval", async () => {
+    setCompleteAgentTurnForTests(async () => ({
+      type: "tool_call",
+      toolName: "create_goal",
+      rawArgs: {
+        title: "Study JS",
+        totalUnits: 30,
+        deadline: "in 7 days",
+      },
+    }));
+
+    const res = await runLlmTurn({
+      userId: "user_1",
+      message: "Create a goal to study JS with 30 units in 7 days",
+      tzOffsetMinutes: 0,
+    });
+
+    expect(res.toolResults).toHaveLength(2);
+    expect(res.toolResults[0].tool).toBe("create_goal");
+    expect(res.toolResults[1].tool).toBe("preview_goal_plan");
+    expect(res.pendingConfirmation).toMatchObject({
+      type: "confirm_goal_plan",
+    });
+    expect(res.assistantMessage).toMatch(/confirm|create it/i);
   });
 });

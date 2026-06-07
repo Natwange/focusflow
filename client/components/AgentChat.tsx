@@ -29,6 +29,14 @@ export default function AgentChat() {
     { role: "user" | "assistant"; text: string }[]
   >([]);
   const [loading, setLoading] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{
+    type: string;
+    goalId?: string;
+    taskId?: string;
+    goalTitle?: string;
+    taskTitle?: string;
+    itemCount?: number;
+  } | null>(null);
   const [position, setPosition] = useState({ x: 16, y: 64 });
   const inputRef = useRef<HTMLInputElement>(null);
   const focusTimer = useFocusTimer();
@@ -82,12 +90,14 @@ export default function AgentChat() {
             message: userMsg,
             tzOffsetMinutes: new Date().getTimezoneOffset(),
             history,
+            pendingConfirmation,
           }),
         });
 
         const assistantText =
           res.assistantMessage || "Sorry, I didn't get a response.";
         setMessages((prev) => [...prev, { role: "assistant", text: assistantText }]);
+        setPendingConfirmation(res.pendingConfirmation ?? null);
 
         // Emit real-time mutation events for task changes
         if (res.toolResults && Array.isArray(res.toolResults)) {
@@ -97,6 +107,11 @@ export default function AgentChat() {
             if (tr.tool === "update_task") emitAgentMutation({ type: "task_updated" });
             if (tr.tool === "complete_task") emitAgentMutation({ type: "task_completed" });
             if (tr.tool === "delete_task" && tr.result?.data?.deletedTaskId) emitAgentMutation({ type: "task_deleted" });
+            if (tr.tool === "create_goal") emitAgentMutation({ type: "goal_created" });
+            if (tr.tool === "confirm_goal_plan" && tr.result?.data?.createdCount) {
+              emitAgentMutation({ type: "goal_plan_confirmed" });
+              emitAgentMutation({ type: "task_created" });
+            }
           }
         }
 
@@ -125,7 +140,7 @@ export default function AgentChat() {
         setLoading(false);
       }
     },
-    [loading, focusTimer]
+    [loading, focusTimer, messages, pendingConfirmation]
   );
 
   if (PUBLIC_ROUTES.has(pathname)) return null;

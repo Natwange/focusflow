@@ -6,7 +6,14 @@
 const EVENT_NAME = "focusflow:agent-mutation";
 
 export type AgentMutationDetail = {
-  type: "task_created" | "task_updated" | "task_completed" | "task_deleted" | "focus_started";
+  type:
+    | "task_created"
+    | "task_updated"
+    | "task_completed"
+    | "task_deleted"
+    | "focus_started"
+    | "goal_created"
+    | "goal_plan_confirmed";
 };
 
 export function emitAgentMutation(detail: AgentMutationDetail) {
