@@ -200,9 +200,10 @@ export default function TasksPage() {
     setLoading(true);
     setError(null);
     const { start, end } = getRange();
-    const isDayViewToday =
-      view === "day" && toISODate(startOfDay(cursor)) === toISODate(new Date());
-    const includeOverdue = isDayViewToday ? "true" : "false";
+    // Include overdue open tasks whenever the range reaches today or later
+    // (same behavior as day view today — overdue work stays visible in week/month).
+    const includeOverdue =
+      end.getTime() >= startOfDay(new Date()).getTime() ? "true" : "false";
     try {
       const data = await api(
         `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=${includeOverdue}`
@@ -337,10 +338,10 @@ export default function TasksPage() {
   const todayStart = startOfDay(new Date());
   const todayKey = toISODate(todayStart);
   const isViewingToday = toISODate(startOfDay(cursor)) === todayKey;
-  const showOverdue = view === "day" && isViewingToday;
-  const overdueCutoffMs = todayStart.getTime();
-
   const { start: rangeStart, end: rangeEnd } = getRange();
+  const rangeEndIsTodayOrFuture = rangeEnd.getTime() >= todayStart.getTime();
+  const showOverdue = rangeEndIsTodayOrFuture;
+  const overdueCutoffMs = todayStart.getTime();
   const rangeIncludesToday =
     todayStart.getTime() >= rangeStart.getTime() &&
     todayStart.getTime() <= rangeEnd.getTime();
@@ -497,6 +498,12 @@ export default function TasksPage() {
                 />
               )}
             </div>
+            <CompletedTasksPanel
+              completedTasks={completedTasks}
+              showCompleted={showCompleted}
+              onToggle={() => setShowCompleted((v) => !v)}
+              onDelete={(id) => setTaskIdPendingDelete(id)}
+            />
           </section>
         )}
 
@@ -574,6 +581,12 @@ export default function TasksPage() {
                 />
               )}
             </div>
+            <CompletedTasksPanel
+              completedTasks={completedTasks}
+              showCompleted={showCompleted}
+              onToggle={() => setShowCompleted((v) => !v)}
+              onDelete={(id) => setTaskIdPendingDelete(id)}
+            />
           </section>
         )}
 
@@ -615,108 +628,12 @@ export default function TasksPage() {
               )}
             </div>
 
-            <div className="border-t border-gray-100 pt-8">
-              <button
-                type="button"
-                onClick={() => setShowCompleted((v) => !v)}
-                className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80 dark:border-[#2a303a] dark:bg-[#1c2028] dark:hover:bg-[#232936]"
-              >
-                <div className="flex items-center gap-2">
-                  <ChevronDown
-                    size={16}
-                    className={`text-gray-500 shrink-0 dark:text-[#cfd6e2] ${showCompleted ? "rotate-180" : ""}`}
-                  />
-                  <span className="text-sm font-semibold text-gray-800 dark:text-[#f5f7fb]">Completed</span>
-                </div>
-                <span className="text-xs text-gray-500 tabular-nums dark:text-[#cfd6e2]">
-                  {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
-                </span>
-              </button>
-              {showCompleted && (
-                <div className="mt-4 space-y-2">
-                  {completedTasks.length === 0 ? (
-                    <p className="text-sm text-gray-500 py-2 dark:text-[#cfd6e2]">No completed tasks in this range.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {completedTasks.map((t) => (
-                        <li
-                          key={t.id}
-                          className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80 dark:border-[#2a303a] dark:bg-[#171a20] dark:text-[#cfd6e2] dark:hover:bg-[#1f2430]"
-                        >
-                          <span className="line-through flex-1 min-w-0">{t.title}</span>
-                          {t.dueDate && (
-                            <span className="text-[11px] text-gray-400 shrink-0 dark:text-[#9aa4b5]">
-                              {formatDueDateTime(t.dueDate)}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => setTaskIdPendingDelete(t.id)}
-                            aria-label="Delete completed task"
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Completed tasks (week / month) */}
-        {view !== "day" && (
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setShowCompleted((v) => !v)}
-              className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80 dark:border-[#2a303a] dark:bg-[#1c2028] dark:hover:bg-[#232936]"
-            >
-              <div className="flex items-center gap-2">
-                <ChevronDown
-                  size={16}
-                  className={`text-gray-500 shrink-0 dark:text-[#cfd6e2] ${showCompleted ? "rotate-180" : ""}`}
-                />
-                <span className="text-sm font-semibold text-gray-800 dark:text-[#f5f7fb]">Completed</span>
-              </div>
-              <span className="text-xs text-gray-500 tabular-nums dark:text-[#cfd6e2]">
-                {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
-              </span>
-            </button>
-            {showCompleted && (
-              <div className="mt-4 space-y-2">
-                {completedTasks.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-2 dark:text-[#cfd6e2]">No completed tasks in this range.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {completedTasks.map((t) => (
-                      <li
-                        key={t.id}
-                        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80 dark:border-[#2a303a] dark:bg-[#171a20] dark:text-[#cfd6e2] dark:hover:bg-[#1f2430]"
-                      >
-                        <span className="line-through flex-1 min-w-0">{t.title}</span>
-                        {t.dueDate && (
-                          <span className="text-[11px] text-gray-400 shrink-0 dark:text-[#9aa4b5]">
-                            {formatDueDateTime(t.dueDate)}
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setTaskIdPendingDelete(t.id)}
-                          aria-label="Delete completed task"
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+            <CompletedTasksPanel
+              completedTasks={completedTasks}
+              showCompleted={showCompleted}
+              onToggle={() => setShowCompleted((v) => !v)}
+              onDelete={(id) => setTaskIdPendingDelete(id)}
+            />
           </section>
         )}
 
@@ -831,6 +748,70 @@ function priorityPill(p: TaskPriority): string {
 
 function priorityLabel(p: TaskPriority): string {
   return PRIORITY_OPTIONS.find((o) => o.value === p)?.label ?? p;
+}
+
+function CompletedTasksPanel({
+  completedTasks,
+  showCompleted,
+  onToggle,
+  onDelete,
+}: {
+  completedTasks: Task[];
+  showCompleted: boolean;
+  onToggle: () => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="border-t border-gray-100 pt-8">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80 dark:border-[#2a303a] dark:bg-[#1c2028] dark:hover:bg-[#232936]"
+      >
+        <div className="flex items-center gap-2">
+          <ChevronDown
+            size={16}
+            className={`text-gray-500 shrink-0 dark:text-[#cfd6e2] ${showCompleted ? "rotate-180" : ""}`}
+          />
+          <span className="text-sm font-semibold text-gray-800 dark:text-[#f5f7fb]">Completed</span>
+        </div>
+        <span className="text-xs text-gray-500 tabular-nums dark:text-[#cfd6e2]">
+          {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
+        </span>
+      </button>
+      {showCompleted && (
+        <div className="mt-4 space-y-2">
+          {completedTasks.length === 0 ? (
+            <p className="text-sm text-gray-500 py-2 dark:text-[#cfd6e2]">No completed tasks in this range.</p>
+          ) : (
+            <ul className="space-y-2">
+              {completedTasks.map((t) => (
+                <li
+                  key={t.id}
+                  className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80 dark:border-[#2a303a] dark:bg-[#171a20] dark:text-[#cfd6e2] dark:hover:bg-[#1f2430]"
+                >
+                  <span className="line-through flex-1 min-w-0">{t.title}</span>
+                  {t.dueDate && (
+                    <span className="text-[11px] text-gray-400 shrink-0 dark:text-[#9aa4b5]">
+                      {formatDueDateTime(t.dueDate)}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onDelete(t.id)}
+                    aria-label="Delete completed task"
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function formatDueDateTime(iso: string): string {
