@@ -158,6 +158,7 @@ jest.mock("../../src/lib/prisma", () => {
 
 const { executeTool } = require("../../src/agent/toolExecutor");
 const { parseToolArgs, V1_TOOL_NAMES } = require("../../src/agent/tools");
+const { getAgentSuggestionsForUser } = require("../../src/lib/agentSuggestionEngine");
 
 describe("agent tools.js", () => {
   it("exports all V1 tool names", () => {
@@ -177,6 +178,7 @@ describe("agent tools.js", () => {
     expect(V1_TOOL_NAMES).toContain("apply_goal_rebalance");
     expect(V1_TOOL_NAMES).toContain("preview_goal_adjustment");
     expect(V1_TOOL_NAMES).toContain("apply_goal_adjustment");
+    expect(V1_TOOL_NAMES).toContain("get_agent_suggestions");
   });
 
   it("rejects invalid create_task args", () => {
@@ -587,5 +589,60 @@ describe("agent toolExecutor", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.args.availableDays).toEqual(["MON", "TUE", "WED", "THU", "FRI"]);
     expect(parsed.args.maxUnitsPerDay).toBe(2);
+  });
+
+  it("get_agent_suggestions excludes cross-user tasks", async () => {
+    const db = mockGetTestDb();
+    db.tasks = [];
+    db.tasks.push(
+      {
+        id: "t_other",
+        userId: "user_2",
+        status: "todo",
+        dueDate: new Date("2026-05-28T12:00:00.000Z"),
+        goalId: null,
+        title: "Other overdue",
+      },
+      {
+        id: "t_mine",
+        userId: "user_1",
+        status: "todo",
+        dueDate: new Date("2026-06-10T12:00:00.000Z"),
+        goalId: null,
+        title: "On time",
+      }
+    );
+
+    const payload = await getAgentSuggestionsForUser("user_1", { limit: 3 });
+    expect(payload.suggestions).toHaveLength(0);
+  });
+
+  it("get_agent_suggestions tool matches endpoint generator output", async () => {
+    const db = mockGetTestDb();
+    db.tasks.push(
+      {
+        id: "t1",
+        userId: "user_1",
+        status: "todo",
+        dueDate: new Date("2026-06-01T12:00:00.000Z"),
+        goalId: null,
+        title: "Late task",
+      },
+      {
+        id: "t2",
+        userId: "user_1",
+        status: "todo",
+        dueDate: new Date("2026-05-30T12:00:00.000Z"),
+        goalId: null,
+        title: "Older late task",
+      }
+    );
+
+    const endpoint = await getAgentSuggestionsForUser("user_1", { limit: 3 });
+    const tool = await executeTool(ctx, "get_agent_suggestions", { limit: 3 });
+
+    expect(tool.ok).toBe(true);
+    expect(tool.data).toEqual(endpoint);
+    expect(tool.data.suggestions[0].type).toBe("overdue_tasks");
   });
 });

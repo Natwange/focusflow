@@ -510,7 +510,7 @@ describe("goal rebalance agent tools", () => {
 
     const result = await executeTool(ctx, "preview_goal_adjustment", {
       goalTitle: "human anatomy",
-      deadline: "2026-07-10",
+      deadline: "July 10th",
       spreadEvenly: true,
     });
 

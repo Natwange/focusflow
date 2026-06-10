@@ -5,7 +5,12 @@ import { api } from "@/lib/api";
 import Link from "next/link";
 import Image from "next/image";
 import { Circle, CircleCheck, Loader2, X } from "lucide-react";
-import { onAgentMutation } from "@/lib/agentEvents";
+import {
+  onAgentMutation,
+  openAgentChatWithMessage,
+  suggestionChatPrompt,
+  type AgentSuggestion,
+} from "@/lib/agentEvents";
 
 type TaskStatus = "todo" | "doing" | "done";
 type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -36,6 +41,8 @@ export default function DashboardPage() {
   const [showPlan, setShowPlan] = useState(false);
   const [streak, setStreak] = useState<number | null>(null);
   const [todayFocusMinutes, setTodayFocusMinutes] = useState<number | null>(null);
+  const [suggestions, setSuggestions] = useState<AgentSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
 
   const fetchTodayTasks = useCallback(async () => {
     setTasksLoading(true);
@@ -88,16 +95,24 @@ export default function DashboardPage() {
         `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true`
       ).catch(() => []),
       api(`/focus/summary?tzOffsetMinutes=${tzOffsetMinutes}`).catch(() => null),
+      api(`/agent/suggestions?tzOffsetMinutes=${tzOffsetMinutes}&limit=3`).catch(() => ({
+        suggestions: [],
+      })),
     ])
-      .then(([goalsData, tasksData, focusData]) => {
+      .then(([goalsData, tasksData, focusData, suggestionsData]) => {
         setGoals(Array.isArray(goalsData) ? goalsData : []);
         setTasks(Array.isArray(tasksData) ? tasksData : []);
         if (focusData && typeof focusData.streak === "number") setStreak(focusData.streak);
         if (focusData && typeof focusData.todayMinutes === "number") {
           setTodayFocusMinutes(focusData.todayMinutes);
         }
+        const list = suggestionsData?.suggestions;
+        setSuggestions(Array.isArray(list) ? list.slice(0, 3) : []);
       })
-      .finally(() => setTasksLoading(false));
+      .finally(() => {
+        setTasksLoading(false);
+        setSuggestionsLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -204,6 +219,61 @@ export default function DashboardPage() {
             priority
             className="ff-illustration w-full max-w-[260px] sm:max-w-[300px] self-center md:self-auto md:-translate-x-4"
           />
+        </section>
+
+        {/* AGENT SUGGESTIONS */}
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className="text-lg font-semibold tracking-tight">Agent Suggestions</h2>
+            <span className="text-xs uppercase tracking-[0.18em] text-gray-400">
+              Read-only
+            </span>
+          </div>
+          {suggestionsLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+              <Loader2 size={16} className="animate-spin" /> Checking your plan…
+            </div>
+          ) : suggestions.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No suggestions right now — you look on track.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {suggestions.map((s) => (
+                <div
+                  key={s.id}
+                  className="rounded-xl border border-gray-100 bg-[#FAFAFA] px-4 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className={`inline-flex rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                            s.severity === "high"
+                              ? "bg-red-100 text-red-700"
+                              : s.severity === "medium"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-gray-200 text-gray-700"
+                          }`}
+                        >
+                          {s.severity}
+                        </span>
+                        <p className="text-sm font-medium truncate">{s.title}</p>
+                      </div>
+                      <p className="text-sm text-gray-600">{s.message}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openAgentChatWithMessage(suggestionChatPrompt(s))}
+                    className="mt-3 text-xs font-medium text-black underline-offset-2 hover:underline"
+                  >
+                    Ask agent to help
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* GRID */}

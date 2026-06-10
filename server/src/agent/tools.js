@@ -165,6 +165,10 @@ const toolArgSchemas = {
     .refine((d) => d.goalId || d.goalTitle, {
       message: "Provide goalId or goalTitle to identify the goal.",
     }),
+
+  get_agent_suggestions: z.object({
+    limit: z.coerce.number().int().min(1).max(10).optional(),
+  }),
 };
 
 /** V1 tool names exposed to the future LLM layer. */
@@ -185,6 +189,7 @@ const V1_TOOL_NAMES = Object.freeze([
   "apply_goal_rebalance",
   "preview_goal_adjustment",
   "apply_goal_adjustment",
+  "get_agent_suggestions",
 ]);
 
 const TOOL_CATALOG = {
@@ -262,6 +267,11 @@ const TOOL_CATALOG = {
     description:
       "Apply a user-requested goal replan after preview. Updates deadline/cap if requested, deletes incomplete tasks, recreates schedule. NEVER set confirmed:true without explicit user approval.",
     readOnly: false,
+  },
+  get_agent_suggestions: {
+    description:
+      "Read-only proactive suggestions from the user's tasks, goals, focus history, and behavior signals. Use when the user asks what to work on, how they are doing, or if anything needs attention.",
+    readOnly: true,
   },
 };
 
@@ -579,7 +589,8 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
           goalId: { type: "string", description: "Only if copied verbatim from list_goals" },
           deadline: {
             type: "string",
-            description: "New deadline ISO or phrase like 'July 10' or 'by July 10'",
+            description:
+              "New deadline in the user's words: 'July 10', 'July 10th', 'by July 10', 'in 30 days', or ISO '2026-07-10'",
           },
           maxUnitsPerDay: {
             type: ["integer", "null"],
@@ -610,6 +621,25 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
           confirmed: {
             type: "boolean",
             description: "true only after user explicitly confirms the adjustment",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_agent_suggestions",
+      description: TOOL_CATALOG.get_agent_suggestions.description,
+      parameters: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: 10,
+            description: "Max suggestions to return (default 3)",
           },
         },
         additionalProperties: false,

@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const prisma = require("./prisma");
 const { sanitizeUserText } = require("./sanitizeInput");
-const { parseGoalDeadline } = require("./goalDeadlineParser");
+const { parseGoalDeadline, getLocalTodayStart } = require("./goalDeadlineParser");
 const { parseTrailingUnitRange } = require("./rebalanceRecovery");
 const { requireOwnedGoal } = require("./goalAgentQueries");
 const {
@@ -38,7 +38,7 @@ async function computeCompletedUnits(userId, goalId) {
  * @param {number} [tzOffsetMinutes]
  */
 function resolveAdjustmentParams(goal, opts, tzOffsetMinutes = 0) {
-  const todayStart = startOfDay(new Date());
+  const todayStart = getLocalTodayStart(tzOffsetMinutes);
 
   let deadline = startOfDay(new Date(goal.deadline));
   if (opts.deadline) {
@@ -47,7 +47,9 @@ function resolveAdjustmentParams(goal, opts, tzOffsetMinutes = 0) {
   }
 
   if (deadline.getTime() < todayStart.getTime()) {
-    throw new PlanInputError("Deadline must be today or later.");
+    throw new PlanInputError(
+      `That deadline (${deadline.toISOString().slice(0, 10)}) is before today. Use a future date like "July 10" or "in 30 days".`
+    );
   }
 
   let maxUnitsPerDay;

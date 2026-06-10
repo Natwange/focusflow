@@ -28,6 +28,105 @@ const MONTHS = {
 };
 
 /**
+ * @param {number} tzOffsetMinutes
+ * @param {Date} [now]
+ * @returns {Date}
+ */
+function getLocalReferenceDate(tzOffsetMinutes = 0, now = new Date()) {
+  const tz = Number(tzOffsetMinutes) || 0;
+  const localMs = now.getTime() - tz * 60 * 1000;
+  return new Date(localMs);
+}
+
+/**
+ * @param {number} tzOffsetMinutes
+ * @param {Date} [now]
+ * @returns {Date}
+ */
+function getLocalTodayStart(tzOffsetMinutes = 0, now = new Date()) {
+  const local = getLocalReferenceDate(tzOffsetMinutes, now);
+  return startOfDay(
+    new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()))
+  );
+}
+
+/**
+ * @param {string} key
+ * @returns {number|undefined}
+ */
+function monthIndex(key) {
+  return MONTHS[String(key || "").trim().toLowerCase()];
+}
+
+/**
+ * @param {string} monthKey
+ * @param {string|number} day
+ * @param {string|number|undefined} yearStr
+ * @param {Date} local
+ * @returns {string|null}
+ */
+function tryNamedMonthDay(monthKey, day, yearStr, local) {
+  const month = monthIndex(monthKey);
+  if (month === undefined) return null;
+
+  const dayNum = Number(String(day).replace(/(?:st|nd|rd|th)$/i, ""));
+  if (!Number.isInteger(dayNum) || dayNum < 1 || dayNum > 31) return null;
+
+  let year = yearStr != null && yearStr !== "" ? Number(yearStr) : local.getUTCFullYear();
+  if (!Number.isFinite(year)) return null;
+
+  let candidate = new Date(Date.UTC(year, month, dayNum));
+  if (Number.isNaN(candidate.getTime())) return null;
+
+  const todayStart = startOfDay(
+    new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()))
+  );
+
+  if (!yearStr && candidate.getTime() < todayStart.getTime()) {
+    year += 1;
+    candidate = new Date(Date.UTC(year, month, dayNum));
+    if (Number.isNaN(candidate.getTime())) return null;
+  }
+
+  return startOfDay(candidate).toISOString();
+}
+
+/**
+ * @param {string} lower
+ * @param {Date} local
+ * @returns {string|null}
+ */
+function findNamedDateInText(lower, local) {
+  const attempts = [
+    // extend to July 10th, by July 10, until July 10, 2026
+    {
+      re: /(?:\b(?:to|by|until|on|for)\s+)([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?\b/gi,
+      map: (m) => [m[1], m[2], m[3]],
+    },
+    // July 10, July 10th, July 10 2026
+    {
+      re: /\b([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?\b/gi,
+      map: (m) => [m[1], m[2], m[3]],
+    },
+    // 10 July, 10th of July 2026
+    {
+      re: /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-z]+)(?:\s*,?\s*(\d{4}))?\b/gi,
+      map: (m) => [m[2], m[1], m[3]],
+    },
+  ];
+
+  for (const { re, map } of attempts) {
+    for (const match of lower.matchAll(re)) {
+      const [monthKey, day, yearStr] = map(match);
+      const iso = tryNamedMonthDay(monthKey, day, yearStr, local);
+      if (iso) return iso;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Parse a goal deadline from ISO or common relative/natural phrases.
  * Returns UTC midnight ISO string for the deadline day.
  *
@@ -43,9 +142,7 @@ function parseGoalDeadline(input, tzOffsetMinutes = 0, now = new Date()) {
   }
 
   const lower = raw.toLowerCase();
-  const tz = Number(tzOffsetMinutes) || 0;
-  const localMs = now.getTime() - tz * 60 * 1000;
-  const local = new Date(localMs);
+  const local = getLocalReferenceDate(tzOffsetMinutes, now);
 
   const inDays = lower.match(/\bin\s+(\d+)\s+days?\b/);
   if (inDays) {
@@ -65,6 +162,13 @@ function parseGoalDeadline(input, tzOffsetMinutes = 0, now = new Date()) {
     return startOfDay(d).toISOString();
   }
 
+  const isoBare = raw.match(/^(\d{4}-\d{2}-\d{2})(?:T.*)?$/);
+  if (isoBare) {
+    const parsed = Date.parse(isoBare[1]);
+    if (Number.isNaN(parsed)) throw new PlanInputError("Invalid deadline date");
+    return startOfDay(new Date(parsed)).toISOString();
+  }
+
   const byIso = lower.match(/\bby\s+(\d{4}-\d{2}-\d{2})\b/);
   if (byIso) {
     const parsed = Date.parse(byIso[1]);
@@ -73,33 +177,32 @@ function parseGoalDeadline(input, tzOffsetMinutes = 0, now = new Date()) {
   }
 
   const byNamed = lower.match(
-    /\bby\s+([a-z]+)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/
+    /\bby\s+([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?\b/
   );
   if (byNamed) {
-    const monthKey = byNamed[1];
-    const month = MONTHS[monthKey];
-    if (month === undefined) throw new PlanInputError("Unrecognized month in deadline");
-    const day = Number(byNamed[2]);
-    let year = byNamed[3] ? Number(byNamed[3]) : local.getUTCFullYear();
-    const candidate = new Date(Date.UTC(year, month, day));
-    if (Number.isNaN(candidate.getTime())) {
-      throw new PlanInputError("Invalid deadline date");
-    }
-    if (!byNamed[3] && candidate.getTime() < startOfDay(local).getTime()) {
-      year += 1;
-    }
-    const finalDate = new Date(Date.UTC(year, month, day));
-    return startOfDay(finalDate).toISOString();
+    const iso = tryNamedMonthDay(byNamed[1], byNamed[2], byNamed[3], local);
+    if (iso) return iso;
+    throw new PlanInputError("Unrecognized month in deadline");
   }
 
-  const direct = Date.parse(raw);
-  if (!Number.isNaN(direct)) {
-    return startOfDay(new Date(direct)).toISOString();
+  const named = findNamedDateInText(lower, local);
+  if (named) return named;
+
+  // Only accept unambiguous ISO-like strings from Date.parse — not bare "July 10".
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(raw)) {
+    const direct = Date.parse(raw);
+    if (!Number.isNaN(direct)) {
+      return startOfDay(new Date(direct)).toISOString();
+    }
   }
 
   throw new PlanInputError(
-    "Invalid deadline. Use ISO date, 'in 7 days', 'in 2 weeks', or 'by June 1'."
+    "Invalid deadline. Try natural phrases like \"July 10\", \"July 10th\", \"by June 1\", \"in 2 weeks\", or ISO \"2026-07-10\"."
   );
 }
 
-module.exports = { parseGoalDeadline };
+module.exports = {
+  parseGoalDeadline,
+  getLocalTodayStart,
+  getLocalReferenceDate,
+};

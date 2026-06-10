@@ -3,6 +3,7 @@ const { z } = require("zod");
 const { run: runAgentChat } = require("../agent/chatOrchestrator");
 const { validateBody } = require("../middleware/validateBody");
 const { prismaErrorMessage } = require("../lib/prismaErrors");
+const { getAgentSuggestionsForUser } = require("../lib/agentSuggestionEngine");
 
 const router = express.Router();
 
@@ -46,6 +47,28 @@ function parseTzFromBody(body) {
   if (body.tzOffsetMinutes === undefined) return 0;
   return body.tzOffsetMinutes;
 }
+
+/**
+ * GET /agent/suggestions — read-only proactive recommendations for the dashboard and agent.
+ */
+router.get("/suggestions", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const limit = req.query.limit != null ? Number(req.query.limit) : 3;
+    const tzOffsetMinutes =
+      req.query.tzOffsetMinutes != null ? Number(req.query.tzOffsetMinutes) : 0;
+
+    const payload = await getAgentSuggestionsForUser(userId, {
+      limit: Number.isFinite(limit) ? limit : 3,
+      tzOffsetMinutes: Number.isFinite(tzOffsetMinutes) ? tzOffsetMinutes : 0,
+    });
+
+    return res.json(payload);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
+  }
+});
 
 /**
  * POST /agent/chat — LLM tool-calling with rule-based fallback when unconfigured.

@@ -6,7 +6,7 @@ import { MessageCircle, X, Send, Loader2, GripHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { useFocusTimer } from "@/context/FocusTimerContext";
 import { handleAgentClientActions } from "@/lib/agentClientActions";
-import { emitAgentMutation } from "@/lib/agentEvents";
+import { emitAgentMutation, onOpenAgentChat } from "@/lib/agentEvents";
 
 function clamp(val: number, min: number, max: number) {
   return Math.max(min, Math.min(max, val));
@@ -151,6 +151,16 @@ export default function AgentChat() {
     },
     [loading, focusTimer, messages, pendingConfirmation]
   );
+
+  useEffect(() => {
+    return onOpenAgentChat((message) => {
+      setOpen(true);
+      setTimeout(() => {
+        void sendMessage(message);
+        inputRef.current?.focus();
+      }, 100);
+    });
+  }, [sendMessage]);
 
   if (PUBLIC_ROUTES.has(pathname)) return null;
 

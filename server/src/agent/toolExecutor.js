@@ -13,6 +13,7 @@ const {
   previewGoalAdjustmentForUser,
   applyGoalAdjustmentForUser,
 } = require("../lib/goalAdjustmentQueries");
+const { getAgentSuggestionsForUser } = require("../lib/agentSuggestionEngine");
 const { parseGoalDeadline } = require("../lib/goalDeadlineParser");
 const { resolveTask } = require("../lib/taskResolver");
 const {
@@ -619,6 +620,23 @@ async function runApplyGoalAdjustment(userId, ctx, args) {
   }
 }
 
+async function runGetAgentSuggestions(userId, ctx, args) {
+  const limit = args.limit ?? 3;
+  const payload = await getAgentSuggestionsForUser(userId, {
+    limit,
+    tzOffsetMinutes: ctx.tzOffsetMinutes ?? 0,
+  });
+
+  const count = payload.suggestions?.length ?? 0;
+  return success({
+    data: payload,
+    summary:
+      count === 0
+        ? "No proactive suggestions right now — you look on track."
+        : `Found ${count} suggestion${count === 1 ? "" : "s"}: ${payload.suggestions.map((s) => s.title).join("; ")}.`,
+  });
+}
+
 async function runConfirmGoalPlan(userId, args) {
   const preview = await previewGoalPlanForUser(userId, args.goalId, {});
   const itemCount = Array.isArray(preview.items) ? preview.items.length : 0;
@@ -721,6 +739,8 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runPreviewGoalAdjustment(ctx.userId, ctx, parsed.args);
       case "apply_goal_adjustment":
         return await runApplyGoalAdjustment(ctx.userId, ctx, parsed.args);
+      case "get_agent_suggestions":
+        return await runGetAgentSuggestions(ctx.userId, ctx, parsed.args);
       default:
         return failure(`Unknown tool: ${toolName}`, {
           summary: `Tool "${toolName}" is not available.`,
