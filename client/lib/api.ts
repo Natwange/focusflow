@@ -89,8 +89,17 @@ async function apiOnce(
         : `Request failed: ${res.status}`;
 
     if (res.status === 429 && message === "Request failed: 429") {
-      message =
-        "Too many sign-in attempts. Please wait a minute and try again.";
+      const base = requestBasePath(path);
+      if (base === "/auth/register") {
+        message =
+          "Too many sign-up attempts. Please wait a few minutes and try again.";
+      } else if (base === "/auth/forgot-password") {
+        message =
+          "Too many password reset requests. Please wait and try again.";
+      } else {
+        message =
+          "Too many attempts. Please wait a few minutes and try again.";
+      }
     }
 
     if (res.status === 401 && shouldAttemptRefresh(path, isRetry)) {

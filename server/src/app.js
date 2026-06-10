@@ -2,8 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
 const bcrypt = require("bcrypt");
+const { createAuthRateLimiters } = require("./lib/authRateLimits");
 const authRoutes = require("./routes/auth");
 const prisma = require("./lib/prisma");
 const { prismaErrorMessage } = require("./lib/prismaErrors");
@@ -27,50 +27,7 @@ function createApp() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  const clientIpKey = (req) => {
-    const xff = req.headers["x-forwarded-for"];
-    if (typeof xff === "string" && xff.trim()) {
-      return xff.split(",")[0].trim();
-    }
-    const realIp = req.headers["x-real-ip"];
-    if (typeof realIp === "string" && realIp.trim()) {
-      return realIp.trim();
-    }
-    return req.ip || req.socket?.remoteAddress || "unknown";
-  };
-
-  /** Per-IP + email so BFF egress IP does not share one bucket across all users. */
-  const authSensitiveKey = (req) => {
-    const ip = clientIpKey(req);
-    const email = req.body?.email;
-    if (typeof email === "string" && email.trim()) {
-      return `${ip}:${email.trim().toLowerCase().slice(0, 200)}`;
-    }
-    return ip;
-  };
-
-  const rateLimitOpts = {
-    windowMs: 60 * 1000,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: clientIpKey,
-  };
-
-  // Brute-force protection for credential endpoints (login, register, password flows).
-  const authSensitiveLimiter = rateLimit({
-    ...rateLimitOpts,
-    keyGenerator: authSensitiveKey,
-    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 30),
-    skipSuccessfulRequests: true,
-    message: { error: "Too many auth requests, please try again shortly." },
-  });
-
-  // Looser limit for token refresh — separate bucket so refresh retries don't block login.
-  const authRefreshLimiter = rateLimit({
-    ...rateLimitOpts,
-    max: Number(process.env.AUTH_REFRESH_RATE_LIMIT_MAX || 60),
-    message: { error: "Too many refresh requests, please try again shortly." },
-  });
+  const authLimits = createAuthRateLimiters();
 
   if (process.env.TRUST_PROXY === "1" || isProduction) {
     app.set("trust proxy", 1);
@@ -93,13 +50,13 @@ function createApp() {
   app.use(express.json({ limit: "50kb" }));
   app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 
-  app.use("/auth/login", authSensitiveLimiter);
-  app.use("/auth/register", authSensitiveLimiter);
-  app.use("/auth/forgot-password", authSensitiveLimiter);
-  app.use("/auth/reset-password", authSensitiveLimiter);
-  app.use("/auth/verify-email", authSensitiveLimiter);
-  app.use("/auth/resend-verification-email", authSensitiveLimiter);
-  app.use("/auth/refresh", authRefreshLimiter);
+  app.use("/auth/login", authLimits.login);
+  app.use("/auth/register", authLimits.register);
+  app.use("/auth/forgot-password", authLimits.forgotPassword);
+  app.use("/auth/reset-password", authLimits.resetPassword);
+  app.use("/auth/verify-email", authLimits.verifyEmail);
+  app.use("/auth/resend-verification-email", authLimits.resendVerification);
+  app.use("/auth/refresh", authLimits.refresh);
 
   app.use("/auth", authRoutes);
   app.use("/goals", auth, goalRoutes);

@@ -243,6 +243,10 @@ describe("Security-critical integration flows", () => {
     process.env.JWT_SECRET = "test-jwt-secret";
     process.env.JWT_ACCESS_EXPIRES_IN = "1s";
     process.env.AUTH_RATE_LIMIT_MAX = "4";
+    process.env.LOGIN_RATE_LIMIT_MAX = "4";
+    process.env.REGISTER_RATE_LIMIT_MAX = "4";
+    process.env.FORGOT_PASSWORD_RATE_LIMIT_MAX = "4";
+    delete process.env.DISABLE_AUTH_RATE_LIMIT;
     app = createApp();
   });
 
@@ -424,6 +428,22 @@ describe("Security-critical integration flows", () => {
       }
       const results = await Promise.all(attempts);
       expect(results.some((r) => r.status === 429)).toBe(true);
+    });
+
+    test("login rate limit does not block register for the same email", async () => {
+      for (let i = 0; i < 4; i += 1) {
+        await request(app).post("/auth/login").send({
+          email: "newuser@example.com",
+          password: "WrongPassword",
+        });
+      }
+
+      const registerRes = await request(app).post("/auth/register").send({
+        email: "newuser@example.com",
+        password: "ValidPass123!",
+        name: "New User",
+      });
+      expect(registerRes.status).toBe(201);
     });
 
     test("login rate limit is scoped per email, not shared across users", async () => {

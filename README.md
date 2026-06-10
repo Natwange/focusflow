@@ -121,7 +121,13 @@ JWT_EXPIRES_IN="7d"
 # Optional
 # JWT_ACCESS_EXPIRES_IN="15m"
 # JWT_REFRESH_EXPIRES_IN="7d"
-# AUTH_RATE_LIMIT_MAX="8"
+# Auth rate limits (per-email buckets — safe behind BFF / Render):
+# LOGIN_RATE_LIMIT_MAX="100"          # failed logins per email / 15 min (default 100)
+# REGISTER_RATE_LIMIT_MAX="50"        # sign-up attempts per email / hour (default 50)
+# FORGOT_PASSWORD_RATE_LIMIT_MAX="20"
+# AUTH_REFRESH_RATE_LIMIT_MAX="120"
+# DISABLE_AUTH_RATE_LIMIT="1"         # emergency only — disables all auth rate limits
+# NEVER set AUTH_RATE_LIMIT_MAX="8" on production — it breaks login for all visitors.
 # PORT="4000"
 # TRUST_PROXY="1"
 # COOKIE_SAME_SITE="none"   # only when web + API are on different origins in production (see Deploying)
