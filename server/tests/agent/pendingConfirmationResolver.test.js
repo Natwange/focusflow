@@ -43,6 +43,26 @@ describe("pendingConfirmationResolver", () => {
     });
   });
 
+  it("maps apply_goal_adjustment pending to tool call", () => {
+    const call = pendingConfirmationToToolCall({
+      type: "apply_goal_adjustment",
+      goalId: "goal_1",
+      goalTitle: "Anatomy",
+      itemCount: 5,
+      deadline: "2026-07-10",
+      spreadEvenly: true,
+    });
+    expect(call).toEqual({
+      toolName: "apply_goal_adjustment",
+      toolArgs: {
+        goalId: "goal_1",
+        confirmed: true,
+        deadline: "2026-07-10",
+        spreadEvenly: true,
+      },
+    });
+  });
+
   it("maps apply_goal_rebalance pending to tool call", () => {
     const call = pendingConfirmationToToolCall({
       type: "apply_goal_rebalance",

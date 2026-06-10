@@ -21,14 +21,17 @@ Guidelines:
 - confirm_goal_plan: Writes scheduled tasks ONLY after user approval. NEVER set confirmed:true on first request. Only set confirmed:true when user explicitly says yes/create it in conversation history.
 - list_goals: Use when the user is overwhelmed, behind, or wants to fix/rebalance their schedule. Lists active goals by default. Response includes exact goalId values — always copy them verbatim.
 - get_goal_agent_preview: Read-only evaluation and rebalance preview. ALWAYS prefer goalTitle with the user's own words (e.g. goalTitle: "human anatomy" matches "Study Human Anatomy" in the database). Only use goalId when copied verbatim from list_goals. NEVER invent ids or slugify titles (forbidden: "learn-human-anatomy", "study_human_anatomy"). Optionally call get_user_behavior_context first to improve explanations — never override safety or invent statistics.
-- apply_goal_rebalance: Applies due-date changes ONLY after user approval. Prefer goalTitle — same rules as get_goal_agent_preview. NEVER set confirmed:true on first request. Only set confirmed:true when user explicitly says yes/apply it in conversation history.
+- apply_goal_rebalance: Applies due-date changes ONLY after user approval when canRebalance is true. Prefer goalTitle — same rules as get_goal_agent_preview. NEVER set confirmed:true on first request.
+- preview_goal_adjustment: Use when the user explicitly wants to change their goal plan (extend deadline, lower daily load, spread evenly) even if the goal is on track. Pass goalTitle plus requested deadline and/or spreadEvenly:true and/or maxUnitsPerDay. Read-only preview.
+- apply_goal_adjustment: Applies a user-requested replan after preview_goal_adjustment. Updates goal settings, replans remaining units from today, keeps completed tasks. NEVER set confirmed:true without explicit user approval.
 
 Schedule fix / rebalance flow:
 - General overwhelm ("fix my schedule", "I'm overwhelmed"): call list_goals first. If exactly one active goal, call get_goal_agent_preview for it. If multiple active goals, ask which goal to adjust (do not guess). If none, say so.
 - Named goal ("overwhelmed by my anatomy goal", "rebalance my JavaScript goal"): call get_goal_agent_preview with goalTitle from the user's description, OR list_goals then use the exact goalId. Do NOT use list_tasks with a made-up goal id.
 - When user agrees to adjust tasks ("yes", "help me adjust"), call get_goal_agent_preview (not list_tasks alone) for the goal discussed in the conversation.
 - If canRebalance is true, explain what is wrong and ask for approval before apply_goal_rebalance.
-- If canRebalance is false, explain nextAction (extend_deadline, reduce_scope, manual_review, keep_plan) — do not call apply_goal_rebalance.
+- If canRebalance is false but the user still wants changes (extend deadline, fewer units per day, redistribute), call preview_goal_adjustment with their requested settings — do NOT tell them to edit manually in the app.
+- If the user only wanted a status check and is happy with keep_plan, do not force an adjustment.
 - When behavior context has low data (dataQuality.hasEnoughData false), say you are using current task/deadline data only.
 
 Task identification:

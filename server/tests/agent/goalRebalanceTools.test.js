@@ -50,6 +50,12 @@ jest.mock("../../src/lib/prisma", () => {
           return true;
         })
       ),
+      update: jest.fn(async ({ where, data }) => {
+        const goal = db.goals.get(where.id);
+        if (!goal) throw new Error("Goal not found");
+        db.goals.set(where.id, { ...goal, ...data });
+        return db.goals.get(where.id);
+      }),
     },
     task: {
       findUnique: jest.fn(async ({ where }) =>
@@ -60,6 +66,8 @@ jest.mock("../../src/lib/prisma", () => {
           if (where.userId && t.userId !== where.userId) return false;
           if (where.goalId && t.goalId !== where.goalId) return false;
           if (where.goalId?.in && !where.goalId.in.includes(t.goalId)) return false;
+          if (where.status && t.status !== where.status) return false;
+          if (where.status?.not && t.status === where.status.not) return false;
           return true;
         });
         if (!select) return rows.map((r) => ({ ...r }));
@@ -79,6 +87,30 @@ jest.mock("../../src/lib/prisma", () => {
         const out = {};
         for (const key of Object.keys(select)) {
           if (select[key]) out[key] = task[key];
+        }
+        return out;
+      }),
+      deleteMany: jest.fn(async ({ where }) => {
+        const before = db.tasks.length;
+        db.tasks = db.tasks.filter((t) => {
+          if (where.userId && t.userId !== where.userId) return true;
+          if (where.goalId && t.goalId !== where.goalId) return true;
+          if (where.status?.not && t.status === where.status.not) return true;
+          return false;
+        });
+        return { count: before - db.tasks.length };
+      }),
+      create: jest.fn(async ({ data, select }) => {
+        const row = {
+          id: `task_${db.tasks.length + 1}`,
+          status: "todo",
+          ...data,
+        };
+        db.tasks.push(row);
+        if (!select) return { ...row };
+        const out = {};
+        for (const key of Object.keys(select)) {
+          if (select[key]) out[key] = row[key];
         }
         return out;
       }),
@@ -447,6 +479,99 @@ describe("goal rebalance agent tools", () => {
     expect(result.data.goalTitle).toBe("Study Human Anatomy");
     expect(result.data.evaluation).toBeDefined();
     expect(result.summary).toMatch(/Matched goal/i);
+  });
+
+  test("preview_goal_adjustment works when goal is on track", async () => {
+    const db = mockGetTestDb();
+    const deadline = new Date("2026-06-15T00:00:00.000Z");
+    db.goals.set("goal_anatomy", {
+      id: "goal_anatomy",
+      userId: "user_1",
+      title: "Learn Human Anatomy",
+      totalUnits: 50,
+      unitName: "lessons",
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+      deadline,
+      availableDays: [0, 1, 2, 3, 4, 5, 6],
+      maxUnitsPerDay: 7,
+    });
+    for (let i = 0; i < 8; i += 1) {
+      db.tasks.push({
+        id: `anatomy_task_${i}`,
+        userId: "user_1",
+        goalId: "goal_anatomy",
+        title: `lessons ${i * 7 + 1}-${(i + 1) * 7}`,
+        status: "todo",
+        dueDate: new Date(`2026-06-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`),
+        unitStart: i * 7 + 1,
+        unitEnd: (i + 1) * 7,
+      });
+    }
+
+    const result = await executeTool(ctx, "preview_goal_adjustment", {
+      goalTitle: "human anatomy",
+      deadline: "2026-07-10",
+      spreadEvenly: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.feasible).toBe(true);
+    expect(result.data.items.length).toBeGreaterThan(0);
+    expect(result.data.pendingConfirmation?.type).toBe("apply_goal_adjustment");
+    expect(result.data.proposed.spreadEvenly).toBe(true);
+    expect(result.data.proposed.estimatedAvgUnitsPerDay).toBeLessThan(7);
+  });
+
+  test("apply_goal_adjustment confirmed replans incomplete tasks only", async () => {
+    const db = mockGetTestDb();
+    db.goals.set("goal_anatomy", {
+      id: "goal_anatomy",
+      userId: "user_1",
+      title: "Learn Human Anatomy",
+      totalUnits: 20,
+      unitName: "lessons",
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+      deadline: new Date("2026-06-15T00:00:00.000Z"),
+      availableDays: [0, 1, 2, 3, 4, 5, 6],
+      maxUnitsPerDay: 5,
+    });
+    db.tasks.push(
+      {
+        id: "done_1",
+        userId: "user_1",
+        goalId: "goal_anatomy",
+        title: "lessons 1-2",
+        status: "done",
+        dueDate: new Date("2026-05-10T00:00:00.000Z"),
+        unitStart: 1,
+        unitEnd: 2,
+      },
+      {
+        id: "todo_1",
+        userId: "user_1",
+        goalId: "goal_anatomy",
+        title: "lessons 3-10",
+        status: "todo",
+        dueDate: new Date("2026-06-01T00:00:00.000Z"),
+        unitStart: 3,
+        unitEnd: 10,
+      }
+    );
+
+    const result = await executeTool(ctx, "apply_goal_adjustment", {
+      goalTitle: "anatomy",
+      deadline: "2026-07-10",
+      spreadEvenly: true,
+      confirmed: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.data.applied).toBe(true);
+    expect(result.data.createdCount).toBeGreaterThan(0);
+    expect(db.tasks.some((t) => t.id === "done_1")).toBe(true);
+    expect(db.tasks.some((t) => t.id === "todo_1")).toBe(false);
+    const goal = db.goals.get("goal_anatomy");
+    expect(new Date(goal.deadline).toISOString().slice(0, 10)).toBe("2026-07-10");
   });
 
   test("runLlmTurn confirms rebalance using pendingConfirmation", async () => {

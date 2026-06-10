@@ -136,6 +136,35 @@ const toolArgSchemas = {
     .refine((d) => d.goalId || d.goalTitle, {
       message: "Provide goalId or goalTitle to identify the goal.",
     }),
+
+  preview_goal_adjustment: z
+    .object({
+      goalId: goalIdField.optional(),
+      goalTitle: z.string().trim().min(1).max(200).optional(),
+      deadline: z.string().trim().min(1).max(64).optional(),
+      maxUnitsPerDay: z
+        .union([z.null(), z.coerce.number().int().positive().max(10_000)])
+        .optional(),
+      spreadEvenly: z.boolean().optional(),
+    })
+    .refine((d) => d.goalId || d.goalTitle, {
+      message: "Provide goalId or goalTitle to identify the goal.",
+    }),
+
+  apply_goal_adjustment: z
+    .object({
+      goalId: goalIdField.optional(),
+      goalTitle: z.string().trim().min(1).max(200).optional(),
+      deadline: z.string().trim().min(1).max(64).optional(),
+      maxUnitsPerDay: z
+        .union([z.null(), z.coerce.number().int().positive().max(10_000)])
+        .optional(),
+      spreadEvenly: z.boolean().optional(),
+      confirmed: z.boolean().optional(),
+    })
+    .refine((d) => d.goalId || d.goalTitle, {
+      message: "Provide goalId or goalTitle to identify the goal.",
+    }),
 };
 
 /** V1 tool names exposed to the future LLM layer. */
@@ -154,6 +183,8 @@ const V1_TOOL_NAMES = Object.freeze([
   "list_goals",
   "get_goal_agent_preview",
   "apply_goal_rebalance",
+  "preview_goal_adjustment",
+  "apply_goal_adjustment",
 ]);
 
 const TOOL_CATALOG = {
@@ -220,6 +251,16 @@ const TOOL_CATALOG = {
   apply_goal_rebalance: {
     description:
       "Apply due-date rebalance for a goal (goalId or goalTitle). NEVER set confirmed:true unless the user explicitly approved after seeing the preview.",
+    readOnly: false,
+  },
+  preview_goal_adjustment: {
+    description:
+      "Preview a user-requested goal replan (new deadline, daily cap, or even spread). Works even when the goal is on track. Replans remaining units from today; completed tasks are kept.",
+    readOnly: true,
+  },
+  apply_goal_adjustment: {
+    description:
+      "Apply a user-requested goal replan after preview. Updates deadline/cap if requested, deletes incomplete tasks, recreates schedule. NEVER set confirmed:true without explicit user approval.",
     readOnly: false,
   },
 };
@@ -520,6 +561,55 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
           confirmed: {
             type: "boolean",
             description: "true only after user explicitly confirms rebalance",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "preview_goal_adjustment",
+      description: TOOL_CATALOG.preview_goal_adjustment.description,
+      parameters: {
+        type: "object",
+        properties: {
+          goalTitle: { type: "string", description: "PREFERRED: user's words for the goal" },
+          goalId: { type: "string", description: "Only if copied verbatim from list_goals" },
+          deadline: {
+            type: "string",
+            description: "New deadline ISO or phrase like 'July 10' or 'by July 10'",
+          },
+          maxUnitsPerDay: {
+            type: ["integer", "null"],
+            description: "New daily unit cap (omit if using spreadEvenly)",
+          },
+          spreadEvenly: {
+            type: "boolean",
+            description: "Spread remaining units evenly across eligible days (ignores daily cap)",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_goal_adjustment",
+      description: TOOL_CATALOG.apply_goal_adjustment.description,
+      parameters: {
+        type: "object",
+        properties: {
+          goalTitle: { type: "string", description: "PREFERRED: user's words for the goal" },
+          goalId: { type: "string", description: "Only if copied verbatim from list_goals" },
+          deadline: { type: "string" },
+          maxUnitsPerDay: { type: ["integer", "null"] },
+          spreadEvenly: { type: "boolean" },
+          confirmed: {
+            type: "boolean",
+            description: "true only after user explicitly confirms the adjustment",
           },
         },
         additionalProperties: false,

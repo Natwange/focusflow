@@ -7,6 +7,8 @@ const GOAL_AGENT_SELECT = {
   id: true,
   userId: true,
   title: true,
+  totalUnits: true,
+  unitName: true,
   createdAt: true,
   deadline: true,
   availableDays: true,

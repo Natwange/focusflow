@@ -79,6 +79,26 @@ function pendingConfirmationToToolCall(pendingConfirmation) {
     };
   }
 
+  if (
+    pendingConfirmation.type === "apply_goal_adjustment" &&
+    pendingConfirmation.goalId
+  ) {
+    const toolArgs = {
+      goalId: String(pendingConfirmation.goalId),
+      confirmed: true,
+    };
+    if (pendingConfirmation.deadline) {
+      toolArgs.deadline = String(pendingConfirmation.deadline);
+    }
+    if (pendingConfirmation.maxUnitsPerDay !== undefined) {
+      toolArgs.maxUnitsPerDay = pendingConfirmation.maxUnitsPerDay;
+    }
+    if (pendingConfirmation.spreadEvenly !== undefined) {
+      toolArgs.spreadEvenly = Boolean(pendingConfirmation.spreadEvenly);
+    }
+    return { toolName: "apply_goal_adjustment", toolArgs };
+  }
+
   return null;
 }
 

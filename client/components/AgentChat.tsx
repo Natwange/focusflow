@@ -117,6 +117,10 @@ export default function AgentChat() {
               emitAgentMutation({ type: "goal_rebalanced" });
               emitAgentMutation({ type: "task_updated" });
             }
+            if (tr.tool === "apply_goal_adjustment" && tr.result?.data?.applied) {
+              emitAgentMutation({ type: "goal_rebalanced" });
+              emitAgentMutation({ type: "task_updated" });
+            }
           }
         }
 

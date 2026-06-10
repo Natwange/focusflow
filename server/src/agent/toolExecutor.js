@@ -9,6 +9,10 @@ const {
   getGoalAgentPreviewForUser,
   applyGoalRebalanceForUser,
 } = require("../lib/goalAgentQueries");
+const {
+  previewGoalAdjustmentForUser,
+  applyGoalAdjustmentForUser,
+} = require("../lib/goalAdjustmentQueries");
 const { parseGoalDeadline } = require("../lib/goalDeadlineParser");
 const { resolveTask } = require("../lib/taskResolver");
 const {
@@ -87,6 +91,12 @@ function mapThrownError(err) {
         nextAction: err.nextAction,
         agentResult: err.agentResult,
       },
+    });
+  }
+  if (err?.code === "ADJUSTMENT_NOT_FEASIBLE") {
+    return failure(err.message, {
+      summary: err.message,
+      data: { preview: err.preview },
     });
   }
   console.error("toolExecutor unexpected error:", err);
@@ -487,6 +497,128 @@ async function runApplyGoalRebalance(userId, args) {
   }
 }
 
+function pickAdjustmentOpts(args) {
+  const opts = {};
+  if (args.deadline !== undefined) opts.deadline = args.deadline;
+  if (args.maxUnitsPerDay !== undefined) opts.maxUnitsPerDay = args.maxUnitsPerDay;
+  if (args.spreadEvenly !== undefined) opts.spreadEvenly = args.spreadEvenly;
+  return opts;
+}
+
+function buildApplyAdjustmentPending(goalId, goalTitle, itemCount, adjustmentOpts) {
+  return {
+    type: "apply_goal_adjustment",
+    goalId,
+    goalTitle,
+    itemCount,
+    ...adjustmentOpts,
+  };
+}
+
+async function runPreviewGoalAdjustment(userId, ctx, args) {
+  const lookup = normalizeGoalLookupArgs(args);
+  const resolved = await resolveGoal(userId, lookup);
+  if (!resolved.ok) return goalLookupFailure(resolved);
+
+  const adjustmentOpts = pickAdjustmentOpts(args);
+  let preview;
+  try {
+    preview = await previewGoalAdjustmentForUser(
+      userId,
+      resolved.goal.id,
+      adjustmentOpts,
+      ctx.tzOffsetMinutes ?? 0
+    );
+  } catch (err) {
+    return mapThrownError(err);
+  }
+
+  const itemCount = Array.isArray(preview.items) ? preview.items.length : 0;
+  const data = { ...preview };
+
+  if (preview.feasible && itemCount > 0) {
+    data.pendingConfirmation = buildApplyAdjustmentPending(
+      preview.goalId,
+      preview.goalTitle,
+      itemCount,
+      adjustmentOpts
+    );
+  }
+
+  const deadlineLabel = preview.proposed?.deadline
+    ? new Date(preview.proposed.deadline).toISOString().slice(0, 10)
+    : null;
+
+  let summary;
+  if (!preview.feasible) {
+    summary = preview.reason || `Cannot adjust "${preview.goalTitle}" with those settings.`;
+  } else {
+    const load = preview.proposed?.estimatedAvgUnitsPerDay;
+    summary = `Adjustment preview for "${preview.goalTitle}": ${itemCount} task group${itemCount === 1 ? "" : "s"} for ${preview.remainingUnits} remaining units${deadlineLabel ? `, deadline ${deadlineLabel}` : ""}${load != null ? `, ~${load} units/day avg` : ""}. Say "yes, apply it" to confirm.`;
+  }
+
+  return success({ data, summary });
+}
+
+async function runApplyGoalAdjustment(userId, ctx, args) {
+  const lookup = normalizeGoalLookupArgs(args);
+  const resolved = await resolveGoal(userId, lookup);
+  if (!resolved.ok) return goalLookupFailure(resolved);
+
+  const adjustmentOpts = pickAdjustmentOpts(args);
+
+  let preview;
+  try {
+    preview = await previewGoalAdjustmentForUser(
+      userId,
+      resolved.goal.id,
+      adjustmentOpts,
+      ctx.tzOffsetMinutes ?? 0
+    );
+  } catch (err) {
+    return mapThrownError(err);
+  }
+
+  const itemCount = Array.isArray(preview.items) ? preview.items.length : 0;
+
+  if (!preview.feasible || itemCount === 0) {
+    return failure(preview.reason || "Goal adjustment is not feasible.", {
+      summary: preview.reason || "Goal adjustment is not feasible.",
+      data: { preview },
+    });
+  }
+
+  if (!args.confirmed) {
+    return success({
+      data: {
+        preview,
+        pendingConfirmation: buildApplyAdjustmentPending(
+          preview.goalId,
+          preview.goalTitle,
+          itemCount,
+          adjustmentOpts
+        ),
+      },
+      summary: `Ready to replan "${preview.goalTitle}" (${itemCount} task groups). Say "yes, apply it" to confirm.`,
+    });
+  }
+
+  try {
+    const applied = await applyGoalAdjustmentForUser(
+      userId,
+      resolved.goal.id,
+      adjustmentOpts,
+      ctx.tzOffsetMinutes ?? 0
+    );
+    return success({
+      data: applied,
+      summary: `Adjusted "${applied.goalTitle}": created ${applied.createdCount} new tasks for remaining work. Completed tasks were kept.`,
+    });
+  } catch (err) {
+    return mapThrownError(err);
+  }
+}
+
 async function runConfirmGoalPlan(userId, args) {
   const preview = await previewGoalPlanForUser(userId, args.goalId, {});
   const itemCount = Array.isArray(preview.items) ? preview.items.length : 0;
@@ -585,6 +717,10 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runGetGoalAgentPreview(ctx.userId, parsed.args);
       case "apply_goal_rebalance":
         return await runApplyGoalRebalance(ctx.userId, parsed.args);
+      case "preview_goal_adjustment":
+        return await runPreviewGoalAdjustment(ctx.userId, ctx, parsed.args);
+      case "apply_goal_adjustment":
+        return await runApplyGoalAdjustment(ctx.userId, ctx, parsed.args);
       default:
         return failure(`Unknown tool: ${toolName}`, {
           summary: `Tool "${toolName}" is not available.`,

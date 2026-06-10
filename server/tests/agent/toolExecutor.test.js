@@ -175,6 +175,8 @@ describe("agent tools.js", () => {
     expect(V1_TOOL_NAMES).toContain("list_goals");
     expect(V1_TOOL_NAMES).toContain("get_goal_agent_preview");
     expect(V1_TOOL_NAMES).toContain("apply_goal_rebalance");
+    expect(V1_TOOL_NAMES).toContain("preview_goal_adjustment");
+    expect(V1_TOOL_NAMES).toContain("apply_goal_adjustment");
   });
 
   it("rejects invalid create_task args", () => {
