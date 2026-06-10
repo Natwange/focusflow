@@ -13,7 +13,8 @@ export type AgentMutationDetail = {
     | "task_deleted"
     | "focus_started"
     | "goal_created"
-    | "goal_plan_confirmed";
+    | "goal_plan_confirmed"
+    | "goal_rebalanced";
 };
 
 export function emitAgentMutation(detail: AgentMutationDetail) {

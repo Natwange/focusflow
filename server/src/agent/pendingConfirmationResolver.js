@@ -21,7 +21,9 @@ function isAffirmativeConfirmation(message) {
     /^schedule\s+it\b/,
     /^yes,?\s*delete\s+it/,
     /^delete\s+it\b/,
-    /^please\s+(?:create|schedule|confirm|delete)\b/,
+    /^yes,?\s*apply\s+it/,
+    /^apply\s+it\b/,
+    /^please\s+(?:create|schedule|confirm|delete|apply)\b/,
   ];
 
   return patterns.some((pattern) => pattern.test(text));
@@ -59,6 +61,19 @@ function pendingConfirmationToToolCall(pendingConfirmation) {
       toolName: "delete_task",
       toolArgs: {
         taskId: String(pendingConfirmation.taskId),
+        confirmed: true,
+      },
+    };
+  }
+
+  if (
+    pendingConfirmation.type === "apply_goal_rebalance" &&
+    pendingConfirmation.goalId
+  ) {
+    return {
+      toolName: "apply_goal_rebalance",
+      toolArgs: {
+        goalId: String(pendingConfirmation.goalId),
         confirmed: true,
       },
     };

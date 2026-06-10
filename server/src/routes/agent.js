@@ -8,12 +8,13 @@ const router = express.Router();
 
 const pendingConfirmationSchema = z
   .object({
-    type: z.enum(["confirm_goal_plan", "delete_task"]),
+    type: z.enum(["confirm_goal_plan", "delete_task", "apply_goal_rebalance"]),
     goalId: z.string().trim().min(1).max(64).optional(),
     taskId: z.string().trim().min(1).max(64).optional(),
     goalTitle: z.string().max(200).optional(),
     taskTitle: z.string().max(500).optional(),
     itemCount: z.coerce.number().int().nonnegative().optional(),
+    changeCount: z.coerce.number().int().nonnegative().optional(),
   })
   .nullable()
   .optional();

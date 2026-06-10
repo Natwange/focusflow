@@ -36,6 +36,7 @@ export default function AgentChat() {
     goalTitle?: string;
     taskTitle?: string;
     itemCount?: number;
+    changeCount?: number;
   } | null>(null);
   const [position, setPosition] = useState({ x: 16, y: 64 });
   const inputRef = useRef<HTMLInputElement>(null);
@@ -111,6 +112,10 @@ export default function AgentChat() {
             if (tr.tool === "confirm_goal_plan" && tr.result?.data?.createdCount) {
               emitAgentMutation({ type: "goal_plan_confirmed" });
               emitAgentMutation({ type: "task_created" });
+            }
+            if (tr.tool === "apply_goal_rebalance" && tr.result?.data?.applied) {
+              emitAgentMutation({ type: "goal_rebalanced" });
+              emitAgentMutation({ type: "task_updated" });
             }
           }
         }

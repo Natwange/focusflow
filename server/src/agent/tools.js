@@ -18,6 +18,7 @@ const toolArgSchemas = {
   list_tasks: z.object({
     status: taskStatusSchema.optional(),
     goalId: goalIdField.optional(),
+    goalTitle: z.string().trim().min(1).max(200).optional(),
     startDate: isoLikeString.optional(),
     endDate: isoLikeString.optional(),
     includeOverdue: z.boolean().optional(),
@@ -112,6 +113,29 @@ const toolArgSchemas = {
     (d) => d.taskId || d.taskTitle,
     { message: "Provide taskId or taskTitle to identify the task." }
   ),
+
+  list_goals: z.object({
+    status: z.enum(["active", "completed", "all"]).optional(),
+  }),
+
+  get_goal_agent_preview: z
+    .object({
+      goalId: goalIdField.optional(),
+      goalTitle: z.string().trim().min(1).max(200).optional(),
+    })
+    .refine((d) => d.goalId || d.goalTitle, {
+      message: "Provide goalId or goalTitle to identify the goal.",
+    }),
+
+  apply_goal_rebalance: z
+    .object({
+      goalId: goalIdField.optional(),
+      goalTitle: z.string().trim().min(1).max(200).optional(),
+      confirmed: z.boolean().optional(),
+    })
+    .refine((d) => d.goalId || d.goalTitle, {
+      message: "Provide goalId or goalTitle to identify the goal.",
+    }),
 };
 
 /** V1 tool names exposed to the future LLM layer. */
@@ -127,11 +151,15 @@ const V1_TOOL_NAMES = Object.freeze([
   "create_goal",
   "preview_goal_plan",
   "confirm_goal_plan",
+  "list_goals",
+  "get_goal_agent_preview",
+  "apply_goal_rebalance",
 ]);
 
 const TOOL_CATALOG = {
   list_tasks: {
-    description: "List the user's tasks with optional date range and filters.",
+    description:
+      "List the user's tasks with optional date range and filters. Identify a goal by goalId from list_goals or by goalTitle (user's words) — never invent or slugify goal ids.",
     readOnly: true,
   },
   create_task: {
@@ -179,6 +207,21 @@ const TOOL_CATALOG = {
       "Write scheduled tasks for a goal plan. NEVER set confirmed:true unless the user explicitly approved after seeing the preview.",
     readOnly: false,
   },
+  list_goals: {
+    description:
+      "List the user's goals with summary fields (deadline, task counts, progress). Use before schedule fixes or rebalance.",
+    readOnly: true,
+  },
+  get_goal_agent_preview: {
+    description:
+      "Run read-only goal evaluation and rebalance preview. Identify the goal by goalId from list_goals or by goalTitle. Does not change tasks.",
+    readOnly: true,
+  },
+  apply_goal_rebalance: {
+    description:
+      "Apply due-date rebalance for a goal (goalId or goalTitle). NEVER set confirmed:true unless the user explicitly approved after seeing the preview.",
+    readOnly: false,
+  },
 };
 
 /**
@@ -222,7 +265,8 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
         type: "object",
         properties: {
           status: { type: "string", enum: ["todo", "doing", "done"] },
-          goalId: { type: "string" },
+          goalTitle: { type: "string", description: "PREFERRED: words the user used to name the goal (e.g. human anatomy)" },
+          goalId: { type: "string", description: "Only if copied verbatim from list_goals — never slugify" },
           startDate: { type: "string", description: "ISO 8601 UTC start" },
           endDate: { type: "string", description: "ISO 8601 UTC end" },
           includeOverdue: { type: "boolean" },
@@ -426,6 +470,58 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
           },
         },
         required: ["goalId"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_goals",
+      description: TOOL_CATALOG.list_goals.description,
+      parameters: {
+        type: "object",
+        properties: {
+          status: {
+            type: "string",
+            enum: ["active", "completed", "all"],
+            description: "Filter goals (default active)",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_goal_agent_preview",
+      description: TOOL_CATALOG.get_goal_agent_preview.description,
+      parameters: {
+        type: "object",
+        properties: {
+          goalTitle: { type: "string", description: "PREFERRED: user's words for the goal (e.g. human anatomy)" },
+          goalId: { type: "string", description: "Only if copied verbatim from list_goals" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_goal_rebalance",
+      description: TOOL_CATALOG.apply_goal_rebalance.description,
+      parameters: {
+        type: "object",
+        properties: {
+          goalTitle: { type: "string", description: "PREFERRED: user's words for the goal" },
+          goalId: { type: "string", description: "Only if copied verbatim from list_goals" },
+          confirmed: {
+            type: "boolean",
+            description: "true only after user explicitly confirms rebalance",
+          },
+        },
         additionalProperties: false,
       },
     },

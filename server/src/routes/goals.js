@@ -29,6 +29,10 @@ const { evaluateGoalProgress } = require("../lib/evaluationEngine");
 const { detectFailureModes } = require("../lib/failureModeDetector");
 const { recommendRebalance } = require("../lib/rebalanceRecommendationEngine");
 const { runGoalAgent } = require("../lib/goalAgentOrchestrator");
+const {
+  getGoalAgentPreviewForUser,
+  applyGoalRebalanceForUser,
+} = require("../lib/goalAgentQueries");
 
 const router = express.Router();
 
@@ -312,55 +316,25 @@ router.get("/:id/agent-preview", async (req, res) => {
     const userId = req.user.id;
     const goalId = req.params.id;
 
-    const goal = await requireOwnedResource({
-      model: prisma.goal,
-      id: goalId,
-      userId,
-      res,
-      notFoundMessage: "Goal not found",
-      forbiddenMessage: "Forbidden: goal does not belong to this user",
-      select: {
-        id: true,
-        userId: true,
-        createdAt: true,
-        deadline: true,
-        availableDays: true,
-        maxUnitsPerDay: true,
-      },
-    });
-    if (!goal) return;
+    try {
+      const result = await getGoalAgentPreviewForUser(userId, goalId, {
+        logRun: true,
+        source: "api",
+      });
 
-    const tasks = await prisma.task.findMany({
-      where: { userId, goalId },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        dueDate: true,
-        unitStart: true,
-        unitEnd: true,
-      },
-    });
-
-    const result = runGoalAgent({
-      goal,
-      tasks,
-      now: new Date(),
-    });
-
-    await prisma.agentRun.create({
-      data: {
-        goalId: goal.id,
-        userId,
-        evaluation: result.evaluation,
-        failureAnalysis: result.failureAnalysis,
-        recommendation: result.recommendation,
-        nextAction: result.nextAction,
-        rebalancePreview: result.rebalanceRecommendation,
-      },
-    });
-
-    return res.json(result);
+      const { goalTitle: _goalTitle, ...payload } = result;
+      return res.json(payload);
+    } catch (inner) {
+      if (inner?.code === "NOT_FOUND") {
+        return res.status(404).json({ error: "Goal not found" });
+      }
+      if (inner?.code === "FORBIDDEN") {
+        return res.status(403).json({
+          error: "Forbidden: goal does not belong to this user",
+        });
+      }
+      throw inner;
+    }
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: prismaErrorMessage(err) });
@@ -411,115 +385,33 @@ router.post("/:id/apply-agent-rebalance", async (req, res) => {
     const userId = req.user.id;
     const goalId = req.params.id;
 
-    const goal = await requireOwnedResource({
-      model: prisma.goal,
-      id: goalId,
-      userId,
-      res,
-      notFoundMessage: "Goal not found",
-      forbiddenMessage: "Forbidden: goal does not belong to this user",
-      select: {
-        id: true,
-        userId: true,
-        createdAt: true,
-        deadline: true,
-        availableDays: true,
-        maxUnitsPerDay: true,
-      },
-    });
-    if (!goal) return;
-
-    const tasks = await prisma.task.findMany({
-      where: { userId, goalId },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        dueDate: true,
-        unitStart: true,
-        unitEnd: true,
-      },
-    });
-
-    const agentResult = runGoalAgent({
-      goal,
-      tasks,
-      now: new Date(),
-    });
-
-    const rec = agentResult.rebalanceRecommendation;
-    if (!rec?.canRebalance) {
-      return res.status(400).json({
-        error: rec?.reason || "Rebalance cannot be applied.",
-        nextAction: agentResult.nextAction || "manual_review",
-      });
-    }
-
-    const taskById = new Map(tasks.map((t) => [String(t.id), t]));
-    const plannedChanges = Array.isArray(rec.changes) ? rec.changes : [];
-    const updateChanges = [];
-
-    for (const change of plannedChanges) {
-      const taskId = String(change?.taskId || "");
-      const targetTask = taskById.get(taskId);
-      if (!targetTask) {
-        return res.status(400).json({
-          error: `Invalid rebalance change target: ${taskId}`,
-          nextAction: "manual_review",
+    try {
+      const result = await applyGoalRebalanceForUser(userId, goalId);
+      const { goalTitle: _goalTitle, changeCount: _changeCount, ...payload } = result;
+      return res.json(payload);
+    } catch (err) {
+      if (err?.code === "NOT_FOUND") {
+        return res.status(404).json({ error: "Goal not found" });
+      }
+      if (err?.code === "FORBIDDEN") {
+        return res.status(403).json({
+          error: "Forbidden: goal does not belong to this user",
         });
       }
-      if (targetTask.status === "done") {
-        continue;
-      }
-      const toDate = new Date(change.to);
-      if (Number.isNaN(toDate.getTime())) {
+      if (err?.code === "CANNOT_REBALANCE") {
         return res.status(400).json({
-          error: `Invalid rebalance target date for task: ${taskId}`,
-          nextAction: "manual_review",
+          error: err.message,
+          nextAction: err.nextAction || "manual_review",
         });
       }
-      updateChanges.push({
-        taskId,
-        toDate,
-      });
+      if (err?.code === "INVALID_CHANGE") {
+        return res.status(400).json({
+          error: err.message,
+          nextAction: err.nextAction || "manual_review",
+        });
+      }
+      throw err;
     }
-
-    const updatedTasks =
-      updateChanges.length > 0
-        ? await prisma.$transaction(
-            updateChanges.map((c) =>
-              prisma.task.update({
-                where: { id: c.taskId },
-                data: { dueDate: c.toDate },
-                select: {
-                  id: true,
-                  title: true,
-                  status: true,
-                  dueDate: true,
-                  goalId: true,
-                },
-              })
-            )
-          )
-        : [];
-
-    const latestRun = await prisma.agentRun.findFirst({
-      where: { goalId: goal.id, userId },
-      orderBy: { createdAt: "desc" },
-    });
-    if (latestRun) {
-      await prisma.agentRun.update({
-        where: { id: latestRun.id },
-        data: { acceptedByUser: true },
-      });
-    }
-
-    return res.json({
-      goalId: goal.id,
-      applied: true,
-      updatedTasks,
-      agentResult,
-    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: prismaErrorMessage(err) });

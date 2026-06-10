@@ -7,6 +7,8 @@ describe("pendingConfirmationResolver", () => {
   it("detects affirmative confirmations", () => {
     expect(isAffirmativeConfirmation("yes, create it")).toBe(true);
     expect(isAffirmativeConfirmation("create it")).toBe(true);
+    expect(isAffirmativeConfirmation("yes, apply it")).toBe(true);
+    expect(isAffirmativeConfirmation("apply it")).toBe(true);
     expect(isAffirmativeConfirmation("yes")).toBe(true);
     expect(isAffirmativeConfirmation("go ahead")).toBe(true);
   });
@@ -38,6 +40,19 @@ describe("pendingConfirmationResolver", () => {
     expect(call).toEqual({
       toolName: "delete_task",
       toolArgs: { taskId: "task_1", confirmed: true },
+    });
+  });
+
+  it("maps apply_goal_rebalance pending to tool call", () => {
+    const call = pendingConfirmationToToolCall({
+      type: "apply_goal_rebalance",
+      goalId: "goal_1",
+      goalTitle: "JavaScript",
+      changeCount: 2,
+    });
+    expect(call).toEqual({
+      toolName: "apply_goal_rebalance",
+      toolArgs: { goalId: "goal_1", confirmed: true },
     });
   });
 });

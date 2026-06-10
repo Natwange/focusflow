@@ -4,8 +4,18 @@ const { getUserBehaviorContextForUser } = require("../lib/userBehaviorContext");
 const { previewGoalPlanForUser } = require("../lib/goalPlanPreview");
 const { listTasksForUser, createTaskForUser, updateTaskForUser, deleteTaskForUser } = require("../lib/taskQueries");
 const { createGoalForUser, confirmGoalPlanForUser } = require("../lib/goalQueries");
+const {
+  listGoalsForUser,
+  getGoalAgentPreviewForUser,
+  applyGoalRebalanceForUser,
+} = require("../lib/goalAgentQueries");
 const { parseGoalDeadline } = require("../lib/goalDeadlineParser");
 const { resolveTask } = require("../lib/taskResolver");
+const {
+  resolveGoal,
+  normalizeGoalLookupArgs,
+  looksLikeInventedSlug,
+} = require("../lib/goalResolver");
 const { isV1ToolName, parseToolArgs } = require("./tools");
 
 const DEFAULT_FOCUS_MINUTES = {
@@ -70,20 +80,67 @@ function mapThrownError(err) {
   if (err?.code === "ALREADY_PLANNED") {
     return failure(err.message, { summary: err.message });
   }
+  if (err?.code === "CANNOT_REBALANCE") {
+    return failure(err.message, {
+      summary: err.message,
+      data: {
+        nextAction: err.nextAction,
+        agentResult: err.agentResult,
+      },
+    });
+  }
   console.error("toolExecutor unexpected error:", err);
   return failure("Internal tool error", { summary: "Something went wrong running that action." });
 }
 
+function goalLookupFailure(resolved) {
+  return failure(resolved.error, {
+    summary: resolved.error,
+    data: resolved.matches ? { matches: resolved.matches } : null,
+  });
+}
+
 async function runListTasks(userId, args) {
-  const tasks = await listTasksForUser(userId, args);
+  let queryArgs = { ...args };
+  let resolvedGoal = null;
+
+  if (args.goalId || args.goalTitle) {
+    const resolved = await resolveGoal(userId, normalizeGoalLookupArgs(args));
+    if (!resolved.ok) return goalLookupFailure(resolved);
+    resolvedGoal = resolved.goal;
+    queryArgs = { ...args, goalId: resolved.goal.id };
+    delete queryArgs.goalTitle;
+  }
+
+  const tasks = await listTasksForUser(userId, queryArgs);
   const count = tasks.length;
   const done = tasks.filter((t) => t.status === "done").length;
-  return success({
-    data: { tasks, count },
-    summary:
+
+  let summary;
+  if (resolvedGoal) {
+    const matchNote = args.goalTitle || looksLikeInventedSlug(args.goalId)
+      ? ` (matched from "${args.goalTitle || args.goalId}")`
+      : "";
+    summary =
+      count === 0
+        ? `No tasks found for goal "${resolvedGoal.title}" (id ${resolvedGoal.id})${matchNote}.`
+        : `Found ${count} task${count === 1 ? "" : "s"} for goal "${resolvedGoal.title}" (id ${resolvedGoal.id}, ${done} completed)${matchNote}.`;
+  } else {
+    summary =
       count === 0
         ? "No tasks matched those filters."
-        : `Found ${count} task${count === 1 ? "" : "s"} (${done} completed).`,
+        : `Found ${count} task${count === 1 ? "" : "s"} (${done} completed).`;
+  }
+
+  return success({
+    data: {
+      tasks,
+      count,
+      ...(resolvedGoal
+        ? { goalId: resolvedGoal.id, goalTitle: resolvedGoal.title }
+        : {}),
+    },
+    summary,
   });
 }
 
@@ -291,6 +348,145 @@ async function runPreviewGoalPlan(userId, args) {
   });
 }
 
+function rebalanceChangeCount(rebalanceRecommendation) {
+  return Array.isArray(rebalanceRecommendation?.changes)
+    ? rebalanceRecommendation.changes.length
+    : 0;
+}
+
+function buildApplyRebalancePending(goalId, goalTitle, changeCount) {
+  return {
+    type: "apply_goal_rebalance",
+    goalId,
+    goalTitle,
+    changeCount,
+  };
+}
+
+async function runListGoals(userId, args) {
+  const status = args.status ?? "active";
+  const goals = await listGoalsForUser(userId, { status });
+  const count = goals.length;
+
+  const goalLines =
+    count > 0
+      ? goals
+          .map(
+            (g) =>
+              `"${g.title}" (goalId=${g.goalId}, ${g.taskCounts.total} tasks, ${g.taskCounts.incomplete} incomplete)`
+          )
+          .join("; ")
+      : "";
+
+  return success({
+    data: { goals, count, status },
+    summary:
+      count === 0
+        ? `No ${status === "all" ? "" : `${status} `}goals found.`
+        : `Found ${count} ${status === "all" ? "" : `${status} `}goal${count === 1 ? "" : "s"}: ${goalLines}. Use the exact goalId for previews and task filters.`,
+  });
+}
+
+async function runGetGoalAgentPreview(userId, args) {
+  const lookup = normalizeGoalLookupArgs(args);
+  const resolved = await resolveGoal(userId, lookup);
+  if (!resolved.ok) return goalLookupFailure(resolved);
+
+  const preview = await getGoalAgentPreviewForUser(userId, resolved.goal.id, {
+    logRun: true,
+    source: "chat",
+  });
+
+  const rec = preview.rebalanceRecommendation;
+  const changeCount = rebalanceChangeCount(rec);
+  const data = { ...preview };
+
+  if (rec?.canRebalance && changeCount > 0) {
+    data.pendingConfirmation = buildApplyRebalancePending(
+      preview.goalId,
+      preview.goalTitle,
+      changeCount
+    );
+  }
+
+  const action = preview.nextAction;
+  let summary;
+  const matchNote =
+    lookup.goalTitle || looksLikeInventedSlug(args.goalId)
+      ? ` Matched goal "${resolved.goal.title}" from your description.`
+      : "";
+
+  if (rec?.canRebalance && changeCount > 0) {
+    summary = `Rebalance preview for "${preview.goalTitle}": ${changeCount} task date change${changeCount === 1 ? "" : "s"} proposed.${matchNote} Say "yes, apply it" to confirm.`;
+  } else if (action === "extend_deadline" || action === "reduce_scope") {
+    summary = `Rebalance preview for "${preview.goalTitle}": automatic reschedule is not feasible. Suggested next step: ${action.replace(/_/g, " ")}.`;
+  } else if (action === "keep_plan") {
+    summary = `Rebalance preview for "${preview.goalTitle}": no schedule changes needed.`;
+  } else {
+    summary = `Rebalance preview for "${preview.goalTitle}" (next action: ${action}).`;
+  }
+
+  return success({ data, summary });
+}
+
+async function runApplyGoalRebalance(userId, args) {
+  const lookup = normalizeGoalLookupArgs(args);
+  const resolved = await resolveGoal(userId, lookup);
+  if (!resolved.ok) return goalLookupFailure(resolved);
+
+  let preview;
+  try {
+    preview = await getGoalAgentPreviewForUser(userId, resolved.goal.id, {
+      logRun: false,
+      source: null,
+    });
+  } catch (err) {
+    return mapThrownError(err);
+  }
+
+  const rec = preview.rebalanceRecommendation;
+  const changeCount = rebalanceChangeCount(rec);
+
+  if (!rec?.canRebalance || changeCount === 0) {
+    const action = preview.nextAction || "manual_review";
+    return failure(rec?.reason || "Rebalance cannot be applied.", {
+      summary:
+        action === "extend_deadline" || action === "reduce_scope"
+          ? `Cannot auto-rebalance "${preview.goalTitle}". Suggested next step: ${action.replace(/_/g, " ")}.`
+          : `Cannot auto-rebalance "${preview.goalTitle}".`,
+      data: {
+        nextAction: action,
+        evaluation: preview.evaluation,
+        rebalanceRecommendation: rec,
+      },
+    });
+  }
+
+  if (!args.confirmed) {
+    return success({
+      data: {
+        preview,
+        pendingConfirmation: buildApplyRebalancePending(
+          preview.goalId,
+          preview.goalTitle,
+          changeCount
+        ),
+      },
+      summary: `Ready to apply ${changeCount} due-date change${changeCount === 1 ? "" : "s"} for "${preview.goalTitle}". Say "yes, apply it" to confirm.`,
+    });
+  }
+
+  try {
+    const applied = await applyGoalRebalanceForUser(userId, resolved.goal.id);
+    return success({
+      data: applied,
+      summary: `Applied rebalance for "${applied.goalTitle}": updated ${applied.changeCount} task due date${applied.changeCount === 1 ? "" : "s"}.`,
+    });
+  } catch (err) {
+    return mapThrownError(err);
+  }
+}
+
 async function runConfirmGoalPlan(userId, args) {
   const preview = await previewGoalPlanForUser(userId, args.goalId, {});
   const itemCount = Array.isArray(preview.items) ? preview.items.length : 0;
@@ -383,6 +579,12 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runPreviewGoalPlan(ctx.userId, parsed.args);
       case "confirm_goal_plan":
         return await runConfirmGoalPlan(ctx.userId, parsed.args);
+      case "list_goals":
+        return await runListGoals(ctx.userId, parsed.args);
+      case "get_goal_agent_preview":
+        return await runGetGoalAgentPreview(ctx.userId, parsed.args);
+      case "apply_goal_rebalance":
+        return await runApplyGoalRebalance(ctx.userId, parsed.args);
       default:
         return failure(`Unknown tool: ${toolName}`, {
           summary: `Tool "${toolName}" is not available.`,
