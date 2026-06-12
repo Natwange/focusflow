@@ -311,6 +311,70 @@ describe("recommendRebalance", () => {
     expect(out.changes[0].reason.length).toBeGreaterThan(0);
   });
 
+  test("missed earlier sections are not scheduled after later sections", () => {
+    const nowAnatomy = new Date("2026-06-11T12:00:00.000Z");
+    const tasks = [
+      task({
+        id: "s12",
+        title: "Section 1-2",
+        dueDate: "2026-06-10T00:00:00.000Z",
+        unitStart: 1,
+        unitEnd: 2,
+      }),
+      task({
+        id: "s34",
+        title: "Section 3-4",
+        dueDate: "2026-06-11T00:00:00.000Z",
+        unitStart: 3,
+        unitEnd: 4,
+      }),
+      task({
+        id: "s5",
+        title: "Section 5",
+        dueDate: "2026-06-12T00:00:00.000Z",
+        unitStart: 5,
+        unitEnd: 5,
+      }),
+      task({
+        id: "s6",
+        title: "Section 6",
+        dueDate: "2026-06-13T00:00:00.000Z",
+        unitStart: 6,
+        unitEnd: 6,
+      }),
+      task({
+        id: "s7",
+        title: "Section 7",
+        dueDate: "2026-06-14T00:00:00.000Z",
+        unitStart: 7,
+        unitEnd: 7,
+      }),
+    ];
+
+    const out = recommendRebalance({
+      goal: {
+        deadline: "2026-07-10T00:00:00.000Z",
+        availableDays: [1, 2, 3, 4, 5, 6, 0],
+        maxUnitsPerDay: 2,
+      },
+      tasks,
+      evaluation: { behindSchedule: true },
+      failureAnalysis: { failureModes: ["behind_schedule"] },
+      now: nowAnatomy,
+    });
+
+    expect(out.canRebalance).toBe(true);
+    expect(out.contentOrderPreserved).toBe(true);
+
+    const byId = Object.fromEntries(
+      out.proposedSchedule.map((p) => [p.taskId, new Date(p.newDueDate).getTime()])
+    );
+    expect(byId.s34).toBeLessThanOrEqual(byId.s5);
+    expect(byId.s34).toBeLessThanOrEqual(byId.s6);
+    expect(byId.s34).toBeLessThanOrEqual(byId.s7);
+    expect(byId.s12).toBeLessThanOrEqual(byId.s34);
+  });
+
   test("no future task is moved earlier unnecessarily", () => {
     const tasks = [
       task({

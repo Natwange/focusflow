@@ -73,6 +73,77 @@ function compareTasks(a, b) {
   return String(a?.id || "").localeCompare(String(b?.id || ""));
 }
 
+function taskContentStart(task) {
+  if (Number.isInteger(task?.unitStart)) return task.unitStart;
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function canPlaceOnDay(dayLoadUnits, idx, units, dailyCap) {
+  return idx >= 0 && idx < dayLoadUnits.length && dayLoadUnits[idx] + units <= dailyCap;
+}
+
+function placeOnDay(dayLoadUnits, idx, units) {
+  dayLoadUnits[idx] += units;
+  return idx;
+}
+
+/**
+ * Assign due dates in curriculum order (unitStart ascending).
+ * Earlier sections always land on the same day or before later sections.
+ */
+function assignContentOrderedSchedule({
+  tasks,
+  eligibleDates,
+  dayIndexByKey,
+  dayLoadUnits,
+  dailyCap,
+  nowDay,
+}) {
+  const sorted = [...tasks].sort(compareTasks);
+  const assigned = new Map();
+  let lastAssignedIdx = -1;
+
+  for (const task of sorted) {
+    const units = unitsForTask(task);
+    const due = parseDateOrNull(task.dueDate);
+    const isMissed =
+      due != null && startOfDay(due).getTime() < nowDay.getTime();
+    const originalKey = due ? dayKey(due) : null;
+    const originalIdx =
+      originalKey != null ? dayIndexByKey.get(originalKey) : undefined;
+
+    const minIdx = Math.max(0, lastAssignedIdx);
+
+    let placedIdx = -1;
+
+    // Prefer keeping a future task on its current date when order and capacity allow.
+    if (
+      !isMissed &&
+      originalIdx != null &&
+      originalIdx >= minIdx &&
+      canPlaceOnDay(dayLoadUnits, originalIdx, units, dailyCap)
+    ) {
+      placedIdx = placeOnDay(dayLoadUnits, originalIdx, units);
+    } else {
+      for (let i = minIdx; i < eligibleDates.length; i++) {
+        if (canPlaceOnDay(dayLoadUnits, i, units, dailyCap)) {
+          placedIdx = placeOnDay(dayLoadUnits, i, units);
+          break;
+        }
+      }
+    }
+
+    if (placedIdx < 0) {
+      return { ok: false, assigned };
+    }
+
+    assigned.set(task.id, placedIdx);
+    lastAssignedIdx = placedIdx;
+  }
+
+  return { ok: true, assigned };
+}
+
 function actionForImpossible(goal) {
   // Deadlines are flexible by default unless goal explicitly marks strictDeadline=true.
   if (goal?.strictDeadline === true) return "reduce_scope";
@@ -172,106 +243,39 @@ function recommendRebalance({
     };
   }
 
-  const hasDistributionProblem = new Set(failureAnalysis?.failureModes || []).has(
-    "task_distribution_problem"
-  );
   const dayLoadUnits = Array.from({ length: eligibleDates.length }, () => 0);
-  const assigned = new Map();
-  const pendingFuture = [];
+  const orderedCandidates = [...missedTasks, ...futureTasks].sort(compareTasks);
 
-  // Keep future tasks on original day by default.
-  for (const task of futureTasks) {
-    const units = unitsForTask(task);
-    const due = parseDateOrNull(task.dueDate);
-    const key = due ? dayKey(due) : null;
-    const idx = key != null ? dayIndexByKey.get(key) : undefined;
+  const placement = assignContentOrderedSchedule({
+    tasks: orderedCandidates,
+    eligibleDates,
+    dayIndexByKey,
+    dayLoadUnits,
+    dailyCap,
+    nowDay,
+  });
 
-    if (idx == null) {
-      // Day is outside allowed window or unavailable.
-      pendingFuture.push(task);
-      continue;
-    }
-
-    if (!hasDistributionProblem && dayLoadUnits[idx] + units <= dailyCap) {
-      dayLoadUnits[idx] += units;
-      assigned.set(task.id, idx);
-      continue;
-    }
-
-    pendingFuture.push(task);
+  if (!placement.ok) {
+    return {
+      canRebalance: false,
+      reason:
+        "Unable to reschedule remaining sections in learning order before the deadline. " +
+        "Consider extending the deadline so earlier sections stay before later ones.",
+      recommendedAction: actionForImpossible(goal),
+      proposedSchedule: [],
+      changes: [],
+      warnings: [
+        ...warnings,
+        "Rebalance preserves section order (earlier units before later units).",
+      ],
+    };
   }
 
-  function placeTask(task, preferredStartIndex = 0, allowEarlierFallback = false) {
-    const units = unitsForTask(task);
-    for (let i = preferredStartIndex; i < eligibleDates.length; i++) {
-      if (dayLoadUnits[i] + units <= dailyCap) {
-        dayLoadUnits[i] += units;
-        return i;
-      }
-    }
-    if (allowEarlierFallback) {
-      for (let i = preferredStartIndex - 1; i >= 0; i--) {
-        if (dayLoadUnits[i] + units <= dailyCap) {
-          dayLoadUnits[i] += units;
-          return i;
-        }
-      }
-    }
-    return -1;
-  }
-
-  // 1) Prefer placing missed tasks into open capacity first.
-  for (const task of missedTasks) {
-    const idx = placeTask(task, 0, false);
-    if (idx < 0) {
-      return {
-        canRebalance: false,
-        reason: "Unable to place missed tasks into available future capacity.",
-        recommendedAction: actionForImpossible(goal),
-        proposedSchedule: [],
-        changes: [],
-        warnings,
-      };
-    }
-    assigned.set(task.id, idx);
-  }
-
-  // 2) Place only necessary future tasks; avoid earlier moves unless unavoidable.
-  for (const task of pendingFuture) {
-    const due = parseDateOrNull(task.dueDate);
-    const preferredKey = due ? dayKey(due) : null;
-    const preferredIdx =
-      preferredKey != null && dayIndexByKey.has(preferredKey)
-        ? dayIndexByKey.get(preferredKey)
-        : 0;
-
-    let idx = placeTask(task, preferredIdx, false);
-    if (idx < 0) {
-      // Absolutely necessary fallback to earlier movement.
-      idx = placeTask(task, preferredIdx, true);
-      if (idx >= 0) {
-        warnings.push(
-          `Task ${task.id || "(unknown)"} was moved earlier because later capacity was exhausted.`
-        );
-      }
-    }
-
-    if (idx < 0) {
-      return {
-        canRebalance: false,
-        reason: "Unable to fit remaining tasks into available days with current constraints.",
-        recommendedAction: actionForImpossible(goal),
-        proposedSchedule: [],
-        changes: [],
-        warnings,
-      };
-    }
-    assigned.set(task.id, idx);
-  }
+  const assigned = placement.assigned;
 
   const proposedSchedule = [];
   const changes = [];
-  for (const task of [...missedTasks, ...futureTasks]) {
+  for (const task of orderedCandidates) {
     const idx = assigned.get(task.id);
     if (idx == null) continue;
     const newDueDate = eligibleDates[idx].toISOString();
@@ -289,13 +293,16 @@ function recommendRebalance({
 
     if (oldDueIso !== newDueDate) {
       const missed = oldDue && startOfDay(oldDue).getTime() < nowDay.getTime();
+      const contentStart = taskContentStart(task);
       changes.push({
         taskId: task.id,
         from: oldDueIso,
         to: newDueDate,
+        unitStart: Number.isInteger(task.unitStart) ? task.unitStart : null,
+        unitEnd: Number.isInteger(task.unitEnd) ? task.unitEnd : null,
         reason: missed
-          ? "Rescheduled missed task into next available day."
-          : "Redistributed future incomplete workload for balance.",
+          ? `Rescheduled missed section (unit ${contentStart}) while keeping learning order.`
+          : "Shifted to keep section order and daily capacity within the deadline.",
       });
     }
   }
@@ -306,15 +313,18 @@ function recommendRebalance({
   return {
     canRebalance,
     reason: canRebalance
-      ? "A feasible rebalance schedule is available within the current deadline."
+      ? "A feasible rebalance is available that keeps earlier sections before later ones."
       : "No task date changes are needed after evaluating current incomplete work.",
     recommendedAction,
     proposedSchedule,
     changes,
     warnings,
+    contentOrderPreserved: true,
   };
 }
 
 module.exports = {
   recommendRebalance,
+  compareTasks,
+  assignContentOrderedSchedule,
 };
