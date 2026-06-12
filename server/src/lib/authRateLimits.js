@@ -113,28 +113,21 @@ function createAuthRateLimiters() {
     });
   }
 
-  const loginMax = parsePositiveInt(process.env.LOGIN_RATE_LIMIT_MAX, 100);
   const registerMax = parsePositiveInt(process.env.REGISTER_RATE_LIMIT_MAX, 50);
   const forgotMax = parsePositiveInt(process.env.FORGOT_PASSWORD_RATE_LIMIT_MAX, 20);
   const authMax = parsePositiveInt(process.env.AUTH_RATE_LIMIT_MAX, 30);
   const refreshMax = parsePositiveInt(process.env.AUTH_REFRESH_RATE_LIMIT_MAX, 120);
 
-  const loginSuccess = (_req, res) => res.statusCode === 200;
-
-  const login = buildLimiter({
-    windowMs: 15 * 60 * 1000,
-    max: loginMax,
-    skip: (req) => !emailKey("login", req),
-    keyGenerator: (req) => emailKey("login", req),
-    message:
-      "Too many sign-in attempts for this account. Please wait a few minutes and try again.",
-    requestWasSuccessful: loginSuccess,
-  });
+  // Login uses loginFailureLimiter.js (handler-level, failures only) — not express-rate-limit.
+  const login = noop;
 
   if (process.env.NODE_ENV === "production") {
-    console.info(
-      `[auth] Login rate limit: email-scoped only (no shared IP bucket), max=${loginMax} failed attempts / 15 min per email`
-    );
+    const loginCfg = require("./loginFailureLimiter").getLoginFailureLimiterConfig();
+    if (!loginCfg.disabled) {
+      console.info(
+        `[auth] Login failure limit: per-email, max=${loginCfg.max} failed passwords / 15 min (successful login clears counter)`
+      );
+    }
   }
 
   const register = buildLimiter({

@@ -236,6 +236,7 @@ async function seedUser({ id, email, password, name = "Test User" }) {
 }
 
 const { resetAuthRateLimiters } = require("../../src/lib/authRateLimits");
+const { resetLoginFailureLimiter } = require("../../src/lib/loginFailureLimiter");
 
 describe("Security-critical integration flows", () => {
   let app;
@@ -243,6 +244,7 @@ describe("Security-critical integration flows", () => {
   beforeEach(() => {
     resetDb();
     resetAuthRateLimiters();
+    resetLoginFailureLimiter();
     process.env.JWT_SECRET = "test-jwt-secret";
     process.env.JWT_ACCESS_EXPIRES_IN = "1s";
     process.env.AUTH_RATE_LIMIT_MAX = "4";
@@ -420,16 +422,15 @@ describe("Security-critical integration flows", () => {
         password: "ValidPass123!",
       });
 
-      const attempts = [];
+      const results = [];
       for (let i = 0; i < 6; i += 1) {
-        attempts.push(
-          request(app).post("/auth/login").send({
+        results.push(
+          await request(app).post("/auth/login").send({
             email: "alice@example.com",
             password: "WrongPassword",
           })
         );
       }
-      const results = await Promise.all(attempts);
       expect(results.some((r) => r.status === 429)).toBe(true);
     });
 
