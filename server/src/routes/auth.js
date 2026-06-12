@@ -30,7 +30,17 @@ const {
   verifyEmailBodySchema,
 } = require("../validation/schemas");
 
-const router = express.Router();
+function createAuthRouter(limiters) {
+  const router = express.Router();
+  const limits = limiters || {
+    login: (_req, _res, next) => next(),
+    register: (_req, _res, next) => next(),
+    forgotPassword: (_req, _res, next) => next(),
+    resetPassword: (_req, _res, next) => next(),
+    verifyEmail: (_req, _res, next) => next(),
+    resendVerification: (_req, _res, next) => next(),
+    refresh: (_req, _res, next) => next(),
+  };
 
 const genericForgotPasswordMessage = {
   message:
@@ -66,7 +76,11 @@ function requireJwtSecret(res) {
 }
 
 // POST /auth/register
-router.post("/register", validateBody(registerBodySchema), async (req, res) => {
+router.post(
+  "/register",
+  validateBody(registerBodySchema),
+  limits.register,
+  async (req, res) => {
   try {
     const { email, password, name } = req.body;
 
@@ -111,10 +125,15 @@ router.post("/register", validateBody(registerBodySchema), async (req, res) => {
     console.error("Register error:", err);
     return res.status(500).json({ error: prismaErrorMessage(err) });
   }
-});
+  }
+);
 
 // POST /auth/login
-router.post("/login", validateBody(loginBodySchema), async (req, res) => {
+router.post(
+  "/login",
+  validateBody(loginBodySchema),
+  limits.login,
+  async (req, res) => {
   try {
     if (!requireJwtSecret(res)) return;
 
@@ -170,10 +189,11 @@ router.post("/login", validateBody(loginBodySchema), async (req, res) => {
     console.error("Login error:", err);
     return res.status(500).json({ error: prismaErrorMessage(err) });
   }
-});
+  }
+);
 
 // POST /auth/refresh — rotate refresh token; no access JWT required
-router.post("/refresh", async (req, res) => {
+router.post("/refresh", limits.refresh, async (req, res) => {
   try {
     if (!requireJwtSecret(res)) return;
 
@@ -211,6 +231,7 @@ router.get("/ping", (req, res) => {
 router.post(
   "/forgot-password",
   validateBody(forgotPasswordBodySchema),
+  limits.forgotPassword,
   async (req, res) => {
     try {
       const { email } = req.body;
@@ -249,6 +270,7 @@ router.post(
 router.post(
   "/reset-password",
   validateBody(resetPasswordBodySchema),
+  limits.resetPassword,
   async (req, res) => {
     try {
       const { token, newPassword } = req.body;
@@ -299,6 +321,7 @@ router.post(
 router.post(
   "/verify-email",
   validateBody(verifyEmailBodySchema),
+  limits.verifyEmail,
   async (req, res) => {
     try {
       const { token } = req.body;
@@ -346,7 +369,11 @@ router.post(
 );
 
 // POST /auth/resend-verification-email — must be logged in
-router.post("/resend-verification-email", authMiddleware, async (req, res) => {
+router.post(
+  "/resend-verification-email",
+  authMiddleware,
+  limits.resendVerification,
+  async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
@@ -368,6 +395,10 @@ router.post("/resend-verification-email", authMiddleware, async (req, res) => {
     console.error("Resend verification error:", err);
     return res.status(500).json({ error: prismaErrorMessage(err) });
   }
-});
+  }
+);
 
-module.exports = router;
+  return router;
+}
+
+module.exports = createAuthRouter;

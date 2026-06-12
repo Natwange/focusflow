@@ -24,8 +24,11 @@ function backendBase(): string | null {
 function resolveClientIp(req: NextRequest): string | null {
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
-    const first = xff.split(",")[0]?.trim();
-    if (first) return first;
+    const parts = xff.split(",").map((p) => p.trim()).filter(Boolean);
+    // Use the left-most public-looking IP (original client behind proxies).
+    for (const part of parts) {
+      if (part && part !== "unknown") return part;
+    }
   }
 
   const candidates = [
@@ -33,11 +36,20 @@ function resolveClientIp(req: NextRequest): string | null {
     req.headers.get("cf-connecting-ip"),
     req.headers.get("true-client-ip"),
     req.headers.get("x-vercel-forwarded-for"),
+    req.headers.get("fly-client-ip"),
+    req.headers.get("x-client-ip"),
   ];
 
   for (const value of candidates) {
     const trimmed = value?.trim();
-    if (trimmed) return trimmed;
+    if (trimmed && trimmed !== "unknown") return trimmed;
+  }
+
+  const forwarded = req.headers.get("forwarded");
+  if (forwarded) {
+    const match = forwarded.match(/for=(?:"\[?([^"\];,\s]+)\]?"|([^";,\s]+))/i);
+    const ip = match?.[1] || match?.[2];
+    if (ip?.trim()) return ip.trim();
   }
 
   return null;
@@ -91,9 +103,10 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
   const cookie = req.headers.get("cookie");
   if (cookie) headers.set("cookie", cookie);
 
-  // Always forward a client IP so the API rate-limiter keys per user, not per BFF host.
+  // Forward the real browser IP so API rate limits never collapse to the BFF host.
   const clientIp = resolveClientIp(req);
   if (clientIp) {
+    headers.set("x-focusflow-client-ip", clientIp);
     headers.set("x-forwarded-for", clientIp);
     headers.set("x-real-ip", clientIp);
   }

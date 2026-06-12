@@ -169,6 +169,14 @@ const toolArgSchemas = {
   get_agent_suggestions: z.object({
     limit: z.coerce.number().int().min(1).max(10).optional(),
   }),
+
+  evaluate_agent_outcomes: z.object({
+    lookbackDays: z.coerce.number().int().min(7).max(366).optional(),
+  }),
+
+  get_agent_strategy_memory: z.object({
+    lookbackDays: z.coerce.number().int().min(7).max(366).optional(),
+  }),
 };
 
 /** V1 tool names exposed to the future LLM layer. */
@@ -190,6 +198,8 @@ const V1_TOOL_NAMES = Object.freeze([
   "preview_goal_adjustment",
   "apply_goal_adjustment",
   "get_agent_suggestions",
+  "evaluate_agent_outcomes",
+  "get_agent_strategy_memory",
 ]);
 
 const TOOL_CATALOG = {
@@ -271,6 +281,16 @@ const TOOL_CATALOG = {
   get_agent_suggestions: {
     description:
       "Read-only proactive suggestions from the user's tasks, goals, focus history, and behavior signals. Use when the user asks what to work on, how they are doing, or if anything needs attention.",
+    readOnly: true,
+  },
+  evaluate_agent_outcomes: {
+    description:
+      "Evaluate whether past accepted agent recommendations improved completion and missed-task metrics. Use when the user asks if suggestions or rebalances helped.",
+    readOnly: false,
+  },
+  get_agent_strategy_memory: {
+    description:
+      "Read-only aggregate of past accepted strategy outcomes (rebalance, extend_deadline, reduce_scope, keep_plan). Use to inform recommendations — never claim learning without hasEnoughData.",
     readOnly: true,
   },
 };
@@ -640,6 +660,44 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
             minimum: 1,
             maximum: 10,
             description: "Max suggestions to return (default 3)",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "evaluate_agent_outcomes",
+      description: TOOL_CATALOG.evaluate_agent_outcomes.description,
+      parameters: {
+        type: "object",
+        properties: {
+          lookbackDays: {
+            type: "integer",
+            minimum: 7,
+            maximum: 366,
+            description: "How far back to check accepted agent runs (default 30)",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_agent_strategy_memory",
+      description: TOOL_CATALOG.get_agent_strategy_memory.description,
+      parameters: {
+        type: "object",
+        properties: {
+          lookbackDays: {
+            type: "integer",
+            minimum: 7,
+            maximum: 366,
+            description: "Lookback window for strategy stats (default 90)",
           },
         },
         additionalProperties: false,

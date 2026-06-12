@@ -3,7 +3,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const bcrypt = require("bcrypt");
-const { createAuthRateLimiters } = require("./lib/authRateLimits");
+const { getAuthRateLimiters } = require("./lib/authRateLimits");
 const authRoutes = require("./routes/auth");
 const prisma = require("./lib/prisma");
 const { prismaErrorMessage } = require("./lib/prismaErrors");
@@ -27,8 +27,6 @@ function createApp() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  const authLimits = createAuthRateLimiters();
-
   if (process.env.TRUST_PROXY === "1" || isProduction) {
     app.set("trust proxy", 1);
   }
@@ -50,15 +48,7 @@ function createApp() {
   app.use(express.json({ limit: "50kb" }));
   app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 
-  app.use("/auth/login", authLimits.login);
-  app.use("/auth/register", authLimits.register);
-  app.use("/auth/forgot-password", authLimits.forgotPassword);
-  app.use("/auth/reset-password", authLimits.resetPassword);
-  app.use("/auth/verify-email", authLimits.verifyEmail);
-  app.use("/auth/resend-verification-email", authLimits.resendVerification);
-  app.use("/auth/refresh", authLimits.refresh);
-
-  app.use("/auth", authRoutes);
+  app.use("/auth", authRoutes(getAuthRateLimiters()));
   app.use("/goals", auth, goalRoutes);
   app.use("/tasks", auth, taskRoutes);
   app.use("/analytics", auth, analyticsRoutes);

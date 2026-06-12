@@ -90,7 +90,10 @@ async function apiOnce(
 
     if (res.status === 429 && message === "Request failed: 429") {
       const base = requestBasePath(path);
-      if (base === "/auth/register") {
+      if (base === "/auth/login") {
+        message =
+          "Too many sign-in attempts for this account. Please wait a few minutes and try again.";
+      } else if (base === "/auth/register") {
         message =
           "Too many sign-up attempts. Please wait a few minutes and try again.";
       } else if (base === "/auth/forgot-password") {

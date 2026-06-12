@@ -14,6 +14,8 @@ const {
   applyGoalAdjustmentForUser,
 } = require("../lib/goalAdjustmentQueries");
 const { getAgentSuggestionsForUser } = require("../lib/agentSuggestionEngine");
+const { evaluateOutcomesForUser } = require("../lib/agentOutcomeEvaluator");
+const { getAgentStrategyStatsForUser } = require("../lib/agentStrategyStats");
 const { parseGoalDeadline } = require("../lib/goalDeadlineParser");
 const { resolveTask } = require("../lib/taskResolver");
 const {
@@ -620,6 +622,74 @@ async function runApplyGoalAdjustment(userId, ctx, args) {
   }
 }
 
+async function runEvaluateAgentOutcomes(userId, args) {
+  const lookbackDays = args.lookbackDays ?? 30;
+  const summary = await evaluateOutcomesForUser(userId, { lookbackDays });
+
+  const parts = [];
+  if (summary.evaluatedCount > 0) {
+    parts.push(
+      `Evaluated ${summary.evaluatedCount} accepted recommendation${summary.evaluatedCount === 1 ? "" : "s"}`
+    );
+    if (summary.improvedCount > 0) {
+      parts.push(`${summary.improvedCount} improved`);
+    }
+    if (summary.neutralCount > 0) {
+      parts.push(`${summary.neutralCount} neutral`);
+    }
+    if (summary.worsenedCount > 0) {
+      parts.push(`${summary.worsenedCount} worsened`);
+    }
+  }
+  if (summary.insufficientDataCount > 0 && summary.evaluatedCount === 0) {
+    parts.push(
+      `${summary.insufficientDataCount} run${summary.insufficientDataCount === 1 ? "" : "s"} need more time or data before outcomes can be scored`
+    );
+  } else if (summary.pendingCount > 0) {
+    parts.push(
+      `${summary.pendingCount} still waiting for enough time since acceptance`
+    );
+  }
+  if (parts.length === 0) {
+    parts.push("No accepted agent runs are pending outcome evaluation.");
+  }
+
+  const { results, pendingCount, ...counts } = summary;
+  return success({
+    data: { ...counts, results },
+    summary: parts.join("; ") + ".",
+  });
+}
+
+async function runGetAgentStrategyMemory(userId, args) {
+  const lookbackDays = args.lookbackDays ?? 90;
+  const payload = await getAgentStrategyStatsForUser(userId, { lookbackDays });
+
+  if (!payload.hasEnoughData) {
+    return success({
+      data: payload,
+      summary:
+        "I do not have enough outcome history yet to say which strategies have worked best for you.",
+    });
+  }
+
+  const highlights = payload.strategyStats
+    .filter((row) => row.evaluatedOutcomes > 0 && row.successRate != null)
+    .sort((a, b) => (b.successRate ?? 0) - (a.successRate ?? 0))
+    .slice(0, 2)
+    .map((row) => {
+      const pct = Math.round((row.successRate ?? 0) * 100);
+      return `${row.strategy} (${pct}% improved, n=${row.evaluatedOutcomes})`;
+    });
+
+  const summary =
+    highlights.length > 0
+      ? `Strategy memory from ${payload.evaluatedAcceptedCount} evaluated outcomes: ${highlights.join("; ")}.`
+      : "Some outcome history exists, but no strategy has enough evaluated results yet.";
+
+  return success({ data: payload, summary });
+}
+
 async function runGetAgentSuggestions(userId, ctx, args) {
   const limit = args.limit ?? 3;
   const payload = await getAgentSuggestionsForUser(userId, {
@@ -741,6 +811,10 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runApplyGoalAdjustment(ctx.userId, ctx, parsed.args);
       case "get_agent_suggestions":
         return await runGetAgentSuggestions(ctx.userId, ctx, parsed.args);
+      case "evaluate_agent_outcomes":
+        return await runEvaluateAgentOutcomes(ctx.userId, parsed.args);
+      case "get_agent_strategy_memory":
+        return await runGetAgentStrategyMemory(ctx.userId, parsed.args);
       default:
         return failure(`Unknown tool: ${toolName}`, {
           summary: `Tool "${toolName}" is not available.`,

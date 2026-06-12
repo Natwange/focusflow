@@ -81,6 +81,7 @@ export default function LoginPage() {
   // Handles the "Log in" button click / form submit
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault(); // stop the browser from doing a full page reload
+    if (loading) return; // never fire duplicate login requests (avoids false rate limits)
     setErr(null); // clear any old error before trying again
 
     // Quick front-end validation so we don't hit the server with obviously bad input

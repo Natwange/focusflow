@@ -7,6 +7,11 @@ function parsePositiveInt(value, fallback) {
 }
 
 function clientIpKey(req) {
+  const bffClient = req.headers["x-focusflow-client-ip"];
+  if (typeof bffClient === "string" && bffClient.trim()) {
+    return ipKeyGenerator({ ...req, ip: bffClient.trim() });
+  }
+
   const xff = req.headers["x-forwarded-for"];
   if (typeof xff === "string" && xff.trim()) {
     return ipKeyGenerator({ ...req, ip: xff.split(",")[0].trim() });
@@ -14,6 +19,10 @@ function clientIpKey(req) {
   const realIp = req.headers["x-real-ip"];
   if (typeof realIp === "string" && realIp.trim()) {
     return ipKeyGenerator({ ...req, ip: realIp.trim() });
+  }
+  const cfIp = req.headers["cf-connecting-ip"];
+  if (typeof cfIp === "string" && cfIp.trim()) {
+    return ipKeyGenerator({ ...req, ip: cfIp.trim() });
   }
   return ipKeyGenerator(req);
 }
@@ -26,19 +35,46 @@ function emailKey(prefix, req) {
   return null;
 }
 
+function accountEmailKey(prefix, req) {
+  const fromBody = emailKey(prefix, req);
+  if (fromBody) return fromBody;
+  const sessionEmail = req.user?.email;
+  if (typeof sessionEmail === "string" && sessionEmail.trim()) {
+    return `${prefix}:email:${sessionEmail.trim().toLowerCase().slice(0, 200)}`;
+  }
+  return null;
+}
+
 const noop = (_req, _res, next) => next();
+
+let cachedLimiters = null;
+
+function warnLegacyRateLimitEnv() {
+  const legacy = process.env.AUTH_RATE_LIMIT_MAX;
+  if (legacy == null || legacy === "") return;
+  const n = Number(legacy);
+  if (Number.isFinite(n) && n <= 15) {
+    console.warn(
+      "[auth] AUTH_RATE_LIMIT_MAX is very low (" +
+        legacy +
+        "). It only limits reset/verify routes — not login. " +
+        "Remove it from production if login feels blocked; use LOGIN_RATE_LIMIT_MAX instead."
+    );
+  }
+}
 
 /**
  * Build auth rate limiters.
  *
- * Design goals (production / BFF / shared hosting safe):
- * - Login, register, forgot-password each have their OWN limiter + store.
- * - Keys are email-first so unrelated users never share a bucket.
- * - Successful auth never consumes quota (skipSuccessfulRequests).
- * - Refresh is skipped when no refresh cookie (landing-page /me probes).
- * - Set *_RATE_LIMIT_MAX=0 to disable a specific limiter.
+ * Production / BFF rules:
+ * - Login, register, forgot-password use EMAIL-ONLY keys (never a shared IP bucket).
+ * - Limiters run on each auth route AFTER body validation so keys are reliable.
+ * - Successful login/register never consumes quota.
+ * - Refresh is skipped when no refresh cookie.
  */
 function createAuthRateLimiters() {
+  warnLegacyRateLimitEnv();
+
   if (process.env.DISABLE_AUTH_RATE_LIMIT === "1") {
     return {
       login: noop,
@@ -55,17 +91,15 @@ function createAuthRateLimiters() {
     standardHeaders: true,
     legacyHeaders: false,
     validate: { trustProxy: false, keyGeneratorIpFallback: false },
-    skipSuccessfulRequests: true,
   };
 
   function buildLimiter({
-    name,
     windowMs,
     max,
     keyGenerator,
     message,
     skip,
-    skipSuccessfulRequests = true,
+    requestWasSuccessful,
   }) {
     if (max === 0) return noop;
     return rateLimit({
@@ -75,7 +109,7 @@ function createAuthRateLimiters() {
       keyGenerator,
       message: { error: message },
       skip,
-      skipSuccessfulRequests,
+      requestWasSuccessful,
     });
   }
 
@@ -85,64 +119,71 @@ function createAuthRateLimiters() {
   const authMax = parsePositiveInt(process.env.AUTH_RATE_LIMIT_MAX, 30);
   const refreshMax = parsePositiveInt(process.env.AUTH_REFRESH_RATE_LIMIT_MAX, 120);
 
+  const loginSuccess = (_req, res) => res.statusCode === 200;
+
   const login = buildLimiter({
-    name: "login",
     windowMs: 15 * 60 * 1000,
     max: loginMax,
-    keyGenerator: (req) =>
-      emailKey("login", req) ?? `login:ip:${clientIpKey(req)}`,
+    skip: (req) => !emailKey("login", req),
+    keyGenerator: (req) => emailKey("login", req),
     message:
       "Too many sign-in attempts for this account. Please wait a few minutes and try again.",
+    requestWasSuccessful: loginSuccess,
   });
 
+  if (process.env.NODE_ENV === "production") {
+    console.info(
+      `[auth] Login rate limit: email-scoped only (no shared IP bucket), max=${loginMax} failed attempts / 15 min per email`
+    );
+  }
+
   const register = buildLimiter({
-    name: "register",
     windowMs: 60 * 60 * 1000,
     max: registerMax,
-    keyGenerator: (req) =>
-      emailKey("register", req) ?? `register:ip:${clientIpKey(req)}`,
+    skip: (req) => !emailKey("register", req),
+    keyGenerator: (req) => emailKey("register", req),
     message:
       "Too many sign-up attempts for this email. Please wait and try again.",
+    requestWasSuccessful: (_req, res) => res.statusCode === 201,
   });
 
   const forgotPassword = buildLimiter({
-    name: "forgot-password",
     windowMs: 60 * 60 * 1000,
     max: forgotMax,
-    keyGenerator: (req) =>
-      emailKey("forgot", req) ?? `forgot:ip:${clientIpKey(req)}`,
+    skip: (req) => !emailKey("forgot", req),
+    keyGenerator: (req) => emailKey("forgot", req),
     message:
       "Too many password reset requests for this email. Please wait and try again.",
+    requestWasSuccessful: (_req, res) => res.statusCode === 200,
   });
 
   const resetPassword = buildLimiter({
-    name: "reset-password",
     windowMs: 60 * 1000,
     max: authMax,
     keyGenerator: (req) => `reset:ip:${clientIpKey(req)}`,
     message: "Too many reset attempts. Please try again shortly.",
+    requestWasSuccessful: (_req, res) => res.statusCode === 200,
   });
 
   const verifyEmail = buildLimiter({
-    name: "verify-email",
     windowMs: 60 * 1000,
     max: authMax,
     keyGenerator: (req) => `verify:ip:${clientIpKey(req)}`,
     message: "Too many verification attempts. Please try again shortly.",
+    requestWasSuccessful: (_req, res) => res.statusCode === 200,
   });
 
   const resendVerification = buildLimiter({
-    name: "resend-verification",
     windowMs: 60 * 60 * 1000,
     max: forgotMax,
-    keyGenerator: (req) =>
-      emailKey("resend", req) ?? `resend:ip:${clientIpKey(req)}`,
+    skip: (req) => !accountEmailKey("resend", req),
+    keyGenerator: (req) => accountEmailKey("resend", req),
     message:
       "Too many verification emails requested. Please wait and try again.",
+    requestWasSuccessful: (_req, res) => res.statusCode === 200,
   });
 
   const refresh = buildLimiter({
-    name: "refresh",
     windowMs: 60 * 1000,
     max: refreshMax,
     keyGenerator: (req) => {
@@ -154,7 +195,7 @@ function createAuthRateLimiters() {
     },
     skip: (req) => !req.cookies?.refresh_token,
     message: "Too many session refresh requests. Please try again shortly.",
-    skipSuccessfulRequests: false,
+    requestWasSuccessful: (_req, res) => res.statusCode === 200,
   });
 
   return {
@@ -168,8 +209,23 @@ function createAuthRateLimiters() {
   };
 }
 
+function getAuthRateLimiters() {
+  if (!cachedLimiters) {
+    cachedLimiters = createAuthRateLimiters();
+  }
+  return cachedLimiters;
+}
+
+/** Test-only: express-rate-limit stores are tied to limiter instances. */
+function resetAuthRateLimiters() {
+  cachedLimiters = null;
+}
+
 module.exports = {
   createAuthRateLimiters,
+  getAuthRateLimiters,
+  resetAuthRateLimiters,
   clientIpKey,
   emailKey,
+  accountEmailKey,
 };

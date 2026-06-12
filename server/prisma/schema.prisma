@@ -113,6 +113,16 @@ model AgentRun {
   acceptedByUser   Boolean  @default(false)
   createdAt        DateTime @default(now())
 
+  /// Outcome learning — compared after enough time has passed since acceptance.
+  outcomeCheckedAt      DateTime?
+  completionRateBefore  Float?
+  completionRateAfter   Float?
+  missedTasksBefore     Int?
+  missedTasksAfter      Int?
+  effectivenessScore    Float?
+  /// not_checked | improved | neutral | worsened | insufficient_data
+  outcomeStatus         String?
+
   goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
   @@index([goalId, userId])

@@ -235,11 +235,14 @@ async function seedUser({ id, email, password, name = "Test User" }) {
   return user;
 }
 
+const { resetAuthRateLimiters } = require("../../src/lib/authRateLimits");
+
 describe("Security-critical integration flows", () => {
   let app;
 
   beforeEach(() => {
     resetDb();
+    resetAuthRateLimiters();
     process.env.JWT_SECRET = "test-jwt-secret";
     process.env.JWT_ACCESS_EXPIRES_IN = "1s";
     process.env.AUTH_RATE_LIMIT_MAX = "4";
@@ -444,6 +447,39 @@ describe("Security-critical integration flows", () => {
         name: "New User",
       });
       expect(registerRes.status).toBe(201);
+    });
+
+    test("login rate limit is scoped per email even when IP is identical", async () => {
+      await seedUser({
+        id: "user_1",
+        email: "alice@example.com",
+        password: "ValidPass123!",
+      });
+      await seedUser({
+        id: "user_2",
+        email: "bob@example.com",
+        password: "ValidPass123!",
+      });
+
+      const sharedIp = "203.0.113.50";
+      for (let i = 0; i < 5; i += 1) {
+        await request(app)
+          .post("/auth/login")
+          .set("X-Forwarded-For", sharedIp)
+          .send({
+            email: "alice@example.com",
+            password: "WrongPassword",
+          });
+      }
+
+      const bobLogin = await request(app)
+        .post("/auth/login")
+        .set("X-Forwarded-For", sharedIp)
+        .send({
+          email: "bob@example.com",
+          password: "ValidPass123!",
+        });
+      expect(bobLogin.status).toBe(200);
     });
 
     test("login rate limit is scoped per email, not shared across users", async () => {

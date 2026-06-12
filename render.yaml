@@ -5,7 +5,8 @@
 #   DATABASE_URL, JWT_SECRET, CLIENT_ORIGIN (your live Next.js URL)
 # Split frontend/API hostnames → also set COOKIE_SAME_SITE=none
 # Behind Render proxy → TRUST_PROXY=1
-# Do NOT set AUTH_RATE_LIMIT_MAX=8 on production (blocks all users behind BFF).
+# Login limits are per-email (not shared IP). Safe defaults need no extra env.
+# Remove AUTH_RATE_LIMIT_MAX if set — it only affects reset/verify, but low values confuse debugging.
 # Optional: LOGIN_RATE_LIMIT_MAX=100, REGISTER_RATE_LIMIT_MAX=50
 
 services:

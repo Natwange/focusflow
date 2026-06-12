@@ -4,6 +4,7 @@ const { run: runAgentChat } = require("../agent/chatOrchestrator");
 const { validateBody } = require("../middleware/validateBody");
 const { prismaErrorMessage } = require("../lib/prismaErrors");
 const { getAgentSuggestionsForUser } = require("../lib/agentSuggestionEngine");
+const { evaluateOutcomesForUser } = require("../lib/agentOutcomeEvaluator");
 
 const router = express.Router();
 
@@ -64,6 +65,27 @@ router.get("/suggestions", async (req, res) => {
     });
 
     return res.json(payload);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: prismaErrorMessage(err) });
+  }
+});
+
+/**
+ * POST /agent/outcomes/evaluate — compare before/after metrics on accepted AgentRuns.
+ */
+router.post("/outcomes/evaluate", async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const lookbackDays =
+      req.body?.lookbackDays != null ? Number(req.body.lookbackDays) : 30;
+
+    const summary = await evaluateOutcomesForUser(userId, {
+      lookbackDays: Number.isFinite(lookbackDays) ? lookbackDays : 30,
+    });
+
+    const { results, pendingCount, ...counts } = summary;
+    return res.json(counts);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: prismaErrorMessage(err) });
