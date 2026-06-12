@@ -2,6 +2,10 @@ const prisma = require("./prisma");
 const { startOfDay } = require("./buildPlan");
 const { evaluateGoalProgress } = require("./evaluationEngine");
 const { runGoalAgent } = require("./goalAgentOrchestrator");
+const {
+  loadAdaptiveRankingInputs,
+  buildAdaptiveRanking,
+} = require("./adaptiveRecommendationContext");
 
 const GOAL_AGENT_SELECT = {
   id: true,
@@ -159,15 +163,26 @@ async function listGoalsForUser(userId, { status = "active" } = {}) {
 async function getGoalAgentPreviewForUser(
   userId,
   goalId,
-  { logRun = true, source = "chat" } = {}
+  { logRun = true, source = "chat", tzOffsetMinutes = 0 } = {}
 ) {
+  const now = new Date();
   const goal = await requireOwnedGoal(userId, goalId);
   const tasks = await loadGoalTasks(userId, goalId);
 
   const result = runGoalAgent({
     goal,
     tasks,
-    now: new Date(),
+    now,
+  });
+
+  const { strategyStats, behavior } = await loadAdaptiveRankingInputs(userId, {
+    tzOffsetMinutes,
+    now,
+  });
+  const adaptiveRanking = buildAdaptiveRanking({
+    agentResult: result,
+    strategyStats,
+    behavior,
   });
 
   if (logRun) {
@@ -191,6 +206,7 @@ async function getGoalAgentPreviewForUser(
   return {
     ...result,
     goalTitle: goal.title,
+    adaptiveRanking,
   };
 }
 
@@ -294,4 +310,5 @@ module.exports = {
   getGoalAgentPreviewForUser,
   applyGoalRebalanceForUser,
   requireOwnedGoal,
+  loadGoalTasks,
 };

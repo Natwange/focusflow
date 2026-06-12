@@ -181,6 +181,7 @@ describe("agent tools.js", () => {
     expect(V1_TOOL_NAMES).toContain("get_agent_suggestions");
     expect(V1_TOOL_NAMES).toContain("evaluate_agent_outcomes");
     expect(V1_TOOL_NAMES).toContain("get_agent_strategy_memory");
+    expect(V1_TOOL_NAMES).toContain("get_adaptive_recommendation");
   });
 
   it("rejects invalid create_task args", () => {
@@ -609,7 +610,7 @@ describe("agent toolExecutor", () => {
         id: "t_mine",
         userId: "user_1",
         status: "todo",
-        dueDate: new Date("2026-06-10T12:00:00.000Z"),
+        dueDate: new Date("2099-06-10T12:00:00.000Z"),
         goalId: null,
         title: "On time",
       }
@@ -646,5 +647,35 @@ describe("agent toolExecutor", () => {
     expect(tool.ok).toBe(true);
     expect(tool.data).toEqual(endpoint);
     expect(tool.data.suggestions[0].type).toBe("overdue_tasks");
+  });
+
+  it("get_adaptive_recommendation is user-scoped", async () => {
+    const db = mockGetTestDb();
+    db.goals.set("goal_other", {
+      id: "goal_other",
+      userId: "user_2",
+      title: "Other Goal",
+      totalUnits: 5,
+      unitName: "units",
+      deadline: new Date("2026-08-01T00:00:00.000Z"),
+      availableDays: ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
+      maxUnitsPerDay: 2,
+      createdAt: new Date(),
+    });
+
+    const result = await executeTool(ctx, "get_adaptive_recommendation", {
+      goalId: "goal_other",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.summary).toMatch(/not found|belong/i);
+  });
+
+  it("get_adaptive_recommendation reports low-data wording safely", async () => {
+    const result = await executeTool(ctx, "get_adaptive_recommendation", {
+      goalId: "goal_1",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data.adaptiveRanking.adaptationUsed).toBe(false);
+    expect(result.summary).toMatch(/outcome history yet/i);
   });
 });

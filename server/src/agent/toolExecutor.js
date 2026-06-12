@@ -16,6 +16,7 @@ const {
 const { getAgentSuggestionsForUser } = require("../lib/agentSuggestionEngine");
 const { evaluateOutcomesForUser } = require("../lib/agentOutcomeEvaluator");
 const { getAgentStrategyStatsForUser } = require("../lib/agentStrategyStats");
+const { getAdaptiveRecommendationForUser } = require("../lib/adaptiveRecommendationContext");
 const { parseGoalDeadline } = require("../lib/goalDeadlineParser");
 const { resolveTask } = require("../lib/taskResolver");
 const {
@@ -400,7 +401,7 @@ async function runListGoals(userId, args) {
   });
 }
 
-async function runGetGoalAgentPreview(userId, args) {
+async function runGetGoalAgentPreview(userId, args, ctx = {}) {
   const lookup = normalizeGoalLookupArgs(args);
   const resolved = await resolveGoal(userId, lookup);
   if (!resolved.ok) return goalLookupFailure(resolved);
@@ -408,6 +409,7 @@ async function runGetGoalAgentPreview(userId, args) {
   const preview = await getGoalAgentPreviewForUser(userId, resolved.goal.id, {
     logRun: true,
     source: "chat",
+    tzOffsetMinutes: ctx?.tzOffsetMinutes ?? 0,
   });
 
   const rec = preview.rebalanceRecommendation;
@@ -429,14 +431,22 @@ async function runGetGoalAgentPreview(userId, args) {
       ? ` Matched goal "${resolved.goal.title}" from your description.`
       : "";
 
+  const adaptive = preview.adaptiveRanking;
+  const adaptiveNote =
+    adaptive?.explanation && adaptive.adaptationUsed
+      ? ` ${adaptive.explanation}`
+      : adaptive && !adaptive.adaptationUsed
+        ? " I do not have enough outcome history yet to personalize from past accepted recommendations."
+        : "";
+
   if (rec?.canRebalance && changeCount > 0) {
-    summary = `Rebalance preview for "${preview.goalTitle}": ${changeCount} task date change${changeCount === 1 ? "" : "s"} proposed.${matchNote} Say "yes, apply it" to confirm.`;
+    summary = `Rebalance preview for "${preview.goalTitle}": ${changeCount} task date change${changeCount === 1 ? "" : "s"} proposed.${matchNote}${adaptiveNote} Say "yes, apply it" to confirm.`;
   } else if (action === "extend_deadline" || action === "reduce_scope") {
-    summary = `Rebalance preview for "${preview.goalTitle}": automatic reschedule is not feasible. Suggested next step: ${action.replace(/_/g, " ")}.`;
+    summary = `Rebalance preview for "${preview.goalTitle}": automatic reschedule is not feasible. Suggested next step: ${action.replace(/_/g, " ")}.${adaptiveNote}`;
   } else if (action === "keep_plan") {
-    summary = `Rebalance preview for "${preview.goalTitle}": no schedule changes needed.`;
+    summary = `Rebalance preview for "${preview.goalTitle}": no schedule changes needed.${adaptiveNote}`;
   } else {
-    summary = `Rebalance preview for "${preview.goalTitle}" (next action: ${action}).`;
+    summary = `Rebalance preview for "${preview.goalTitle}" (next action: ${action}).${adaptiveNote}`;
   }
 
   return success({ data, summary });
@@ -690,6 +700,39 @@ async function runGetAgentStrategyMemory(userId, args) {
   return success({ data: payload, summary });
 }
 
+async function runGetAdaptiveRecommendation(userId, ctx, args) {
+  const lookup = normalizeGoalLookupArgs(args);
+  let goalId = lookup.goalId || null;
+
+  if (!goalId && (lookup.goalTitle || args.goalTitle)) {
+    const resolved = await resolveGoal(userId, lookup);
+    if (!resolved.ok) return goalLookupFailure(resolved);
+    goalId = resolved.goal.id;
+  }
+
+  const payload = await getAdaptiveRecommendationForUser(userId, {
+    goalId,
+    tzOffsetMinutes: ctx.tzOffsetMinutes ?? 0,
+    lookbackDays: args.lookbackDays ?? 30,
+  });
+
+  const ranking = payload.adaptiveRanking;
+  const action = ranking?.recommendedAction || "manual_review";
+  const title = payload.goalTitle ? `"${payload.goalTitle}"` : "your goals";
+
+  let summary;
+  if (!payload.goalId) {
+    summary =
+      "No goals found yet. Create a goal first, then I can recommend next steps.";
+  } else if (ranking?.adaptationUsed) {
+    summary = `For ${title}, recommended next step: ${action.replace(/_/g, " ")}. ${ranking.explanation}`;
+  } else {
+    summary = `For ${title}, recommended next step: ${action.replace(/_/g, " ")} based on current goal data. I do not have enough outcome history yet to personalize from past accepted recommendations.`;
+  }
+
+  return success({ data: payload, summary });
+}
+
 async function runGetAgentSuggestions(userId, ctx, args) {
   const limit = args.limit ?? 3;
   const payload = await getAgentSuggestionsForUser(userId, {
@@ -802,7 +845,7 @@ async function executeTool(ctx, toolName, rawArgs) {
       case "list_goals":
         return await runListGoals(ctx.userId, parsed.args);
       case "get_goal_agent_preview":
-        return await runGetGoalAgentPreview(ctx.userId, parsed.args);
+        return await runGetGoalAgentPreview(ctx.userId, parsed.args, ctx);
       case "apply_goal_rebalance":
         return await runApplyGoalRebalance(ctx.userId, parsed.args);
       case "preview_goal_adjustment":
@@ -815,6 +858,8 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runEvaluateAgentOutcomes(ctx.userId, parsed.args);
       case "get_agent_strategy_memory":
         return await runGetAgentStrategyMemory(ctx.userId, parsed.args);
+      case "get_adaptive_recommendation":
+        return await runGetAdaptiveRecommendation(ctx.userId, ctx, parsed.args);
       default:
         return failure(`Unknown tool: ${toolName}`, {
           summary: `Tool "${toolName}" is not available.`,

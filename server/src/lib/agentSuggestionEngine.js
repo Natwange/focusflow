@@ -3,6 +3,8 @@ const { startOfDay } = require("./buildPlan");
 const { runGoalAgent } = require("./goalAgentOrchestrator");
 const { analyzeUserBehavior } = require("./userBehaviorAnalyzer");
 const { loadUserBehaviorData } = require("./userBehaviorContext");
+const { buildAdaptiveRanking } = require("./adaptiveRecommendationContext");
+const { getAgentStrategyStatsForUser } = require("./agentStrategyStats");
 
 const DAY_CODES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const DEFAULT_LIMIT = 3;
@@ -85,12 +87,51 @@ function buildOverdueTasksSuggestion(tasks, now = new Date()) {
   };
 }
 
+const ADAPTIVE_ACTION_TO_SUGGESTION = {
+  rebalance: "preview_rebalance",
+  extend_deadline: "extend_deadline",
+  reduce_scope: "reduce_scope",
+  keep_plan: "keep_plan",
+  lighten_workload: "preview_goal_adjustment",
+  focus_session: "suggest_focus_session",
+  manual_review: "manual_review",
+};
+
+function adaptiveMessageForAction(action, title, { adaptationUsed, ranking }) {
+  const base = {
+    rebalance: `Want me to preview a rebalance for "${title}"?`,
+    extend_deadline: `Consider extending the deadline on "${title}" so remaining work can fit.`,
+    reduce_scope: `You may need to reduce scope on "${title}" or extend the deadline.`,
+    lighten_workload: `A lighter adjustment on "${title}" (fewer units per day or a modest deadline shift) may fit better.`,
+    focus_session: `A focused work block on "${title}" before bigger schedule changes might help.`,
+    keep_plan: `"${title}" is behind, but your current plan may still be workable with steady execution.`,
+    manual_review: `Review "${title}" tasks manually to decide the next step.`,
+  };
+  let message = base[action] || base.manual_review;
+  if (adaptationUsed && action === "rebalance" && ranking?.explanation) {
+    message += ` ${ranking.explanation}`;
+  } else if (
+    adaptationUsed &&
+    (action === "lighten_workload" || action === "extend_deadline") &&
+    ranking?.explanation?.includes("lighter")
+  ) {
+    message += ` ${ranking.explanation}`;
+  }
+  return message;
+}
+
 /**
  * @param {object} goal
  * @param {object} agentResult
  * @param {Date} now
+ * @param {{ strategyStats?: object, behavior?: object }} [opts]
  */
-function buildGoalAgentSuggestions(goal, agentResult, now = new Date()) {
+function buildGoalAgentSuggestions(
+  goal,
+  agentResult,
+  now = new Date(),
+  { strategyStats = null, behavior = null } = {}
+) {
   const out = [];
   const evaluation = agentResult?.evaluation || {};
   const failureModes = agentResult?.failureAnalysis?.failureModes || [];
@@ -98,18 +139,40 @@ function buildGoalAgentSuggestions(goal, agentResult, now = new Date()) {
   const goalId = goal.id;
   const title = goal.title;
 
+  const adaptiveRanking =
+    strategyStats || behavior
+      ? buildAdaptiveRanking({
+          agentResult,
+          strategyStats: strategyStats || { hasEnoughData: false, strategyStats: [] },
+          behavior,
+        })
+      : null;
+
+  const rankedAction = adaptiveRanking?.recommendedAction;
+  const suggestionAction = rankedAction
+    ? ADAPTIVE_ACTION_TO_SUGGESTION[rankedAction] || "manual_review"
+    : null;
+
   if (evaluation.behindSchedule) {
     const status = evaluation.status || "behind";
     const severity =
       status === "at_risk" ? "high" : status === "slightly_behind" ? "medium" : "medium";
     const missed = evaluation.missedTasks || 0;
+    const action =
+      rec.canRebalance === false && rankedAction === "rebalance"
+        ? ADAPTIVE_ACTION_TO_SUGGESTION.extend_deadline
+        : suggestionAction || "preview_rebalance";
+    const message =
+      adaptiveRanking && rankedAction
+        ? `Your "${title}" goal is ${status.replace(/_/g, " ")}${missed > 0 ? ` with ${missed} missed task${missed === 1 ? "" : "s"}` : ""}. ${adaptiveMessageForAction(rankedAction, title, { adaptationUsed: adaptiveRanking.adaptationUsed, ranking: adaptiveRanking })}`
+        : `Your "${title}" goal is ${status.replace(/_/g, " ")}${missed > 0 ? ` with ${missed} missed task${missed === 1 ? "" : "s"}` : ""}. Want me to preview a rebalance?`;
     out.push({
       id: `goal_behind_schedule:${goalId}`,
       type: "goal_behind_schedule",
       severity,
       title: `"${title}" is behind schedule`,
-      message: `Your "${title}" goal is ${status.replace(/_/g, " ")}${missed > 0 ? ` with ${missed} missed task${missed === 1 ? "" : "s"}` : ""}. Want me to preview a rebalance?`,
-      recommendedAction: "preview_rebalance",
+      message,
+      recommendedAction: action,
       relatedGoalId: goalId,
       relatedGoalTitle: title,
       requiresConfirmation: true,
@@ -117,12 +180,17 @@ function buildGoalAgentSuggestions(goal, agentResult, now = new Date()) {
         `behind_schedule:true`,
         `status:${status}`,
         `missed_tasks:${missed}`,
-      ],
+        adaptiveRanking?.adaptationUsed
+          ? `adaptation_used:true`
+          : `adaptation_used:false`,
+        rankedAction ? `adaptive_action:${rankedAction}` : null,
+      ].filter(Boolean),
       _dedupeKey: `goal_behind_schedule:${goalId}`,
       _rankScore:
         SEVERITY_WEIGHT[severity] +
         deadlineUrgencyScore(goal.deadline, now) +
-        missed * 3,
+        missed * 3 +
+        (adaptiveRanking?.adaptationUsed ? 5 : 0),
     });
   }
 
@@ -131,25 +199,30 @@ function buildGoalAgentSuggestions(goal, agentResult, now = new Date()) {
     (rec.recommendedAction === "extend_deadline" ||
       rec.recommendedAction === "reduce_scope")
   ) {
-    const action = rec.recommendedAction;
-    const severity = action === "reduce_scope" ? "high" : "medium";
+    const engineAction = rec.recommendedAction;
+    const adaptiveAction =
+      rankedAction === "rebalance" ? engineAction : rankedAction || engineAction;
+    const action =
+      ADAPTIVE_ACTION_TO_SUGGESTION[adaptiveAction] || engineAction;
+    const severity = engineAction === "reduce_scope" ? "high" : "medium";
     out.push({
       id: `impossible_goal:${goalId}`,
       type: "impossible_goal",
       severity,
       title: `"${title}" deadline looks too tight`,
       message:
-        action === "extend_deadline"
-          ? `Remaining work on "${title}" may not fit before the deadline. Consider extending the deadline or spreading work more evenly.`
-          : `Remaining work on "${title}" may not fit before the deadline. You may need to reduce scope or extend the deadline.`,
-      recommendedAction: action,
+        adaptiveAction === "reduce_scope"
+          ? `Remaining work on "${title}" may not fit before the deadline. You may need to reduce scope or extend the deadline.${adaptiveRanking?.adaptationUsed ? "" : ""}`
+          : `Remaining work on "${title}" may not fit before the deadline. Consider extending the deadline or spreading work more evenly.`,
+      recommendedAction: action === "preview_goal_adjustment" ? "extend_deadline" : action,
       relatedGoalId: goalId,
       relatedGoalTitle: title,
       requiresConfirmation: true,
       sourceSignals: [
         `can_rebalance:false`,
-        `next_action:${action}`,
+        `next_action:${engineAction}`,
         rec.reason ? `reason:${rec.reason}` : null,
+        rankedAction ? `adaptive_action:${rankedAction}` : null,
       ].filter(Boolean),
       _dedupeKey: `impossible_goal:${goalId}`,
       _rankScore:
@@ -159,17 +232,27 @@ function buildGoalAgentSuggestions(goal, agentResult, now = new Date()) {
 
   if (failureModes.includes("overloaded_day")) {
     const severity = "medium";
+    const action =
+      rankedAction === "lighten_workload"
+        ? "preview_goal_adjustment"
+        : suggestionAction || "preview_rebalance";
     out.push({
       id: `overloaded_day:${goalId}`,
       type: "overloaded_day",
       severity,
       title: `Some days are overloaded on "${title}"`,
-      message: `Your "${title}" plan stacks more work than your daily limit on some days. A rebalance preview could spread tasks more evenly.`,
-      recommendedAction: "preview_rebalance",
+      message:
+        action === "preview_goal_adjustment"
+          ? `Your "${title}" plan stacks more work than your daily limit on some days. A lighter adjustment may spread work more evenly.`
+          : `Your "${title}" plan stacks more work than your daily limit on some days. A rebalance preview could spread tasks more evenly.`,
+      recommendedAction: action,
       relatedGoalId: goalId,
       relatedGoalTitle: title,
       requiresConfirmation: true,
-      sourceSignals: ["failure_mode:overloaded_day"],
+      sourceSignals: [
+        "failure_mode:overloaded_day",
+        rankedAction ? `adaptive_action:${rankedAction}` : null,
+      ].filter(Boolean),
       _dedupeKey: `overloaded_day:${goalId}`,
       _rankScore:
         SEVERITY_WEIGHT[severity] + deadlineUrgencyScore(goal.deadline, now) + 8,
@@ -314,6 +397,7 @@ function generateAgentSuggestions({
   goals = [],
   goalAgentResults = [],
   behavior = null,
+  strategyStats = null,
   focusSessions = [],
   now = new Date(),
   limit = DEFAULT_LIMIT,
@@ -331,7 +415,12 @@ function generateAgentSuggestions({
   }
 
   for (const { goal, agentResult } of goalAgentResults) {
-    candidates.push(...buildGoalAgentSuggestions(goal, agentResult, now));
+    candidates.push(
+      ...buildGoalAgentSuggestions(goal, agentResult, now, {
+        strategyStats,
+        behavior,
+      })
+    );
     const mismatch = buildBehaviorMismatchSuggestion(
       goal,
       tasksByGoal.get(goal.id) || [],
@@ -382,7 +471,8 @@ async function getAgentSuggestionsForUser(
 ) {
   const now = new Date();
 
-  const [tasks, goals, behaviorBundle, focusSessions] = await Promise.all([
+  const [tasks, goals, behaviorBundle, focusSessions, strategyStats] =
+    await Promise.all([
     prisma.task.findMany({
       where: { userId },
       select: {
@@ -424,6 +514,7 @@ async function getAgentSuggestionsForUser(
       select: { duration: true, startedAt: true },
       take: 5000,
     }),
+    getAgentStrategyStatsForUser(userId, { now }),
   ]);
 
   const behavior = analyzeUserBehavior({
@@ -449,6 +540,7 @@ async function getAgentSuggestionsForUser(
     goals,
     goalAgentResults,
     behavior,
+    strategyStats,
     focusSessions,
     now,
     limit,

@@ -177,6 +177,12 @@ const toolArgSchemas = {
   get_agent_strategy_memory: z.object({
     lookbackDays: z.coerce.number().int().min(7).max(366).optional(),
   }),
+
+  get_adaptive_recommendation: z.object({
+    goalId: z.string().min(1).optional(),
+    goalTitle: z.string().min(1).optional(),
+    lookbackDays: z.coerce.number().int().min(7).max(366).optional(),
+  }),
 };
 
 /** V1 tool names exposed to the future LLM layer. */
@@ -200,6 +206,7 @@ const V1_TOOL_NAMES = Object.freeze([
   "get_agent_suggestions",
   "evaluate_agent_outcomes",
   "get_agent_strategy_memory",
+  "get_adaptive_recommendation",
 ]);
 
 const TOOL_CATALOG = {
@@ -291,6 +298,11 @@ const TOOL_CATALOG = {
   get_agent_strategy_memory: {
     description:
       "Read-only aggregate of past accepted strategy outcomes (rebalance, extend_deadline, reduce_scope, keep_plan). Use to inform recommendations — never claim learning without hasEnoughData.",
+    readOnly: true,
+  },
+  get_adaptive_recommendation: {
+    description:
+      "Ranked recommendation for what to do next on a goal (or the most urgent goal) using current evaluation, outcome memory, and behavior signals. Use for 'what should I do?', 'how should I fix this?', or 'what do you recommend?'. Never auto-applies changes.",
     readOnly: true,
   },
 };
@@ -698,6 +710,34 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
             minimum: 7,
             maximum: 366,
             description: "Lookback window for strategy stats (default 90)",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_adaptive_recommendation",
+      description: TOOL_CATALOG.get_adaptive_recommendation.description,
+      parameters: {
+        type: "object",
+        properties: {
+          goalId: {
+            type: "string",
+            description: "Goal id from list_goals (optional if goalTitle provided)",
+          },
+          goalTitle: {
+            type: "string",
+            description:
+              "User's words for the goal (e.g. 'javascript', 'human anatomy') — preferred over invented ids",
+          },
+          lookbackDays: {
+            type: "integer",
+            minimum: 7,
+            maximum: 366,
+            description: "Behavior lookback window (default 30)",
           },
         },
         additionalProperties: false,
