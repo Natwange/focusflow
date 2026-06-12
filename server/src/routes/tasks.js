@@ -63,9 +63,9 @@ router.get("/", async (req, res) => {
       const includeOver = String(includeOverdue) === "true";
       if (startDate) where.dueDate.gte = new Date(startDate);
       if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        where.dueDate.lte = end;
+        // Client sends end-of-day as ISO (local day boundary). Do not re-set hours
+        // in server TZ — that widens/narrows the window vs the user's calendar day.
+        where.dueDate.lte = new Date(endDate);
       }
       // If includeOverdue is enabled, ignore the gte filter and only respect lte.
       // This is used to show overdue tasks in the "today" list.

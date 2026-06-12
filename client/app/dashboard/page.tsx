@@ -136,41 +136,31 @@ export default function DashboardPage() {
   };
 
   const todayStart = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
-  const todayEnd = new Date(todayStart);
-  todayEnd.setHours(23, 59, 59, 999);
 
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 
-  const relevantTasks = tasks.filter((t) => {
-    if (!t.dueDate) return false;
-    const dueMs = new Date(t.dueDate).getTime();
-    return dueMs <= todayEnd.getTime();
-  });
+  // `tasks` is already scoped by the API (due today + overdue). Do not re-filter
+  // by local date here — that dropped tasks the list still showed (timezone mismatch).
+  const incompleteTodayAndOverdue = tasks.filter((t) => t.status !== "done");
+  const incompleteTodayAndOverdueCount = incompleteTodayAndOverdue.length;
 
-  const completedTodayCount = relevantTasks.filter((t) => {
-    if (t.status !== "done") return false;
-    if (!t.completedAt) return false;
-    const completedAt = new Date(t.completedAt);
-    return isSameDay(completedAt, todayStart);
+  const completedTodayCount = tasks.filter((t) => {
+    if (t.status !== "done" || !t.completedAt) return false;
+    return isSameDay(new Date(t.completedAt), todayStart);
   }).length;
 
-  const incompleteTodayAndOverdueCount = relevantTasks.filter(
-    (t) => t.status !== "done"
-  ).length;
+  const totalDueTodayCount = completedTodayCount + incompleteTodayAndOverdueCount;
 
   const progressPct =
-    incompleteTodayAndOverdueCount > 0
-      ? (completedTodayCount / incompleteTodayAndOverdueCount) * 100
-      : relevantTasks.length > 0
-        ? 100
-        : 0;
+    totalDueTodayCount > 0
+      ? (completedTodayCount / totalDueTodayCount) * 100
+      : 0;
 
-  const activeTasks = tasks.filter((t) => t.status !== "done");
   const doneCount = completedTodayCount;
-  const totalCount = incompleteTodayAndOverdueCount;
+  const remainingCount = incompleteTodayAndOverdueCount;
 
   return (
     <div className="ff-page flex flex-col">
@@ -287,10 +277,10 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2 text-gray-500 py-4">
                   <Loader2 size={18} className="animate-spin" /> Loading…
                 </div>
-              ) : activeTasks.length === 0 ? (
+              ) : incompleteTodayAndOverdue.length === 0 ? (
                 <p className="text-gray-500 py-4">No tasks for today. Add one from the tasks page.</p>
               ) : (
-                activeTasks.map((t) => (
+                incompleteTodayAndOverdue.map((t) => (
                   <div
                     key={t.id}
                     className="flex items-center gap-3 rounded-xl p-2 -mx-2 hover:bg-gray-50 transition"
@@ -359,7 +349,7 @@ export default function DashboardPage() {
                 />
               </div>
               <p className="text-sm mt-2">
-                {doneCount} completed today / {totalCount} remaining (today + overdue)
+                {doneCount} completed today · {remainingCount} remaining (today + overdue)
               </p>
             </div>
 
@@ -377,9 +367,9 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-xs text-gray-500">
-              {totalCount === 0
-                ? "No incomplete tasks due today (including overdue)."
-                : doneCount === totalCount
+              {totalDueTodayCount === 0
+                ? "No tasks due today (including overdue)."
+                : remainingCount === 0
                   ? "All your tasks for today (including overdue) are completed — great work!"
                   : "Keep going — every completed task builds momentum."}
             </p>
@@ -513,9 +503,9 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-center gap-2 text-gray-500 py-10">
                   <Loader2 size={20} className="animate-spin" /> Loading…
                 </div>
-              ) : tasks.length === 0 ? (
+              ) : incompleteTodayAndOverdue.length === 0 ? (
                 <div className="text-center py-10">
-                  <p className="text-gray-400 text-sm">No tasks for today.</p>
+                  <p className="text-gray-400 text-sm">No incomplete tasks due today.</p>
                   <Link
                     href="/tasks"
                     className="inline-block mt-3 text-sm font-medium text-black underline underline-offset-2 hover:text-gray-700"
@@ -526,7 +516,7 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <ul className="space-y-1">
-                  {activeTasks.map((t) => (
+                  {incompleteTodayAndOverdue.map((t) => (
                     <li key={t.id}>
                       <button
                         type="button"
@@ -577,7 +567,7 @@ export default function DashboardPage() {
             {/* Footer */}
             <div className="px-8 py-4 border-t border-gray-100 flex items-center justify-between">
               <p className="text-xs text-gray-400">
-                {doneCount} completed today / {totalCount} remaining
+                {doneCount} completed today · {remainingCount} remaining
               </p>
               <Link
                 href="/tasks"
