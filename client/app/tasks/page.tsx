@@ -345,6 +345,9 @@ export default function TasksPage() {
   const todayStart = startOfDay(new Date());
   const todayKey = toISODate(todayStart);
   const isViewingToday = toISODate(startOfDay(cursor)) === todayKey;
+  const { start: rangeStart, end: rangeEnd } = getRange();
+  const rangeEndIsTodayOrFuture = rangeEnd.getTime() >= todayStart.getTime();
+  const showOverdue = rangeEndIsTodayOrFuture;
   const rangeIncludesToday =
     todayStart.getTime() >= rangeStart.getTime() &&
     todayStart.getTime() <= rangeEnd.getTime();

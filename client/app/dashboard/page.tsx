@@ -90,8 +90,6 @@ export default function DashboardPage() {
     end.setHours(23, 59, 59, 999);
     const tzOffsetMinutes = new Date().getTimezoneOffset();
 
-    const tzOffsetMinutes = new Date().getTimezoneOffset();
-
     Promise.all([
       api("/goals").catch((err) => {
         console.error(err);
