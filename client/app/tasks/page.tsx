@@ -67,7 +67,7 @@ type Task = {
 function startOfWeek(d: Date): Date {
   const date = new Date(d);
   const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day; // Monday = 0
+  const diff = -day; // Sunday = 0
   date.setDate(date.getDate() + diff);
   date.setHours(0, 0, 0, 0);
   return date;
@@ -144,11 +144,11 @@ function getMonthDays(monthStart: Date): Date[] {
   return days;
 }
 
-// Pad month grid to start on Monday (0 = Sunday in getDay, so Monday = 1)
+// Pad month grid to start on Sunday (getDay: 0 = Sunday)
 function getMonthGrid(monthStart: Date): (Date | null)[][] {
   const first = new Date(monthStart);
   const firstDay = first.getDay();
-  const pad = firstDay === 0 ? 6 : firstDay - 1; // blanks before first day (Monday week)
+  const pad = firstDay;
   const days = getMonthDays(monthStart);
   const total = pad + days.length;
   const rows = Math.ceil(total / 7);
@@ -521,7 +521,7 @@ export default function TasksPage() {
             <div className="overflow-x-auto">
               <div className="min-w-[700px]">
                 <div className="grid grid-cols-7 gap-1 mb-3">
-                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => (
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => (
                     <div
                       key={w}
                       className="text-center text-[11px] font-semibold uppercase tracking-wide text-gray-400 py-2"
