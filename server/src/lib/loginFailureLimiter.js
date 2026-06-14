@@ -8,20 +8,27 @@
  * - does not count 429/500 responses toward the cap
  */
 
+const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
+const FALLBACK_MAX_FAILURES = 30;
+
 function parsePositiveInt(value, fallback) {
-  const n = Number(value);
+  if (value === undefined || value === null) return fallback;
+  const trimmed = String(value).trim();
+  if (!trimmed) return fallback;
+  if (/^(false|off|disabled|no)$/i.test(trimmed)) return 0;
+  const n = Number(trimmed);
   if (!Number.isFinite(n) || n < 0) return fallback;
   return Math.floor(n);
 }
 
-const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
-const DEFAULT_MAX_FAILURES = parsePositiveInt(
-  process.env.LOGIN_RATE_LIMIT_MAX,
-  30
-);
+function isLoginLimiterExplicitlyDisabled() {
+  const flag = String(process.env.DISABLE_LOGIN_FAILURE_LIMIT ?? "").trim();
+  return flag === "1" || /^true$/i.test(flag);
+}
 
 /** @type {Map<string, number[]>} */
 const failuresByEmail = new Map();
+let limiterWasDisabled = false;
 
 function normalizeEmail(email) {
   if (typeof email !== "string") return null;
@@ -35,12 +42,30 @@ function prune(timestamps, windowMs, now) {
 }
 
 function getConfig() {
-  const max = parsePositiveInt(process.env.LOGIN_RATE_LIMIT_MAX, DEFAULT_MAX_FAILURES);
   const windowMs = DEFAULT_WINDOW_MS;
-  if (max === 0) {
-    return { disabled: true, max: 0, windowMs };
+  if (isLoginLimiterExplicitlyDisabled()) {
+    return { disabled: true, max: 0, windowMs, reason: "DISABLE_LOGIN_FAILURE_LIMIT" };
   }
-  return { disabled: false, max, windowMs };
+
+  const max = parsePositiveInt(
+    process.env.LOGIN_RATE_LIMIT_MAX,
+    FALLBACK_MAX_FAILURES
+  );
+  if (max === 0) {
+    return { disabled: true, max: 0, windowMs, reason: "LOGIN_RATE_LIMIT_MAX=0" };
+  }
+  return { disabled: false, max, windowMs, reason: null };
+}
+
+function ensureDisabledState(cfg) {
+  if (!cfg.disabled) {
+    limiterWasDisabled = false;
+    return;
+  }
+  if (!limiterWasDisabled) {
+    failuresByEmail.clear();
+    limiterWasDisabled = true;
+  }
 }
 
 /**
@@ -49,6 +74,7 @@ function getConfig() {
  */
 function isLoginBlocked(email, { now = new Date() } = {}) {
   const cfg = getConfig();
+  ensureDisabledState(cfg);
   if (cfg.disabled) return false;
 
   const key = normalizeEmail(email);
@@ -66,6 +92,7 @@ function isLoginBlocked(email, { now = new Date() } = {}) {
  */
 function recordLoginFailure(email, { now = new Date() } = {}) {
   const cfg = getConfig();
+  ensureDisabledState(cfg);
   if (cfg.disabled) return;
 
   const key = normalizeEmail(email);
@@ -89,6 +116,7 @@ function clearLoginFailures(email) {
 /** Test-only */
 function resetLoginFailureLimiter() {
   failuresByEmail.clear();
+  limiterWasDisabled = false;
 }
 
 function loginBlockedMessage() {

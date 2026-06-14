@@ -11,6 +11,10 @@ import {
   suggestionChatPrompt,
   type AgentSuggestion,
 } from "@/lib/agentEvents";
+import {
+  formatCalendarDueDateTime,
+  taskDueCalendarDayKey,
+} from "@/lib/calendarDueDate";
 
 type TaskStatus = "todo" | "doing" | "done";
 type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -50,9 +54,10 @@ export default function DashboardPage() {
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const end = new Date(start);
     end.setHours(23, 59, 59, 999);
+    const tzOffsetMinutes = new Date().getTimezoneOffset();
     try {
       const data = await api(
-        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true`
+        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true&tzOffsetMinutes=${tzOffsetMinutes}`
       );
       const nextTasks: Task[] = Array.isArray(data) ? data : [];
       setTasks(nextTasks);
@@ -85,6 +90,8 @@ export default function DashboardPage() {
     end.setHours(23, 59, 59, 999);
     const tzOffsetMinutes = new Date().getTimezoneOffset();
 
+    const tzOffsetMinutes = new Date().getTimezoneOffset();
+
     Promise.all([
       api("/goals").catch((err) => {
         console.error(err);
@@ -92,7 +99,7 @@ export default function DashboardPage() {
         return [];
       }),
       api(
-        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true`
+        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=true&tzOffsetMinutes=${tzOffsetMinutes}`
       ).catch(() => []),
       api(`/focus/summary?tzOffsetMinutes=${tzOffsetMinutes}`).catch(() => null),
       api(`/agent/suggestions?tzOffsetMinutes=${tzOffsetMinutes}&limit=3`).catch(() => ({
@@ -135,7 +142,12 @@ export default function DashboardPage() {
     return `${h}h ${m}m`;
   };
 
-  const todayStart = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+  const todayStart = new Date(
+    new Date().getFullYear(),
+    new Date().getMonth(),
+    new Date().getDate()
+  );
+  const todayKey = `${todayStart.getFullYear()}-${String(todayStart.getMonth() + 1).padStart(2, "0")}-${String(todayStart.getDate()).padStart(2, "0")}`;
 
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() &&
@@ -304,16 +316,16 @@ export default function DashboardPage() {
                       <p className={`text-sm ${t.status === "done" ? "text-gray-400 line-through" : ""}`}>
                         {t.title}
                       </p>
-                      {t.dueDate && (() => {
-                        const d = new Date(t.dueDate);
-                        if (d.getHours() === 0 && d.getMinutes() === 0) return null;
-                        return (
-                          <p className="text-xs text-gray-500">
-                            {d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                          </p>
-                        );
-                      })()}
-                      {t.dueDate && new Date(t.dueDate).getTime() < todayStart.getTime() && (
+                      {t.dueDate && (
+                        <p className="text-xs text-gray-500">
+                          {formatCalendarDueDateTime(t.dueDate)}
+                        </p>
+                      )}
+                      {t.dueDate &&
+                        (() => {
+                          const key = taskDueCalendarDayKey(t.dueDate);
+                          return key != null && key < todayKey;
+                        })() && (
                         <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-red-100 text-red-700 uppercase">
                           Overdue
                         </span>
@@ -541,16 +553,16 @@ export default function DashboardPage() {
                             <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_COLORS[t.priority] ?? ""}`}>
                               {t.priority}
                             </span>
-                            {t.dueDate && (() => {
-                              const d = new Date(t.dueDate);
-                              if (d.getHours() === 0 && d.getMinutes() === 0) return null;
-                              return (
-                                <span className="text-[11px] text-gray-400">
-                                  {d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                                </span>
-                              );
-                            })()}
-                            {t.dueDate && new Date(t.dueDate).getTime() < todayStart.getTime() && (
+                            {t.dueDate && (
+                              <span className="text-[11px] text-gray-400">
+                                {formatCalendarDueDateTime(t.dueDate)}
+                              </span>
+                            )}
+                            {t.dueDate &&
+                              (() => {
+                                const key = taskDueCalendarDayKey(t.dueDate);
+                                return key != null && key < todayKey;
+                              })() && (
                               <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold bg-red-100 text-red-700 uppercase">
                                 Overdue
                               </span>

@@ -58,7 +58,19 @@ function createApp() {
   app.use("/agent", auth, agentRoutes);
 
   app.get("/health", (req, res) => {
-    res.json({ status: "ok", time: new Date().toISOString() });
+    const {
+      getLoginFailureLimiterConfig,
+    } = require("./lib/loginFailureLimiter");
+    const loginFailureLimit = getLoginFailureLimiterConfig();
+    res.json({
+      status: "ok",
+      time: new Date().toISOString(),
+      loginFailureLimit: {
+        disabled: loginFailureLimit.disabled,
+        max: loginFailureLimit.max,
+        reason: loginFailureLimit.reason,
+      },
+    });
   });
 
   app.get("/me", auth, async (req, res) => {

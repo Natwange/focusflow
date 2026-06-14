@@ -8,6 +8,7 @@ const {
   taskUpdateBodySchema,
   taskStatusBodySchema,
 } = require("../validation/schemas");
+const { taskMatchesDueDateQuery } = require("../lib/calendarDueDate");
 
 const router = express.Router();
 
@@ -52,24 +53,26 @@ router.post("/", validateBody(taskCreateBodySchema), async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const userId = req.user.id;
-    const { status, goalId, startDate, endDate, includeOverdue } = req.query;
+    const { status, goalId, startDate, endDate, includeOverdue, tzOffsetMinutes } =
+      req.query;
 
     const where = { userId };
     if (status) where.status = String(status);
     if (goalId) where.goalId = String(goalId);
 
-    if (startDate || endDate) {
-      where.dueDate = {};
-      const includeOver = String(includeOverdue) === "true";
-      if (startDate) where.dueDate.gte = new Date(startDate);
-      if (endDate) {
-        // Client sends end-of-day as ISO (local day boundary). Do not re-set hours
-        // in server TZ — that widens/narrows the window vs the user's calendar day.
-        where.dueDate.lte = new Date(endDate);
-      }
-      // If includeOverdue is enabled, ignore the gte filter and only respect lte.
-      // This is used to show overdue tasks in the "today" list.
-      if (includeOver) delete where.dueDate.gte;
+    const tz =
+      tzOffsetMinutes != null && Number.isFinite(Number(tzOffsetMinutes))
+        ? Number(tzOffsetMinutes)
+        : 0;
+
+    const useCalendarFilter = Boolean(startDate || endDate);
+
+    if (!useCalendarFilter) {
+      const tasks = await prisma.task.findMany({
+        where,
+        orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+      });
+      return res.json(tasks);
     }
 
     const tasks = await prisma.task.findMany({
@@ -77,7 +80,16 @@ router.get("/", async (req, res) => {
       orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
     });
 
-    return res.json(tasks);
+    const filtered = tasks.filter((task) =>
+      taskMatchesDueDateQuery(task, {
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
+        includeOverdue: String(includeOverdue) === "true",
+        tzOffsetMinutes: tz,
+      })
+    );
+
+    return res.json(filtered);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Internal server error" });

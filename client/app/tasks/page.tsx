@@ -3,6 +3,11 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { onAgentMutation } from "@/lib/agentEvents";
+import {
+  formatCalendarDueDateTime,
+  isUtcMidnightDueDate,
+  taskDueCalendarDayKey,
+} from "@/lib/calendarDueDate";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   ChevronLeft,
@@ -200,13 +205,14 @@ export default function TasksPage() {
     setLoading(true);
     setError(null);
     const { start, end } = getRange();
+    const tzOffsetMinutes = new Date().getTimezoneOffset();
     // Include overdue open tasks whenever the range reaches today or later
     // (same behavior as day view today — overdue work stays visible in week/month).
     const includeOverdue =
       end.getTime() >= startOfDay(new Date()).getTime() ? "true" : "false";
     try {
       const data = await api(
-        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=${includeOverdue}`
+        `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=${includeOverdue}&tzOffsetMinutes=${tzOffsetMinutes}`
       );
       let nextTasks: Task[] = Array.isArray(data) ? data : [];
 
@@ -325,7 +331,8 @@ export default function TasksPage() {
     const map = new Map<string, Task[]>();
     for (const t of tasks) {
       if (!t.dueDate) continue;
-      const key = toISODate(new Date(t.dueDate));
+      const key = taskDueCalendarDayKey(t.dueDate);
+      if (!key) continue;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(t);
     }
@@ -338,10 +345,6 @@ export default function TasksPage() {
   const todayStart = startOfDay(new Date());
   const todayKey = toISODate(todayStart);
   const isViewingToday = toISODate(startOfDay(cursor)) === todayKey;
-  const { start: rangeStart, end: rangeEnd } = getRange();
-  const rangeEndIsTodayOrFuture = rangeEnd.getTime() >= todayStart.getTime();
-  const showOverdue = rangeEndIsTodayOrFuture;
-  const overdueCutoffMs = todayStart.getTime();
   const rangeIncludesToday =
     todayStart.getTime() >= rangeStart.getTime() &&
     todayStart.getTime() <= rangeEnd.getTime();
@@ -349,13 +352,15 @@ export default function TasksPage() {
   const workloadActive = tasks.filter((t) => t.status !== "done");
   const tasksDueTodayCount = rangeIncludesToday
     ? workloadActive.filter(
-        (t) => t.dueDate && toISODate(new Date(t.dueDate)) === todayKey
+        (t) => t.dueDate && taskDueCalendarDayKey(t.dueDate) === todayKey
       ).length
     : null;
   const overdueTodayCount = rangeIncludesToday
-    ? workloadActive.filter(
-        (t) => t.dueDate && new Date(t.dueDate).getTime() < overdueCutoffMs
-      ).length
+    ? workloadActive.filter((t) => {
+        if (!t.dueDate) return false;
+        const key = taskDueCalendarDayKey(t.dueDate);
+        return key != null && key < todayKey;
+      }).length
     : null;
 
   return (
@@ -494,7 +499,7 @@ export default function TasksPage() {
                   onEdit={editTask}
                   statusLoading={statusLoading}
                   showOverdue={showOverdue}
-                  overdueCutoffMs={overdueCutoffMs}
+                  todayKey={todayKey}
                 />
               )}
             </div>
@@ -577,7 +582,7 @@ export default function TasksPage() {
                   onEdit={editTask}
                   statusLoading={statusLoading}
                   showOverdue={showOverdue}
-                  overdueCutoffMs={overdueCutoffMs}
+                  todayKey={todayKey}
                 />
               )}
             </div>
@@ -623,7 +628,7 @@ export default function TasksPage() {
                   onEdit={editTask}
                   statusLoading={statusLoading}
                   showOverdue={showOverdue}
-                  overdueCutoffMs={overdueCutoffMs}
+                  todayKey={todayKey}
                 />
               )}
             </div>
@@ -815,18 +820,16 @@ function CompletedTasksPanel({
 }
 
 function formatDueDateTime(iso: string): string {
-  const d = new Date(iso);
-  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  const h = d.getHours();
-  const m = d.getMinutes();
-  if (h === 0 && m === 0) return date;
-  return `${date}, ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  return formatCalendarDueDateTime(iso);
 }
 
 function parseDueDate(iso: string | null): { date: string; time: string } {
   if (!iso) return { date: "", time: "" };
+  const date = taskDueCalendarDayKey(iso) || "";
   const d = new Date(iso);
-  const date = toISODate(d);
+  if (isUtcMidnightDueDate(iso)) {
+    return { date, time: "" };
+  }
   const h = d.getHours();
   const m = d.getMinutes();
   const time = h === 0 && m === 0 ? "" : `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
@@ -840,7 +843,7 @@ function TaskList({
   onEdit,
   statusLoading,
   showOverdue,
-  overdueCutoffMs,
+  todayKey,
 }: {
   tasks: Task[];
   onStatus: (id: string, status: TaskStatus) => void;
@@ -848,7 +851,7 @@ function TaskList({
   onEdit: (id: string, updates: { title?: string; priority?: TaskPriority; dueDate?: string | null }) => Promise<void>;
   statusLoading: string | null;
   showOverdue: boolean;
-  overdueCutoffMs: number;
+  todayKey: string;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -1000,7 +1003,12 @@ function TaskList({
             >
               {priorityLabel(t.priority)}
             </span>
-            {showOverdue && t.dueDate && new Date(t.dueDate).getTime() < overdueCutoffMs && (
+            {showOverdue &&
+              t.dueDate &&
+              (() => {
+                const key = taskDueCalendarDayKey(t.dueDate);
+                return key != null && key < todayKey;
+              })() && (
               <span className="shrink-0 text-[11px] font-semibold text-red-700 tabular-nums">
                 Overdue
               </span>

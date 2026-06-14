@@ -8,6 +8,10 @@
 # Login limits are per-email (not shared IP). Safe defaults need no extra env.
 # Remove AUTH_RATE_LIMIT_MAX if set — it only affects reset/verify, but low values confuse debugging.
 # Optional: LOGIN_RATE_LIMIT_MAX=100, REGISTER_RATE_LIMIT_MAX=50
+# Solo dev unblock (set on focusflow-api in Dashboard, then redeploy once):
+#   DISABLE_LOGIN_FAILURE_LIMIT=1   or   LOGIN_RATE_LIMIT_MAX=0
+# Render only applies env when the API process starts — env changes always need a redeploy.
+# Verify: GET https://<api-host>/health → loginFailureLimit.disabled should be true
 
 services:
   - type: web

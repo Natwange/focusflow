@@ -14,6 +14,10 @@ const {
   isAffirmativeConfirmation,
   pendingConfirmationToToolCall,
 } = require("./pendingConfirmationResolver");
+function getOrchestratorMode() {
+  const mode = String(process.env.AGENT_ORCHESTRATOR || "custom").toLowerCase();
+  return mode === "langgraph" ? "langgraph" : "custom";
+}
 
 /**
  * @typedef {object} ChatRunInput
@@ -363,6 +367,17 @@ async function run({
   }
 
   try {
+    if (getOrchestratorMode() === "langgraph") {
+      const { runLangGraphAgent } = require("./langGraphAgent");
+      return await runLangGraphAgent({
+        userId,
+        message,
+        tzOffsetMinutes,
+        history,
+        pendingConfirmation,
+      });
+    }
+
     return await runLlmTurn({
       userId,
       message,
@@ -378,6 +393,7 @@ async function run({
 
 module.exports = {
   run,
+  getOrchestratorMode,
   runRuleBasedFallback,
   runLlmTurn,
   collectClientActions,

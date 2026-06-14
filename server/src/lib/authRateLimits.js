@@ -123,7 +123,11 @@ function createAuthRateLimiters() {
 
   if (process.env.NODE_ENV === "production") {
     const loginCfg = require("./loginFailureLimiter").getLoginFailureLimiterConfig();
-    if (!loginCfg.disabled) {
+    if (loginCfg.disabled) {
+      console.info(
+        `[auth] Login failure limit: disabled (${loginCfg.reason || "LOGIN_RATE_LIMIT_MAX=0"})`
+      );
+    } else {
       console.info(
         `[auth] Login failure limit: per-email, max=${loginCfg.max} failed passwords / 15 min (successful login clears counter)`
       );

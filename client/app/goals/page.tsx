@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { api } from "@/lib/api";
-import { onAgentMutation } from "@/lib/agentEvents";
+import { onAgentMutation, emitAgentMutation } from "@/lib/agentEvents";
 import { sumCompletedUnits } from "@/lib/goalTaskUnits";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ChevronDown, Pencil, Trash2, RefreshCw, X } from "lucide-react";
@@ -330,6 +330,7 @@ export default function GoalsPage() {
           [goalId]: "Rebalance applied. Tasks updated.",
         }));
         await loadGoals();
+        emitAgentMutation({ type: "goal_rebalanced" });
         scheduleAgentPreviewRefresh([goalId], 0);
       } catch (e: unknown) {
         setAgentPreviewError((prev) => ({
@@ -589,6 +590,7 @@ export default function GoalsPage() {
       });
       closeRebalance();
       await loadGoals();
+      emitAgentMutation({ type: "goal_rebalanced" });
       scheduleAgentPreviewRefresh([rebalanceGoalId]);
     } catch (e: unknown) {
       setRebalanceError(e instanceof Error ? e.message : "Could not apply rebalance");
