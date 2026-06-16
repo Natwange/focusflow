@@ -88,6 +88,16 @@ async function apiOnce(
         ? data.error
         : `Request failed: ${res.status}`;
 
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "hint" in data &&
+      typeof data.hint === "string" &&
+      data.hint.trim()
+    ) {
+      message = `${message} ${data.hint.trim()}`;
+    }
+
     if (res.status === 429 && message === "Request failed: 429") {
       const base = requestBasePath(path);
       if (base === "/auth/register") {
@@ -98,7 +108,7 @@ async function apiOnce(
           "Too many password reset requests. Please wait and try again.";
       } else if (base === "/auth/login") {
         message =
-          "Sign-in was rate-limited (HTTP 429). Wait a few minutes and try again, or check the API is reachable.";
+          "Sign-in was rate-limited (HTTP 429). On Render free tier this is often platform throttling—not the app login limiter. Wait a few minutes and check your Render dashboard.";
       } else {
         message =
           "Too many attempts. Please wait a few minutes and try again.";
