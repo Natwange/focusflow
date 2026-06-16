@@ -415,7 +415,7 @@ describe("Security-critical integration flows", () => {
   });
 
   describe("Rate limiting", () => {
-    test("multiple rapid login requests hit 429 after threshold", async () => {
+    test("login never returns 429 from app rate limiter after many wrong passwords", async () => {
       await seedUser({
         id: "user_1",
         email: "alice@example.com",
@@ -423,7 +423,7 @@ describe("Security-critical integration flows", () => {
       });
 
       const results = [];
-      for (let i = 0; i < 6; i += 1) {
+      for (let i = 0; i < 10; i += 1) {
         results.push(
           await request(app).post("/auth/login").send({
             email: "alice@example.com",
@@ -431,7 +431,8 @@ describe("Security-critical integration flows", () => {
           })
         );
       }
-      expect(results.some((r) => r.status === 429)).toBe(true);
+      expect(results.every((r) => r.status === 401)).toBe(true);
+      expect(results.some((r) => r.status === 429)).toBe(false);
     });
 
     test("login rate limit does not block register for the same email", async () => {

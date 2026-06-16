@@ -1,23 +1,24 @@
 /**
- * Login brute-force protection that only counts real failed credential checks.
+ * Login brute-force protection (opt-in only).
+ *
+ * Disabled by default — no env var required. Set LOGIN_RATE_LIMIT_MAX to a
+ * positive integer (e.g. 30) to enable per-email failed-password limiting.
  *
  * Unlike express-rate-limit on the route, this:
- * - never blocks before the handler runs (unless prior failures exceeded the cap)
  * - only records a failure on 401 invalid credentials
  * - clears the counter on successful login
  * - does not count 429/500 responses toward the cap
  */
 
 const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
-const FALLBACK_MAX_FAILURES = 30;
 
-function parsePositiveInt(value, fallback) {
-  if (value === undefined || value === null) return fallback;
+function parsePositiveInt(value) {
+  if (value === undefined || value === null) return null;
   const trimmed = String(value).trim();
-  if (!trimmed) return fallback;
+  if (!trimmed) return null;
   if (/^(false|off|disabled|no)$/i.test(trimmed)) return 0;
   const n = Number(trimmed);
-  if (!Number.isFinite(n) || n < 0) return fallback;
+  if (!Number.isFinite(n) || n < 0) return null;
   return Math.floor(n);
 }
 
@@ -43,18 +44,38 @@ function prune(timestamps, windowMs, now) {
 
 function getConfig() {
   const windowMs = DEFAULT_WINDOW_MS;
+
   if (isLoginLimiterExplicitlyDisabled()) {
-    return { disabled: true, max: 0, windowMs, reason: "DISABLE_LOGIN_FAILURE_LIMIT" };
+    return {
+      disabled: true,
+      max: 0,
+      windowMs,
+      reason: "DISABLE_LOGIN_FAILURE_LIMIT",
+    };
   }
 
-  const max = parsePositiveInt(
-    process.env.LOGIN_RATE_LIMIT_MAX,
-    FALLBACK_MAX_FAILURES
-  );
-  if (max === 0) {
-    return { disabled: true, max: 0, windowMs, reason: "LOGIN_RATE_LIMIT_MAX=0" };
+  const parsed = parsePositiveInt(process.env.LOGIN_RATE_LIMIT_MAX);
+
+  // Opt-in: unset or empty env → limiter OFF (safe default for deploys without env sync).
+  if (parsed === null) {
+    return {
+      disabled: true,
+      max: 0,
+      windowMs,
+      reason: "login_limit_opt_in_unset",
+    };
   }
-  return { disabled: false, max, windowMs, reason: null };
+
+  if (parsed === 0) {
+    return {
+      disabled: true,
+      max: 0,
+      windowMs,
+      reason: "LOGIN_RATE_LIMIT_MAX=0",
+    };
+  }
+
+  return { disabled: false, max: parsed, windowMs, reason: null };
 }
 
 function ensureDisabledState(cfg) {

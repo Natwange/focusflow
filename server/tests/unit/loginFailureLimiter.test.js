@@ -65,4 +65,16 @@ describe("loginFailureLimiter", () => {
     }
     expect(isLoginBlocked(email)).toBe(false);
   });
+
+  it("is disabled by default when LOGIN_RATE_LIMIT_MAX is unset", () => {
+    delete process.env.LOGIN_RATE_LIMIT_MAX;
+    delete process.env.DISABLE_LOGIN_FAILURE_LIMIT;
+    const cfg = require("../../src/lib/loginFailureLimiter").getLoginFailureLimiterConfig();
+    expect(cfg.disabled).toBe(true);
+    const email = "user@example.com";
+    for (let i = 0; i < 50; i++) {
+      recordLoginFailure(email);
+    }
+    expect(isLoginBlocked(email)).toBe(false);
+  });
 });

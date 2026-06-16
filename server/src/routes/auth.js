@@ -29,12 +29,6 @@ const {
   resetPasswordBodySchema,
   verifyEmailBodySchema,
 } = require("../validation/schemas");
-const {
-  isLoginBlocked,
-  recordLoginFailure,
-  clearLoginFailures,
-  loginBlockedMessage,
-} = require("../lib/loginFailureLimiter");
 
 function createAuthRouter(limiters) {
   const router = express.Router();
@@ -144,10 +138,6 @@ router.post(
 
     const { email, password } = req.body;
 
-    if (isLoginBlocked(email)) {
-      return res.status(429).json({ error: loginBlockedMessage() });
-    }
-
     const user = await prisma.user.findUnique({
       where: { email },
       select: {
@@ -159,7 +149,6 @@ router.post(
       },
     });
     if (!user) {
-      recordLoginFailure(email);
       auditAuthEvent(req, {
         action: "login_failure",
         email,
@@ -169,15 +158,12 @@ router.post(
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
-      recordLoginFailure(user.email);
       auditAuthEvent(req, {
         action: "login_failure",
         email: user.email,
       });
       return res.status(401).json({ error: "Invalid credentials" });
     }
-
-    clearLoginFailures(user.email);
 
     await establishSession(res, {
       id: user.id,

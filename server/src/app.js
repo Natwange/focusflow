@@ -58,17 +58,13 @@ function createApp() {
   app.use("/agent", auth, agentRoutes);
 
   app.get("/health", (req, res) => {
-    const {
-      getLoginFailureLimiterConfig,
-    } = require("./lib/loginFailureLimiter");
-    const loginFailureLimit = getLoginFailureLimiterConfig();
     res.json({
       status: "ok",
       time: new Date().toISOString(),
       loginFailureLimit: {
-        disabled: loginFailureLimit.disabled,
-        max: loginFailureLimit.max,
-        reason: loginFailureLimit.reason,
+        disabled: true,
+        max: 0,
+        reason: "not_used_on_login_route",
       },
     });
   });
