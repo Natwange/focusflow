@@ -120,7 +120,7 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
   };
 
   const upstream = await fetch(targetUrl, init);
-  let body = await upstream.arrayBuffer();
+  let body: BodyInit = await upstream.arrayBuffer();
   let status = upstream.status;
   let outCt = upstream.headers.get("content-type") ?? "";
 
