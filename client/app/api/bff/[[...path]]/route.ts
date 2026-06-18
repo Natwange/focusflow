@@ -124,19 +124,19 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
   let status = upstream.status;
   let outCt = upstream.headers.get("content-type") ?? "";
 
-  // Upstream errors (e.g. Render plain-text "Too Many Requests") are hard to
-  // parse in the SPA — normalize to JSON so the UI shows a useful message.
+  // Plain-text upstream errors are hard to parse in the SPA — normalize to JSON.
   if (status >= 400 && !outCt.includes("application/json")) {
     const text = new TextDecoder().decode(body).trim();
-    const hint =
-      status === 429
-        ? "This is usually Render platform rate limiting (free tier), not FocusFlow's login limiter. Wait a few minutes, check the Render dashboard for suspension notices, or upgrade the API/client service."
-        : undefined;
+    const errorMessage =
+      status === 429 &&
+      (!text || /^too many requests$/i.test(text))
+        ? "Too many requests. Please wait a few minutes and try again."
+        : text || `Request failed (HTTP ${status})`;
     body = new TextEncoder().encode(
       JSON.stringify({
-        error: text || `Upstream request failed (HTTP ${status})`,
+        error: errorMessage,
         upstreamStatus: status,
-        ...(hint ? { hint } : {}),
+        upstreamHost: new URL(backend).host,
       })
     );
     outCt = "application/json";
