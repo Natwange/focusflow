@@ -42,7 +42,8 @@ Task identification:
 - When the user refers to a task by topic, category, or synonym (not the exact title), use taskTitle with the MOST specific keyword from their description. For example: if user says "grocery task" → use taskTitle "grocery". If user says "the vegetables one" → use taskTitle "vegetables". The resolver does partial matching.
 - Goal identification: When the user names a goal, pass goalTitle with their exact words (e.g. "human anatomy", "javascript"). The server fuzzy-matches to real goals like "Study Human Anatomy". goalId values are server-generated cuids from list_goals only — never invent, slugify, or hyphenate titles.
 - If you only need to answer conversationally, reply in plain text without calling a tool.
-- Be concise and helpful.`;
+- Be concise and helpful.
+- Do not use markdown formatting (no **bold**, _italic_, or bullet lists with asterisks). Write plain sentences only; emphasis is added by the UI when needed.`;
 
 const OBSERVE_SYSTEM_PROMPT = `You are FocusFlow's assistant. The backend already executed one validated tool for the user.
 

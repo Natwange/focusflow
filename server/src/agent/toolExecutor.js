@@ -20,6 +20,11 @@ const { getAdaptiveRecommendationForUser } = require("../lib/adaptiveRecommendat
 const { parseGoalDeadline } = require("../lib/goalDeadlineParser");
 const { resolveTask } = require("../lib/taskResolver");
 const {
+  formatCreatedTaskSummary,
+  formatLocalDateTime,
+  formatUpdatedScheduleSummary,
+} = require("../lib/agentMessageFormat");
+const {
   resolveGoal,
   normalizeGoalLookupArgs,
   looksLikeInventedSlug,
@@ -161,21 +166,12 @@ async function runListTasks(userId, args) {
   });
 }
 
-async function runCreateTask(userId, args) {
+async function runCreateTask(userId, args, ctx = {}) {
   const task = await createTaskForUser(userId, args);
-  const due =
-    task.dueDate != null
-      ? new Date(task.dueDate).toISOString()
-      : null;
-  const scheduled =
-    task.startTime != null && task.endTime != null
-      ? ` scheduled ${new Date(task.startTime).toISOString()}–${new Date(task.endTime).toISOString()}`
-      : "";
+  const tzOffsetMinutes = ctx.tzOffsetMinutes ?? 0;
   return success({
     data: { task },
-    summary: due
-      ? `Created task "${task.title}" due ${due}.${scheduled}`
-      : `Created task "${task.title}" with no due date.${scheduled}`,
+    summary: formatCreatedTaskSummary(task, tzOffsetMinutes),
   });
 }
 
@@ -239,7 +235,7 @@ function runSuggestFocusSession(args) {
   });
 }
 
-async function runUpdateTask(userId, args) {
+async function runUpdateTask(userId, args, ctx = {}) {
   const resolved = await resolveTask(userId, { taskId: args.taskId, taskTitle: args.taskTitle });
   if (!resolved.ok) {
     return failure(resolved.error, {
@@ -250,15 +246,20 @@ async function runUpdateTask(userId, args) {
 
   const task = resolved.task;
   const updated = await updateTaskForUser(task.id, args.updates);
+  const tzOffsetMinutes = ctx.tzOffsetMinutes ?? 0;
   const changes = [];
   if (args.updates.title) changes.push(`renamed to "${updated.title}"`);
   if (args.updates.dueDate !== undefined) {
-    changes.push(args.updates.dueDate ? `due date set to ${new Date(args.updates.dueDate).toISOString()}` : "due date cleared");
+    changes.push(
+      args.updates.dueDate
+        ? `due date set to ${formatLocalDateTime(args.updates.dueDate, tzOffsetMinutes)}`
+        : "due date cleared"
+    );
   }
   if (args.updates.startTime !== undefined || args.updates.endTime !== undefined) {
     if (updated.startTime && updated.endTime) {
       changes.push(
-        `scheduled ${new Date(updated.startTime).toISOString()}–${new Date(updated.endTime).toISOString()}`
+        `scheduled for ${formatUpdatedScheduleSummary(updated.startTime, updated.endTime, tzOffsetMinutes)}`
       );
     } else {
       changes.push("schedule cleared");
@@ -839,9 +840,9 @@ async function executeTool(ctx, toolName, rawArgs) {
       case "list_tasks":
         return await runListTasks(ctx.userId, parsed.args);
       case "create_task":
-        return await runCreateTask(ctx.userId, parsed.args);
+        return await runCreateTask(ctx.userId, parsed.args, ctx);
       case "update_task":
-        return await runUpdateTask(ctx.userId, parsed.args);
+        return await runUpdateTask(ctx.userId, parsed.args, ctx);
       case "complete_task":
         return await runCompleteTask(ctx.userId, parsed.args);
       case "delete_task":

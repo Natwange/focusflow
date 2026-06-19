@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useFocusTimer } from "@/context/FocusTimerContext";
 import { handleAgentClientActions } from "@/lib/agentClientActions";
 import { emitAgentMutation, onOpenAgentChat } from "@/lib/agentEvents";
+import { renderChatMessage } from "@/lib/renderChatMessage";
 import type { AgentMutationDetail } from "@/lib/agentEvents";
 
 function emitMutationsFromAgentResponse(res: {
@@ -267,7 +268,7 @@ export default function AgentChat() {
                 : "mr-auto bg-gray-100 text-black dark:bg-[#1c2028] dark:text-[#f5f7fb]"
             }`}
           >
-            {m.text}
+            {m.role === "assistant" ? renderChatMessage(m.text) : m.text}
           </div>
         ))}
         {loading && (

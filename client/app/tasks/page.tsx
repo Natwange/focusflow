@@ -779,17 +779,22 @@ export default function TasksPage() {
                   statusLoading={statusLoading}
                 />
                 {dayEditTaskId && (
-                  <TaskList
-                    tasks={activeTasks.filter((t) => t.id === dayEditTaskId)}
-                    onStatus={updateStatus}
-                    onDelete={(id) => setTaskIdPendingDelete(id)}
-                    onEdit={editTask}
-                    statusLoading={statusLoading}
-                    showOverdue={showOverdue}
-                    todayKey={todayKey}
-                    externalEditId={dayEditTaskId}
-                    onExternalEditHandled={() => setDayEditTaskId(null)}
-                  />
+                  <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500 mb-3">
+                      Edit task
+                    </h3>
+                    <TaskList
+                      tasks={activeTasks.filter((t) => t.id === dayEditTaskId)}
+                      onStatus={updateStatus}
+                      onDelete={(id) => setTaskIdPendingDelete(id)}
+                      onEdit={editTask}
+                      statusLoading={statusLoading}
+                      showOverdue={showOverdue}
+                      todayKey={todayKey}
+                      externalEditId={dayEditTaskId}
+                      onExternalEditHandled={() => setDayEditTaskId(null)}
+                    />
+                  </div>
                 )}
               </>
             )}
@@ -976,12 +981,12 @@ function TaskList({
     if (!externalEditId) return;
     const t = tasks.find((x) => x.id === externalEditId);
     if (t) startEdit(t);
-    onExternalEditHandled?.();
-  }, [externalEditId, tasks, onExternalEditHandled]);
+  }, [externalEditId, tasks]);
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditError(null);
+    onExternalEditHandled?.();
   };
 
   const saveEdit = async (id: string) => {
@@ -1018,6 +1023,7 @@ function TaskList({
     });
     setSaving(false);
     setEditingId(null);
+    onExternalEditHandled?.();
   };
 
   if (tasks.length === 0) {

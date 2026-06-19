@@ -262,7 +262,8 @@ describe("agent toolExecutor", () => {
     expect(result.ok).toBe(true);
     expect(result.data.task.startTime).toBeTruthy();
     expect(result.data.task.endTime).toBeTruthy();
-    expect(result.summary).toMatch(/scheduled/i);
+    expect(result.summary).toMatch(/LeetCode/i);
+    expect(result.summary).toMatch(/2:00 PM/i);
   });
 
   it("create_task rejects partial schedule", async () => {
