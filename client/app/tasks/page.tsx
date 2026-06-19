@@ -404,6 +404,113 @@ export default function TasksPage() {
 
   const dayViewKey = toISODate(startOfDay(cursor));
 
+  const addTaskSection = (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500 mb-4">
+        Add task
+      </h2>
+      {error && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Task title…"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && createTask()}
+            className="flex-1 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-black/40 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={createTask}
+            disabled={createLoading || !newTitle.trim()}
+            className="rounded-full bg-gray-900 text-white px-5 py-2.5 text-sm font-medium hover:bg-gray-900/90 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+          >
+            {createLoading ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Plus size={18} />
+            )}
+            Add
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="new-priority" className="text-xs font-medium text-gray-500">
+              Priority
+            </label>
+            <div className="flex rounded-lg border border-gray-200 bg-[#F9F9F9] p-0.5">
+              {PRIORITY_OPTIONS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setNewPriority(p.value)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                    newPriority === p.value ? p.pill : "text-gray-400 hover:text-gray-600"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="new-due-date" className="text-xs font-medium text-gray-500">
+              Due
+            </label>
+            <input
+              id="new-due-date"
+              type="date"
+              value={newDueDate}
+              onChange={(e) => setNewDueDate(e.target.value)}
+              className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="new-start-time" className="text-xs font-medium text-gray-500">
+              Start
+            </label>
+            <input
+              id="new-start-time"
+              type="time"
+              value={newStartTime}
+              onChange={(e) => setNewStartTime(e.target.value)}
+              className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="new-end-time" className="text-xs font-medium text-gray-500">
+              End
+            </label>
+            <input
+              id="new-end-time"
+              type="time"
+              value={newEndTime}
+              onChange={(e) => setNewEndTime(e.target.value)}
+              className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
+            />
+            {(newStartTime || newEndTime) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewStartTime("");
+                  setNewEndTime("");
+                }}
+                className="text-xs text-gray-400 hover:text-gray-600"
+              >
+                clear
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+
   return (
     <div className="ff-page">
       <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-8 space-y-8">
@@ -494,6 +601,8 @@ export default function TasksPage() {
             </div>
           </div>
         </section>
+
+        {view === "day" && addTaskSection}
 
         {/* Week view: day strip + task list */}
         {view === "week" && (
@@ -694,107 +803,7 @@ export default function TasksPage() {
           </section>
         )}
 
-        {/* Add task */}
-        <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500 mb-4">
-            Add task
-          </h2>
-          {error && (
-            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-              {error}
-            </div>
-          )}
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Task title…"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && createTask()}
-                className="flex-1 rounded-xl border border-gray-200 bg-[#F9F9F9] px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-black/40 focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={createTask}
-                disabled={createLoading || !newTitle.trim()}
-                className="rounded-full bg-gray-900 text-white px-5 py-2.5 text-sm font-medium hover:bg-gray-900/90 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
-              >
-                {createLoading ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : (
-                  <Plus size={18} />
-                )}
-                Add
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <label htmlFor="new-priority" className="text-xs font-medium text-gray-500">Priority</label>
-                <div className="flex rounded-lg border border-gray-200 bg-[#F9F9F9] p-0.5">
-                  {PRIORITY_OPTIONS.map((p) => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      onClick={() => setNewPriority(p.value)}
-                      className={`rounded-md px-2.5 py-1 text-xs font-medium ${
-                        newPriority === p.value ? p.pill : "text-gray-400 hover:text-gray-600"
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <label htmlFor="new-due-date" className="text-xs font-medium text-gray-500">Due</label>
-                <input
-                  id="new-due-date"
-                  type="date"
-                  value={newDueDate}
-                  onChange={(e) => setNewDueDate(e.target.value)}
-                  className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label htmlFor="new-start-time" className="text-xs font-medium text-gray-500">
-                  Start
-                </label>
-                <input
-                  id="new-start-time"
-                  type="time"
-                  value={newStartTime}
-                  onChange={(e) => setNewStartTime(e.target.value)}
-                  className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label htmlFor="new-end-time" className="text-xs font-medium text-gray-500">
-                  End
-                </label>
-                <input
-                  id="new-end-time"
-                  type="time"
-                  value={newEndTime}
-                  onChange={(e) => setNewEndTime(e.target.value)}
-                  className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
-                />
-                {(newStartTime || newEndTime) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewStartTime("");
-                      setNewEndTime("");
-                    }}
-                    className="text-xs text-gray-400 hover:text-gray-600"
-                  >
-                    clear
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
+        {view !== "day" && addTaskSection}
       </main>
 
       <ConfirmDialog

@@ -37,6 +37,8 @@ const PRIORITY_BORDER: Record<TaskPriority, string> = {
 };
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+/** Space above 12 AM so the label isn't clipped by the card edge */
+const TIMELINE_TOP_PAD = 14;
 
 type DayTimelineProps = {
   tasks: DayTimelineTask[];
@@ -123,19 +125,24 @@ export function DayTimeline({
         <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
           Schedule
         </h3>
-        <div className="rounded-xl border border-gray-200 bg-[#FAFAFA]/60 overflow-hidden">
-          <div className="flex">
-            <div
-              className="w-14 sm:w-16 shrink-0 border-r border-gray-200 bg-white/80"
-              style={{ height: 24 * DAY_TIMELINE_HOUR_HEIGHT_PX }}
-            >
+        <div className="rounded-xl border border-gray-200 bg-[#FAFAFA]/60">
+          <div
+            className="flex"
+            style={{ height: TIMELINE_TOP_PAD + 24 * DAY_TIMELINE_HOUR_HEIGHT_PX }}
+          >
+            <div className="w-14 sm:w-16 shrink-0 border-r border-gray-200 bg-white/80 flex flex-col">
+              <div style={{ height: TIMELINE_TOP_PAD }} aria-hidden />
               {HOURS.map((hour) => (
                 <div
                   key={hour}
                   className="relative border-b border-gray-100 last:border-b-0 text-[10px] sm:text-xs text-gray-400 pr-1 text-right"
                   style={{ height: DAY_TIMELINE_HOUR_HEIGHT_PX }}
                 >
-                  <span className="absolute -top-2 right-1 tabular-nums">
+                  <span
+                    className={`absolute right-1 tabular-nums leading-none ${
+                      hour === 0 ? "top-0" : "-top-2"
+                    }`}
+                  >
                     {formatHourLabel(hour)}
                   </span>
                 </div>
@@ -144,8 +151,13 @@ export function DayTimeline({
 
             <div
               className="relative flex-1 min-w-0"
-              style={{ height: 24 * DAY_TIMELINE_HOUR_HEIGHT_PX }}
+              style={{ height: TIMELINE_TOP_PAD + 24 * DAY_TIMELINE_HOUR_HEIGHT_PX }}
             >
+              <div style={{ height: TIMELINE_TOP_PAD }} aria-hidden />
+              <div
+                className="relative"
+                style={{ height: 24 * DAY_TIMELINE_HOUR_HEIGHT_PX }}
+              >
               {HOURS.map((hour) => (
                 <div
                   key={hour}
@@ -224,6 +236,7 @@ export function DayTimeline({
                   </div>
                 );
               })}
+              </div>
             </div>
           </div>
         </div>
