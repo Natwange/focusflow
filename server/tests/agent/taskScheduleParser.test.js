@@ -34,4 +34,16 @@ describe("ruleParser scheduled tasks", () => {
     expect(result.reason).toBe("missing_end_time");
     expect(result.clarifyMessage).toMatch(/end time/i);
   });
+
+  test("parses range with named calendar date: June 19th", () => {
+    const result = parseScheduledTaskRange(
+      "Add 'Meeting with Kabir' from 2:30pm to 3:00pm June 19th",
+      0
+    );
+    expect(result.ok).toBe(true);
+    expect(result.title).toBe("Meeting with Kabir");
+    expect(result.startTime).toBeTruthy();
+    expect(result.endTime).toBeTruthy();
+    expect(Date.parse(result.endTime)).toBeGreaterThan(Date.parse(result.startTime));
+  });
 });

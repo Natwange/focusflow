@@ -71,6 +71,41 @@ function extractGoalIdForPreview(message) {
   return m ? m[1] : null;
 }
 
+const MONTH_NAME_TO_INDEX = Object.freeze({
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sept: 9,
+  sep: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
+});
+
+function cleanTaskTitle(raw) {
+  return String(raw)
+    .trim()
+    .replace(/^to\s+/i, "")
+    .replace(/^['"](.+)['"]$/, "$1")
+    .trim();
+}
+
 function parseClockHour(hourStr, minuteStr, ampm) {
   let hour = Number(hourStr);
   const minute = minuteStr != null && minuteStr !== "" ? Number(minuteStr) : 0;
@@ -105,6 +140,75 @@ function localDateTimeToUtcIso({ dayOffset, hour, minute, tzOffsetMinutes, now =
     localMidnightUtc + dayOffset * 24 * 60 * 60 * 1000 + hour * 60 * 60 * 1000 + minute * 60 * 1000;
   const utcMs = targetLocalMs + tz * 60 * 1000;
   return new Date(utcMs).toISOString();
+}
+
+function localCalendarDateToUtcIso({ year, month, day, hour, minute, tzOffsetMinutes }) {
+  const tz = parseTzOffsetMinutes(tzOffsetMinutes);
+  const baseUtc = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+  const localMidnightUtc = baseUtc + tz * 60 * 1000;
+  const targetLocalMs =
+    localMidnightUtc + hour * 60 * 60 * 1000 + minute * 60 * 1000;
+  const utcMs = targetLocalMs + tz * 60 * 1000;
+  return new Date(utcMs).toISOString();
+}
+
+function parseNamedCalendarDateInText(text, now = new Date()) {
+  const m = String(text).match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?\b/i
+  );
+  if (!m) return null;
+
+  const month = MONTH_NAME_TO_INDEX[m[1].toLowerCase()];
+  const day = Number(m[2]);
+  const year = m[3] ? Number(m[3]) : now.getFullYear();
+  if (!month || !Number.isFinite(day) || day < 1 || day > 31) return null;
+
+  return { year, month, day };
+}
+
+function isCreateTaskRetryMessage(message) {
+  const lower = String(message).toLowerCase().trim();
+  if (isCreateTaskMessage(lower)) return false;
+  return (
+    /\b(haven'?t|didn'?t|not)\s+(added|created|create)\b/.test(lower) ||
+    /\bplease\s+add\b/.test(lower) ||
+    /\b(add|create)\s+it\b/.test(lower) ||
+    /\byou\s+didn'?t\s+add\b/.test(lower) ||
+    /\bstill\s+not\s+(there|added|showing)\b/.test(lower)
+  );
+}
+
+function createTaskArgsFromParsed(parsed) {
+  const args = {
+    title: cleanTaskTitle(parsed.title),
+    dueDate: parsed.dueDate,
+    priority: "medium",
+  };
+  if (parsed.startTime && parsed.endTime) {
+    args.startTime = parsed.startTime;
+    args.endTime = parsed.endTime;
+  }
+  return args;
+}
+
+function findLastUserCreateTaskArgs(history, tzOffsetMinutes) {
+  if (!Array.isArray(history)) return null;
+
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const entry = history[i];
+    if (entry?.role !== "user" || !entry.text) continue;
+
+    const text = entry.text.trim();
+    if (isCreateTaskRetryMessage(text)) continue;
+
+    const scheduled = parseScheduledTaskRange(text, tzOffsetMinutes);
+    if (scheduled.ok) return createTaskArgsFromParsed(scheduled);
+
+    const single = parseCreateTaskDetails(text, tzOffsetMinutes);
+    if (single.ok) return createTaskArgsFromParsed(single);
+  }
+
+  return null;
 }
 
 function parseCreateTaskDetails(message, tzOffsetMinutes) {
@@ -145,7 +249,88 @@ function parseCreateTaskDetails(message, tzOffsetMinutes) {
 /**
  * "Add LeetCode from 2 PM to 3 PM tomorrow" → startTime, endTime, dueDate.
  */
+function buildScheduledRangeResult({
+  title,
+  startClock,
+  endClock,
+  tzOffsetMinutes,
+  dayOffset = 0,
+  calendarDate = null,
+}) {
+  if (!title) {
+    return { ok: false, reason: "missing_title" };
+  }
+  if (!startClock || !endClock) {
+    return { ok: false, reason: "missing_time" };
+  }
+
+  const startTime = calendarDate
+    ? localCalendarDateToUtcIso({
+        ...calendarDate,
+        hour: startClock.hour,
+        minute: startClock.minute,
+        tzOffsetMinutes,
+      })
+    : localDateTimeToUtcIso({
+        dayOffset,
+        hour: startClock.hour,
+        minute: startClock.minute,
+        tzOffsetMinutes,
+      });
+  const endTime = calendarDate
+    ? localCalendarDateToUtcIso({
+        ...calendarDate,
+        hour: endClock.hour,
+        minute: endClock.minute,
+        tzOffsetMinutes,
+      })
+    : localDateTimeToUtcIso({
+        dayOffset,
+        hour: endClock.hour,
+        minute: endClock.minute,
+        tzOffsetMinutes,
+      });
+
+  if (Date.parse(endTime) <= Date.parse(startTime)) {
+    return { ok: false, reason: "invalid_range" };
+  }
+
+  return {
+    ok: true,
+    title,
+    dueDate: startTime,
+    startTime,
+    endTime,
+  };
+}
+
 function parseScheduledTaskRange(message, tzOffsetMinutes) {
+  const calendarDate = parseNamedCalendarDateInText(message);
+  const calendarRangeMatch = message.match(
+    /(?:create|add|schedule)\s+(?:a\s+)?(?:task\s+)?(.+?)\s+from\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+to\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i
+  );
+  if (calendarRangeMatch && calendarDate) {
+    const title = cleanTaskTitle(calendarRangeMatch[1]);
+    const startClock = parseClockHour(
+      calendarRangeMatch[2],
+      calendarRangeMatch[3],
+      calendarRangeMatch[4]
+    );
+    const endClock = parseClockHour(
+      calendarRangeMatch[5],
+      calendarRangeMatch[6],
+      calendarRangeMatch[7]
+    );
+    const result = buildScheduledRangeResult({
+      title,
+      startClock,
+      endClock,
+      tzOffsetMinutes,
+      calendarDate,
+    });
+    if (result.ok) return result;
+  }
+
   const patterns = [
     /(?:create|add|schedule)\s+(?:a\s+)?(?:task\s+)?(.+?)\s+from\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+to\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(today|tomorrow))?/i,
     /(?:create|add|schedule)\s+(?:a\s+)?(?:task\s+)?(.+?)\s+(today|tomorrow)\s+from\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+to\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
@@ -155,11 +340,7 @@ function parseScheduledTaskRange(message, tzOffsetMinutes) {
     const m = message.match(pattern);
     if (!m) continue;
 
-    const title = m[1].trim().replace(/^to\s+/i, "");
-    if (!title) {
-      return { ok: false, reason: "missing_title" };
-    }
-
+    const title = cleanTaskTitle(m[1]);
     let dayOffset = 0;
     let startIdx = 2;
     if (/^(today|tomorrow)$/i.test(m[2])) {
@@ -175,34 +356,15 @@ function parseScheduledTaskRange(message, tzOffsetMinutes) {
       m[startIdx + 4],
       m[startIdx + 5]
     );
-    if (!startClock || !endClock) {
-      return { ok: false, reason: "missing_time" };
-    }
 
-    const startTime = localDateTimeToUtcIso({
-      dayOffset,
-      hour: startClock.hour,
-      minute: startClock.minute,
-      tzOffsetMinutes,
-    });
-    const endTime = localDateTimeToUtcIso({
-      dayOffset,
-      hour: endClock.hour,
-      minute: endClock.minute,
-      tzOffsetMinutes,
-    });
-
-    if (Date.parse(endTime) <= Date.parse(startTime)) {
-      return { ok: false, reason: "invalid_range" };
-    }
-
-    return {
-      ok: true,
+    const result = buildScheduledRangeResult({
       title,
-      dueDate: startTime,
-      startTime,
-      endTime,
-    };
+      startClock,
+      endClock,
+      tzOffsetMinutes,
+      dayOffset,
+    });
+    if (result.ok) return result;
   }
 
   return { ok: false, reason: "no_range" };
@@ -394,4 +556,7 @@ module.exports = {
   isListTodayTasksMessage,
   isIncompleteTasksIntent,
   listTasksArgsForTodayIntent,
+  isCreateTaskRetryMessage,
+  findLastUserCreateTaskArgs,
+  cleanTaskTitle,
 };

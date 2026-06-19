@@ -1,13 +1,14 @@
 const { StateGraph, START, END, Annotation } = require("@langchain/langgraph");
 const { completeAgentTurn } = require("./llmClient");
 const { isV1ToolName, parseToolArgs } = require("./tools");
-const { listTasksArgsForTodayIntent } = require("./ruleParser");
+const { listTasksArgsForTodayIntent, isCreateTaskRetryMessage, findLastUserCreateTaskArgs } = require("./ruleParser");
 const {
   isAffirmativeConfirmation,
   pendingConfirmationToToolCall,
 } = require("./pendingConfirmationResolver");
 const {
   collectClientActions,
+  collectMutationTypes,
   assistantMessageAfterToolExecution,
   executeToolChain,
   extractPendingConfirmation,
@@ -75,6 +76,18 @@ async function resolvePendingConfirmationNode(state) {
         directToolCall: directCall,
         toolName: directCall.toolName,
         toolArgs: directCall.toolArgs,
+        nextStep: "execute_tool",
+      };
+    }
+  }
+
+  if (isCreateTaskRetryMessage(state.message)) {
+    const toolArgs = findLastUserCreateTaskArgs(state.history, state.tzOffsetMinutes);
+    if (toolArgs) {
+      return {
+        directToolCall: { toolName: "create_task", toolArgs },
+        toolName: "create_task",
+        toolArgs,
         nextStep: "execute_tool",
       };
     }
@@ -272,6 +285,7 @@ async function runLangGraphAgent({
       finalState.clientActions?.length > 0
         ? finalState.clientActions
         : collectClientActions(finalState.toolResults ?? []),
+    mutations: collectMutationTypes(finalState.toolResults ?? []),
   };
 }
 

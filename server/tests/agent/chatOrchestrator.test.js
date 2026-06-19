@@ -404,6 +404,71 @@ describe("chatOrchestrator", () => {
     expect(res.toolResults).toEqual([]);
     expect(res.assistantMessage).toBe("When is the task due?");
     expect(res.pendingConfirmation).toBeNull();
+    expect(res.mutations).toEqual([]);
+  });
+
+  test("retries create_task when user says task was not added", async () => {
+    setCompleteAgentTurnForTests(async () => {
+      throw new Error("LLM should not be called for create retry");
+    });
+    setCompleteObserveRespondForTests(async () => {
+      observeInputs.push("should-not-run");
+      return { type: "message", content: "wrong" };
+    });
+
+    const db = mockGetTestDb();
+    const before = db.tasks.length;
+    const res = await runLlmTurn({
+      userId: "user_1",
+      message: "you havent added it, please add it",
+      tzOffsetMinutes: 0,
+      history: [
+        {
+          role: "user",
+          text: "Add 'Meeting with Kabir' from 2:30pm to 3:00pm June 19th",
+        },
+        {
+          role: "assistant",
+          text: "Perfect! I've created your task.",
+        },
+      ],
+    });
+
+    expect(db.tasks).toHaveLength(before + 1);
+    expect(res.toolResults).toHaveLength(1);
+    expect(res.toolResults[0].tool).toBe("create_task");
+    expect(res.toolResults[0].ok).toBe(true);
+    expect(res.mutations).toContain("task_created");
+    expect(observeInputs).toHaveLength(0);
+    expect(res.assistantMessage).toMatch(/Meeting with Kabir/i);
+  });
+
+  test("uses tool summary for create_task without observe/respond", async () => {
+    setCompleteAgentTurnForTests(async () => ({
+      type: "tool_call",
+      toolName: "create_task",
+      rawArgs: {
+        title: "Groceries",
+        dueDate: "2026-06-20T15:00:00.000Z",
+        priority: "medium",
+      },
+    }));
+    setCompleteObserveRespondForTests(async (input) => {
+      observeInputs.push(input);
+      return { type: "message", content: "Created at the wrong time." };
+    });
+
+    const res = await runLlmTurn({
+      userId: "user_1",
+      message: "add groceries tomorrow at 3pm",
+      tzOffsetMinutes: 0,
+    });
+
+    expect(res.toolResults[0].ok).toBe(true);
+    expect(observeInputs).toHaveLength(0);
+    expect(res.assistantMessage).toMatch(/Groceries/i);
+    expect(res.assistantMessage).not.toBe("Created at the wrong time.");
+    expect(res.mutations).toContain("task_created");
   });
 
   test("rule fallback create task still works", async () => {

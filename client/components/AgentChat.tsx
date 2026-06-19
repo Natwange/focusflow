@@ -7,6 +7,53 @@ import { api } from "@/lib/api";
 import { useFocusTimer } from "@/context/FocusTimerContext";
 import { handleAgentClientActions } from "@/lib/agentClientActions";
 import { emitAgentMutation, onOpenAgentChat } from "@/lib/agentEvents";
+import type { AgentMutationDetail } from "@/lib/agentEvents";
+
+function emitMutationsFromAgentResponse(res: {
+  mutations?: string[];
+  toolResults?: Array<{
+    ok?: boolean;
+    tool?: string;
+    result?: { data?: { deletedTaskId?: string; createdCount?: number; applied?: boolean } };
+  }>;
+}) {
+  const types = new Set<AgentMutationDetail["type"]>();
+
+  if (Array.isArray(res.mutations)) {
+    for (const type of res.mutations) {
+      if (type) types.add(type as AgentMutationDetail["type"]);
+    }
+  }
+
+  if (res.toolResults && Array.isArray(res.toolResults)) {
+    for (const tr of res.toolResults) {
+      if (!tr.ok) continue;
+      if (tr.tool === "create_task") types.add("task_created");
+      if (tr.tool === "update_task") types.add("task_updated");
+      if (tr.tool === "complete_task") types.add("task_completed");
+      if (tr.tool === "delete_task" && tr.result?.data?.deletedTaskId) {
+        types.add("task_deleted");
+      }
+      if (tr.tool === "create_goal") types.add("goal_created");
+      if (tr.tool === "confirm_goal_plan" && tr.result?.data?.createdCount) {
+        types.add("goal_plan_confirmed");
+        types.add("task_created");
+      }
+      if (tr.tool === "apply_goal_rebalance" && tr.result?.data?.applied) {
+        types.add("goal_rebalanced");
+        types.add("task_updated");
+      }
+      if (tr.tool === "apply_goal_adjustment" && tr.result?.data?.applied) {
+        types.add("goal_rebalanced");
+        types.add("task_updated");
+      }
+    }
+  }
+
+  for (const type of types) {
+    emitAgentMutation({ type });
+  }
+}
 
 function clamp(val: number, min: number, max: number) {
   return Math.max(min, Math.min(max, val));
@@ -84,7 +131,9 @@ export default function AgentChat() {
       setLoading(true);
 
       try {
-        const history = messages.slice(-20).map((m) => ({ role: m.role, text: m.text }));
+        const history = [...messages, { role: "user" as const, text: userMsg }]
+          .slice(-20)
+          .map((m) => ({ role: m.role, text: m.text }));
         const res = await api("/agent/chat", {
           method: "POST",
           body: JSON.stringify({
@@ -100,29 +149,7 @@ export default function AgentChat() {
         setMessages((prev) => [...prev, { role: "assistant", text: assistantText }]);
         setPendingConfirmation(res.pendingConfirmation ?? null);
 
-        // Emit real-time mutation events for task changes
-        if (res.toolResults && Array.isArray(res.toolResults)) {
-          for (const tr of res.toolResults) {
-            if (!tr.ok) continue;
-            if (tr.tool === "create_task") emitAgentMutation({ type: "task_created" });
-            if (tr.tool === "update_task") emitAgentMutation({ type: "task_updated" });
-            if (tr.tool === "complete_task") emitAgentMutation({ type: "task_completed" });
-            if (tr.tool === "delete_task" && tr.result?.data?.deletedTaskId) emitAgentMutation({ type: "task_deleted" });
-            if (tr.tool === "create_goal") emitAgentMutation({ type: "goal_created" });
-            if (tr.tool === "confirm_goal_plan" && tr.result?.data?.createdCount) {
-              emitAgentMutation({ type: "goal_plan_confirmed" });
-              emitAgentMutation({ type: "task_created" });
-            }
-            if (tr.tool === "apply_goal_rebalance" && tr.result?.data?.applied) {
-              emitAgentMutation({ type: "goal_rebalanced" });
-              emitAgentMutation({ type: "task_updated" });
-            }
-            if (tr.tool === "apply_goal_adjustment" && tr.result?.data?.applied) {
-              emitAgentMutation({ type: "goal_rebalanced" });
-              emitAgentMutation({ type: "task_updated" });
-            }
-          }
-        }
+        emitMutationsFromAgentResponse(res);
 
         if (res.clientActions && Array.isArray(res.clientActions)) {
           const outcomes = handleAgentClientActions(res.clientActions, focusTimer);

@@ -8,6 +8,8 @@ const {
   parseRuleBasedMessage,
   INTENTS,
   listTasksArgsForTodayIntent,
+  isCreateTaskRetryMessage,
+  findLastUserCreateTaskArgs,
 } = require("./ruleParser");
 const { isV1ToolName, parseToolArgs } = require("./tools");
 const {
@@ -34,7 +36,52 @@ function getOrchestratorMode() {
  * @property {Array<object>} toolResults
  * @property {null} pendingConfirmation
  * @property {Array<object>} clientActions
+ * @property {string[]} mutations
  */
+
+const WRITE_TOOLS_USE_TOOL_SUMMARY = new Set([
+  "create_task",
+  "update_task",
+  "complete_task",
+  "delete_task",
+  "confirm_goal_plan",
+  "apply_goal_rebalance",
+  "apply_goal_adjustment",
+]);
+
+function collectMutationTypes(toolResults) {
+  const types = [];
+  for (const tr of toolResults) {
+    if (!tr.ok) continue;
+    if (tr.tool === "create_task") types.push("task_created");
+    if (tr.tool === "update_task") types.push("task_updated");
+    if (tr.tool === "complete_task") types.push("task_completed");
+    if (tr.tool === "delete_task" && tr.result?.data?.deletedTaskId) {
+      types.push("task_deleted");
+    }
+    if (tr.tool === "create_goal") types.push("goal_created");
+    if (tr.tool === "confirm_goal_plan" && tr.result?.data?.createdCount) {
+      types.push("goal_plan_confirmed");
+      types.push("task_created");
+    }
+    if (tr.tool === "apply_goal_rebalance" && tr.result?.data?.applied) {
+      types.push("goal_rebalanced");
+      types.push("task_updated");
+    }
+    if (tr.tool === "apply_goal_adjustment" && tr.result?.data?.applied) {
+      types.push("goal_rebalanced");
+      types.push("task_updated");
+    }
+  }
+  return [...new Set(types)];
+}
+
+function withMutations(response) {
+  return {
+    ...response,
+    mutations: collectMutationTypes(response.toolResults ?? []),
+  };
+}
 
 function collectClientActions(toolResults) {
   const actions = [];
@@ -91,12 +138,12 @@ async function runRuleBasedFallback({ userId, message, tzOffsetMinutes = 0 }) {
   const ctx = { userId, tzOffsetMinutes };
 
   if (plan.type === "clarify" || plan.type === "unsupported") {
-    return {
+    return withMutations({
       assistantMessage: plan.assistantMessage,
       toolResults: [],
       pendingConfirmation: null,
       clientActions: [],
-    };
+    });
   }
 
   const toolResults = [];
@@ -110,7 +157,7 @@ async function runRuleBasedFallback({ userId, message, tzOffsetMinutes = 0 }) {
     });
   }
 
-  return {
+  return withMutations({
     assistantMessage: buildRuleBasedAssistantMessage(
       plan.intent,
       toolResults,
@@ -119,7 +166,7 @@ async function runRuleBasedFallback({ userId, message, tzOffsetMinutes = 0 }) {
     toolResults,
     pendingConfirmation: null,
     clientActions: collectClientActions(toolResults),
-  };
+  });
 }
 
 function clarificationMessage(detail) {
@@ -212,6 +259,15 @@ async function assistantMessageAfterToolExecution(input) {
   const entry = toolResults[toolResults.length - 1] ?? toolResults[0];
   if (!entry?.result) return fallback;
 
+  const resolvedTool = entry.tool ?? toolName;
+  if (
+    entry.ok &&
+    entry.result.summary &&
+    WRITE_TOOLS_USE_TOOL_SUMMARY.has(resolvedTool)
+  ) {
+    return entry.result.summary;
+  }
+
   try {
     const observed = await completeObserveRespond({
       message,
@@ -239,6 +295,36 @@ async function assistantMessageAfterToolExecution(input) {
   }
 
   return fallback;
+}
+
+async function runCreateTaskRetryIfNeeded({
+  userId,
+  message,
+  tzOffsetMinutes,
+  history,
+}) {
+  if (!isCreateTaskRetryMessage(message)) return null;
+
+  const toolArgs = findLastUserCreateTaskArgs(history, tzOffsetMinutes);
+  if (!toolArgs) return null;
+
+  const ctx = { userId, tzOffsetMinutes };
+  const toolResults = await executeToolChain(ctx, "create_task", toolArgs);
+  const responsePendingConfirmation = extractPendingConfirmation(toolResults);
+  const assistantMessage = await assistantMessageAfterToolExecution({
+    message,
+    tzOffsetMinutes,
+    toolName: "create_task",
+    args: toolArgs,
+    toolResults,
+  });
+
+  return withMutations({
+    assistantMessage,
+    toolResults,
+    pendingConfirmation: responsePendingConfirmation,
+    clientActions: collectClientActions(toolResults),
+  });
 }
 
 /**
@@ -279,14 +365,22 @@ async function runLlmTurn({
         toolResults,
       });
 
-      return {
+      return withMutations({
         assistantMessage,
         toolResults,
         pendingConfirmation: nextPending,
         clientActions: collectClientActions(toolResults),
-      };
+      });
     }
   }
+
+  const retryResponse = await runCreateTaskRetryIfNeeded({
+    userId,
+    message,
+    tzOffsetMinutes,
+    history,
+  });
+  if (retryResponse) return retryResponse;
 
   const llmResult = await completeAgentTurn({ message, tzOffsetMinutes, history });
 
@@ -294,33 +388,33 @@ async function runLlmTurn({
     const text =
       llmResult.content ||
       "How can I help with your tasks, focus session, or goal plan?";
-    return {
+    return withMutations({
       assistantMessage: text,
       toolResults: [],
       pendingConfirmation: null,
       clientActions: [],
-    };
+    });
   }
 
   const toolName = llmResult.toolName;
   if (!isV1ToolName(toolName)) {
-    return {
+    return withMutations({
       assistantMessage:
         "I can help with tasks, focus sessions, and goals — including creating goals, previewing plans, and confirming schedules.",
       toolResults: [],
       pendingConfirmation: null,
       clientActions: [],
-    };
+    });
   }
 
   const parsed = parseToolArgs(toolName, llmResult.rawArgs);
   if (!parsed.ok) {
-    return {
+    return withMutations({
       assistantMessage: clarificationMessage(parsed.error),
       toolResults: [],
       pendingConfirmation: null,
       clientActions: [],
-    };
+    });
   }
 
   let toolArgs = parsed.args;
@@ -343,12 +437,12 @@ async function runLlmTurn({
     toolResults,
   });
 
-  return {
+  return withMutations({
     assistantMessage,
     toolResults,
     pendingConfirmation: responsePendingConfirmation,
     clientActions: collectClientActions(toolResults),
-  };
+  });
 }
 
 /**
@@ -397,6 +491,7 @@ module.exports = {
   runRuleBasedFallback,
   runLlmTurn,
   collectClientActions,
+  collectMutationTypes,
   formatListTasksReply,
   toolSummaryFallback,
   assistantMessageAfterToolExecution,
@@ -404,4 +499,5 @@ module.exports = {
   extractPendingConfirmation,
   isAffirmativeConfirmation,
   pendingConfirmationToToolCall,
+  runCreateTaskRetryIfNeeded,
 };

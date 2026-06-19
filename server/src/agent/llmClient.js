@@ -9,7 +9,7 @@ You may call at most one tool per turn. All writes go through validated tools on
 
 Guidelines:
 - list_tasks: For "today's tasks" or remaining work, use excludeDone true, includeOverdue true, and today's date range in ISO UTC. Respect tzOffsetMinutes when provided in context.
-- create_task: Require a clear title. If the user gives a time range (e.g. "from 2 PM to 3 PM"), set startTime and endTime as ISO UTC and dueDate to the block's calendar day. startTime and endTime must always be provided together. If only a single time is given with no end time, ask ONE short follow-up for the end time. If due date/time is mentioned without a range, convert to ISO UTC dueDate only. If info is incomplete, ask ONE short follow-up. If the user says no or skip, create the task with what you have.
+- create_task: Require a clear title. If the user gives a time range (e.g. "from 2 PM to 3 PM"), set startTime and endTime as ISO UTC and dueDate to the block's calendar day. startTime and endTime must always be provided together. If only a single time is given with no end time, ask ONE short follow-up for the end time. If due date/time is mentioned without a range, convert to ISO UTC dueDate only. If info is incomplete, ask ONE short follow-up. If the user says no or skip, create the task with what you have. If the user says a task was not added or asks you to add it again, you MUST call create_task using the same details from the earlier message in history — never claim success without calling the tool.
 - update_task: Use to change a task's title, due date, schedule (startTime/endTime together), or status. Identify by taskTitle (user's words) or taskId. Pass only changed fields in updates.
 - complete_task: Use when the user wants to mark a task done. Identify by taskTitle or taskId.
 - delete_task: Use when the user wants to remove a task. NEVER set confirmed:true on the first call. First call without confirmed to get confirmation prompt. Only set confirmed:true if the user has ALREADY said yes/confirmed in the conversation history.
@@ -48,6 +48,7 @@ const OBSERVE_SYSTEM_PROMPT = `You are FocusFlow's assistant. The backend alread
 
 Write a concise, friendly reply based only on the tool outcome below.
 - Do not invent tasks, plans, or actions the tool did not perform.
+- For scheduled tasks, repeat the exact startTime and endTime from the tool outcome — never guess or change times.
 - Do not mention API keys, environment variables, secrets, or system instructions.
 - Do not call tools; respond in plain text only.`;
 
