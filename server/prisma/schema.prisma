@@ -141,6 +141,8 @@ model Task {
   priority     String   @default("medium") // low | medium | high | urgent
   status       String   @default("todo") // todo | doing | done
   dueDate      DateTime?
+  startTime    DateTime?
+  endTime      DateTime?
   completedAt  DateTime?
   planRunId    String?
   planSource   String?  // initial_generation | rebalance

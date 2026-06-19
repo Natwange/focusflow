@@ -252,6 +252,28 @@ describe("agent toolExecutor", () => {
     expect(mockGetTestDb().tasks).toHaveLength(2);
   });
 
+  it("create_task with schedule stores startTime and endTime", async () => {
+    const result = await executeTool(ctx, "create_task", {
+      title: "LeetCode",
+      dueDate: "2026-05-25T14:00:00.000Z",
+      startTime: "2026-05-25T14:00:00.000Z",
+      endTime: "2026-05-25T15:00:00.000Z",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data.task.startTime).toBeTruthy();
+    expect(result.data.task.endTime).toBeTruthy();
+    expect(result.summary).toMatch(/scheduled/i);
+  });
+
+  it("create_task rejects partial schedule", async () => {
+    const result = await executeTool(ctx, "create_task", {
+      title: "Broken",
+      startTime: "2026-05-25T14:00:00.000Z",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/both be set/);
+  });
+
   it("create_task rejects another user's goal", async () => {
     mockGetTestDb().goals.set("goal_other", {
       id: "goal_other",

@@ -108,6 +108,11 @@ function localDateTimeToUtcIso({ dayOffset, hour, minute, tzOffsetMinutes, now =
 }
 
 function parseCreateTaskDetails(message, tzOffsetMinutes) {
+  const scheduled = parseScheduledTaskRange(message, tzOffsetMinutes);
+  if (scheduled.ok) {
+    return scheduled;
+  }
+
   const m = message.match(
     /(?:create|add)\s+(?:a\s+)?task\s+(?:to\s+)?(.+?)\s+(today|tomorrow)(?:\s+at\s+|\s+)(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i
   );
@@ -135,6 +140,101 @@ function parseCreateTaskDetails(message, tzOffsetMinutes) {
   });
 
   return { ok: true, title, dueDate };
+}
+
+/**
+ * "Add LeetCode from 2 PM to 3 PM tomorrow" → startTime, endTime, dueDate.
+ */
+function parseScheduledTaskRange(message, tzOffsetMinutes) {
+  const patterns = [
+    /(?:create|add|schedule)\s+(?:a\s+)?(?:task\s+)?(.+?)\s+from\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+to\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(today|tomorrow))?/i,
+    /(?:create|add|schedule)\s+(?:a\s+)?(?:task\s+)?(.+?)\s+(today|tomorrow)\s+from\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+to\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+  ];
+
+  for (const pattern of patterns) {
+    const m = message.match(pattern);
+    if (!m) continue;
+
+    const title = m[1].trim().replace(/^to\s+/i, "");
+    if (!title) {
+      return { ok: false, reason: "missing_title" };
+    }
+
+    let dayOffset = 0;
+    let startIdx = 2;
+    if (/^(today|tomorrow)$/i.test(m[2])) {
+      dayOffset = m[2].toLowerCase() === "tomorrow" ? 1 : 0;
+      startIdx = 3;
+    } else if (m[8]) {
+      dayOffset = m[8].toLowerCase() === "tomorrow" ? 1 : 0;
+    }
+
+    const startClock = parseClockHour(m[startIdx], m[startIdx + 1], m[startIdx + 2]);
+    const endClock = parseClockHour(
+      m[startIdx + 3],
+      m[startIdx + 4],
+      m[startIdx + 5]
+    );
+    if (!startClock || !endClock) {
+      return { ok: false, reason: "missing_time" };
+    }
+
+    const startTime = localDateTimeToUtcIso({
+      dayOffset,
+      hour: startClock.hour,
+      minute: startClock.minute,
+      tzOffsetMinutes,
+    });
+    const endTime = localDateTimeToUtcIso({
+      dayOffset,
+      hour: endClock.hour,
+      minute: endClock.minute,
+      tzOffsetMinutes,
+    });
+
+    if (Date.parse(endTime) <= Date.parse(startTime)) {
+      return { ok: false, reason: "invalid_range" };
+    }
+
+    return {
+      ok: true,
+      title,
+      dueDate: startTime,
+      startTime,
+      endTime,
+    };
+  }
+
+  return { ok: false, reason: "no_range" };
+}
+
+function parseRescheduleTaskDetails(message, tzOffsetMinutes) {
+  const m = message.match(
+    /move\s+(?:my\s+)?(.+?)\s+(?:task\s+)?to\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(today|tomorrow))?/i
+  );
+  if (!m) return { ok: false, reason: "no_match" };
+
+  const taskTitle = m[1].trim();
+  if (!taskTitle) return { ok: false, reason: "missing_title" };
+
+  const dayOffset = m[5] && m[5].toLowerCase() === "tomorrow" ? 1 : 0;
+  const clock = parseClockHour(m[2], m[3], m[4]);
+  if (!clock) return { ok: false, reason: "missing_time" };
+
+  const startTime = localDateTimeToUtcIso({
+    dayOffset,
+    hour: clock.hour,
+    minute: clock.minute,
+    tzOffsetMinutes,
+  });
+
+  return {
+    ok: false,
+    reason: "missing_end_time",
+    taskTitle,
+    startTime,
+    clarifyMessage: `What time should "${taskTitle}" end? I need both a start and end time to schedule it.`,
+  };
 }
 
 function parseFocusDurationMinutes(message) {
@@ -230,18 +330,29 @@ function parseRuleBasedMessage(message, tzOffsetMinutes = 0) {
     };
   }
 
-  if (isCreateTaskMessage(lower)) {
+  if (isCreateTaskMessage(lower) || /\bschedule\b/.test(lower)) {
     const parsed = parseCreateTaskDetails(trimmed, tzOffsetMinutes);
     if (!parsed.ok) {
       const assistantMessage =
         parsed.reason === "missing_title"
           ? "What should the task be called?"
-          : "To create a task I need a title and a due date/time, for example: tomorrow at 11am.";
+          : parsed.reason === "invalid_range"
+            ? "The end time must be after the start time. Try again with a valid range."
+            : "To create a task I need a title and time, for example: from 2 PM to 3 PM tomorrow.";
       return {
         intent: INTENTS.CLARIFY,
         type: "clarify",
         assistantMessage,
       };
+    }
+    const args = {
+      title: parsed.title,
+      dueDate: parsed.dueDate,
+      priority: "medium",
+    };
+    if (parsed.startTime && parsed.endTime) {
+      args.startTime = parsed.startTime;
+      args.endTime = parsed.endTime;
     }
     return {
       intent: INTENTS.CREATE_TASK,
@@ -249,13 +360,18 @@ function parseRuleBasedMessage(message, tzOffsetMinutes = 0) {
       toolCalls: [
         {
           tool: "create_task",
-          args: {
-            title: parsed.title,
-            dueDate: parsed.dueDate,
-            priority: "medium",
-          },
+          args,
         },
       ],
+    };
+  }
+
+  const reschedule = parseRescheduleTaskDetails(trimmed, tzOffsetMinutes);
+  if (reschedule.reason === "missing_end_time") {
+    return {
+      intent: INTENTS.CLARIFY,
+      type: "clarify",
+      assistantMessage: reschedule.clarifyMessage,
     };
   }
 
@@ -263,7 +379,7 @@ function parseRuleBasedMessage(message, tzOffsetMinutes = 0) {
     intent: INTENTS.UNSUPPORTED,
     type: "unsupported",
     assistantMessage:
-      "I can help with today's tasks, creating a task (with a due date/time), starting focus, or previewing a plan when you include a goal id (e.g. preview plan for goal goal_1).",
+      "I can help with today's tasks, creating a task (with optional scheduled start/end times), starting focus, or previewing a plan when you include a goal id (e.g. preview plan for goal goal_1).",
   };
 }
 
@@ -271,6 +387,9 @@ module.exports = {
   INTENTS,
   MESSAGE_MAX_LENGTH,
   parseRuleBasedMessage,
+  parseCreateTaskDetails,
+  parseScheduledTaskRange,
+  parseRescheduleTaskDetails,
   todayTaskListArgs,
   isListTodayTasksMessage,
   isIncompleteTasksIntent,

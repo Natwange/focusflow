@@ -3,6 +3,7 @@ const {
   normalizeEmailInput,
   isReasonableEmailShape,
 } = require("../lib/emailPolicy");
+const { refineTaskSchedule } = require("../lib/taskSchedule");
 
 const taskPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 const taskStatusSchema = z.enum(["todo", "doing", "done"]);
@@ -77,26 +78,36 @@ const verifyEmailBodySchema = z.object({
   token: z.string().trim().min(1, "Verification link is missing or invalid"),
 });
 
-const taskCreateBodySchema = z.object({
-  title: z.string().trim().min(1, "title is required").max(500),
-  goalId: goalIdCreateField,
-  estimatedMin: z
-    .union([z.coerce.number().int().nonnegative(), z.null()])
-    .optional(),
-  dueDate: z.union([isoLikeString, z.null()]).optional(),
-  priority: taskPrioritySchema.optional(),
-});
+const optionalScheduleTime = z.union([isoLikeString, z.null()]).optional();
 
-const taskUpdateBodySchema = z.object({
-  title: z.string().trim().min(1).max(500).optional(),
-  dueDate: z.union([isoLikeString, z.null()]).optional(),
-  estimatedMin: z
-    .union([z.coerce.number().int().nonnegative(), z.null()])
-    .optional(),
-  goalId: goalIdUpdateField,
-  status: taskStatusSchema.optional(),
-  priority: taskPrioritySchema.optional(),
-});
+const taskCreateBodySchema = z
+  .object({
+    title: z.string().trim().min(1, "title is required").max(500),
+    goalId: goalIdCreateField,
+    estimatedMin: z
+      .union([z.coerce.number().int().nonnegative(), z.null()])
+      .optional(),
+    dueDate: z.union([isoLikeString, z.null()]).optional(),
+    startTime: optionalScheduleTime,
+    endTime: optionalScheduleTime,
+    priority: taskPrioritySchema.optional(),
+  })
+  .superRefine(refineTaskSchedule);
+
+const taskUpdateBodySchema = z
+  .object({
+    title: z.string().trim().min(1).max(500).optional(),
+    dueDate: z.union([isoLikeString, z.null()]).optional(),
+    startTime: optionalScheduleTime,
+    endTime: optionalScheduleTime,
+    estimatedMin: z
+      .union([z.coerce.number().int().nonnegative(), z.null()])
+      .optional(),
+    goalId: goalIdUpdateField,
+    status: taskStatusSchema.optional(),
+    priority: taskPrioritySchema.optional(),
+  })
+  .superRefine(refineTaskSchedule);
 
 const taskStatusBodySchema = z.object({
   status: taskStatusSchema,

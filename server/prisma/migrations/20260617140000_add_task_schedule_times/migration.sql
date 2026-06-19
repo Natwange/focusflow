@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Task" ADD COLUMN "startTime" TIMESTAMP(3),
+ADD COLUMN "endTime" TIMESTAMP(3);

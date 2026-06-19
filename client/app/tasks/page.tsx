@@ -9,6 +9,14 @@ import {
   taskDueCalendarDayKey,
 } from "@/lib/calendarDueDate";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DayTimeline } from "@/components/tasks/DayTimeline";
+import {
+  buildSchedulePayload,
+  formatScheduleRange,
+  isTaskScheduled,
+  parseScheduleTimes,
+  validateScheduleOnDate,
+} from "@/lib/taskSchedule";
 import {
   ChevronLeft,
   ChevronRight,
@@ -59,6 +67,8 @@ type Task = {
   priority: TaskPriority;
   status: TaskStatus;
   dueDate: string | null;
+  startTime: string | null;
+  endTime: string | null;
   completedAt: string | null;
   createdAt: string;
 };
@@ -180,7 +190,9 @@ export default function TasksPage() {
   const [newTitle, setNewTitle] = useState("");
   const [newPriority, setNewPriority] = useState<TaskPriority>("medium");
   const [newDueDate, setNewDueDate] = useState(() => toISODate(new Date()));
-  const [newDueTime, setNewDueTime] = useState("");
+  const [newStartTime, setNewStartTime] = useState("");
+  const [newEndTime, setNewEndTime] = useState("");
+  const [dayEditTaskId, setDayEditTaskId] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [taskIdPendingDelete, setTaskIdPendingDelete] = useState<string | null>(null);
@@ -238,13 +250,28 @@ export default function TasksPage() {
   const createTask = async () => {
     const title = newTitle.trim();
     if (!title) return;
+
+    const scheduleErr = validateScheduleOnDate(newDueDate, newStartTime, newEndTime);
+    if (scheduleErr) {
+      setError(scheduleErr);
+      return;
+    }
+
     setCreateLoading(true);
     setError(null);
     let dueDate: string | null = null;
-    if (newDueDate) {
-      const dateStr = newDueTime ? `${newDueDate}T${newDueTime}` : `${newDueDate}T00:00`;
-      dueDate = new Date(dateStr).toISOString();
+    let startTime: string | null = null;
+    let endTime: string | null = null;
+
+    const schedule = buildSchedulePayload(newDueDate, newStartTime, newEndTime);
+    if (schedule) {
+      dueDate = schedule.dueDate;
+      startTime = schedule.startTime;
+      endTime = schedule.endTime;
+    } else if (newDueDate) {
+      dueDate = new Date(`${newDueDate}T00:00`).toISOString();
     }
+
     try {
       const created = await api("/tasks", {
         method: "POST",
@@ -252,13 +279,16 @@ export default function TasksPage() {
           title,
           priority: newPriority,
           dueDate: dueDate || undefined,
+          startTime: startTime ?? undefined,
+          endTime: endTime ?? undefined,
         }),
       });
       setTasks((prev) => [created, ...prev]);
       setNewTitle("");
       setNewPriority("medium");
       setNewDueDate(toISODate(new Date()));
-      setNewDueTime("");
+      setNewStartTime("");
+      setNewEndTime("");
     } catch (e: any) {
       setError(e?.message || "Failed to create task");
     } finally {
@@ -296,7 +326,13 @@ export default function TasksPage() {
 
   const editTask = async (
     id: string,
-    updates: { title?: string; priority?: TaskPriority; dueDate?: string | null }
+    updates: {
+      title?: string;
+      priority?: TaskPriority;
+      dueDate?: string | null;
+      startTime?: string | null;
+      endTime?: string | null;
+    }
   ) => {
     try {
       const updated = await api(`/tasks/${id}`, {
@@ -365,6 +401,8 @@ export default function TasksPage() {
         return key != null && key < todayKey;
       }).length
     : null;
+
+  const dayViewKey = toISODate(startOfDay(cursor));
 
   return (
     <div className="ff-page">
@@ -614,27 +652,38 @@ export default function TasksPage() {
                 <p className="text-base font-semibold text-gray-900">{formatShort(cursor)}</p>
               )}
             </div>
-            <div className="space-y-4">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                {isViewingToday ? "Today’s tasks" : "Tasks for this day"}
-              </h2>
-              {loading ? (
-                <div className="flex items-center gap-2 text-gray-500 py-6">
-                  <Loader2 size={18} className="animate-spin" />
-                  Loading…
-                </div>
-              ) : (
-                <TaskList
+            {loading ? (
+              <div className="flex items-center gap-2 text-gray-500 py-6">
+                <Loader2 size={18} className="animate-spin" />
+                Loading…
+              </div>
+            ) : (
+              <>
+                <DayTimeline
                   tasks={activeTasks}
-                  onStatus={updateStatus}
-                  onDelete={(id) => setTaskIdPendingDelete(id)}
-                  onEdit={editTask}
-                  statusLoading={statusLoading}
+                  dayKey={dayViewKey}
                   showOverdue={showOverdue}
                   todayKey={todayKey}
+                  onStatus={updateStatus}
+                  onEdit={(id) => setDayEditTaskId(id)}
+                  onDelete={(id) => setTaskIdPendingDelete(id)}
+                  statusLoading={statusLoading}
                 />
-              )}
-            </div>
+                {dayEditTaskId && (
+                  <TaskList
+                    tasks={activeTasks.filter((t) => t.id === dayEditTaskId)}
+                    onStatus={updateStatus}
+                    onDelete={(id) => setTaskIdPendingDelete(id)}
+                    onEdit={editTask}
+                    statusLoading={statusLoading}
+                    showOverdue={showOverdue}
+                    todayKey={todayKey}
+                    externalEditId={dayEditTaskId}
+                    onExternalEditHandled={() => setDayEditTaskId(null)}
+                  />
+                )}
+              </>
+            )}
 
             <CompletedTasksPanel
               completedTasks={completedTasks}
@@ -708,18 +757,35 @@ export default function TasksPage() {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label htmlFor="new-due-time" className="text-xs font-medium text-gray-500">Time</label>
+                <label htmlFor="new-start-time" className="text-xs font-medium text-gray-500">
+                  Start
+                </label>
                 <input
-                  id="new-due-time"
+                  id="new-start-time"
                   type="time"
-                  value={newDueTime}
-                  onChange={(e) => setNewDueTime(e.target.value)}
+                  value={newStartTime}
+                  onChange={(e) => setNewStartTime(e.target.value)}
                   className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
                 />
-                {newDueTime && (
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="new-end-time" className="text-xs font-medium text-gray-500">
+                  End
+                </label>
+                <input
+                  id="new-end-time"
+                  type="time"
+                  value={newEndTime}
+                  onChange={(e) => setNewEndTime(e.target.value)}
+                  className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1.5 text-sm focus:border-black/40 focus:outline-none"
+                />
+                {(newStartTime || newEndTime) && (
                   <button
                     type="button"
-                    onClick={() => setNewDueTime("")}
+                    onClick={() => {
+                      setNewStartTime("");
+                      setNewEndTime("");
+                    }}
                     className="text-xs text-gray-400 hover:text-gray-600"
                   >
                     clear
@@ -847,42 +913,101 @@ function TaskList({
   statusLoading,
   showOverdue,
   todayKey,
+  externalEditId,
+  onExternalEditHandled,
 }: {
   tasks: Task[];
   onStatus: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
-  onEdit: (id: string, updates: { title?: string; priority?: TaskPriority; dueDate?: string | null }) => Promise<void>;
+  onEdit: (
+    id: string,
+    updates: {
+      title?: string;
+      priority?: TaskPriority;
+      dueDate?: string | null;
+      startTime?: string | null;
+      endTime?: string | null;
+    }
+  ) => Promise<void>;
   statusLoading: string | null;
   showOverdue: boolean;
   todayKey: string;
+  externalEditId?: string | null;
+  onExternalEditHandled?: () => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editPriority, setEditPriority] = useState<TaskPriority>("medium");
   const [editDate, setEditDate] = useState("");
-  const [editTime, setEditTime] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const startEdit = (t: Task) => {
     setEditingId(t.id);
     setEditTitle(t.title);
     setEditPriority(t.priority);
-    const { date, time } = parseDueDate(t.dueDate);
-    setEditDate(date);
-    setEditTime(time);
+    setEditError(null);
+    if (isTaskScheduled(t)) {
+      const dateKey =
+        taskDueCalendarDayKey(t.dueDate || t.startTime) || toISODate(new Date());
+      const { start, end } = parseScheduleTimes(t.startTime, t.endTime);
+      setEditDate(dateKey);
+      setEditStartTime(start);
+      setEditEndTime(end);
+    } else {
+      const { date } = parseDueDate(t.dueDate);
+      setEditDate(date);
+      setEditStartTime("");
+      setEditEndTime("");
+    }
   };
 
-  const cancelEdit = () => setEditingId(null);
+  React.useEffect(() => {
+    if (!externalEditId) return;
+    const t = tasks.find((x) => x.id === externalEditId);
+    if (t) startEdit(t);
+    onExternalEditHandled?.();
+  }, [externalEditId, tasks, onExternalEditHandled]);
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditError(null);
+  };
 
   const saveEdit = async (id: string) => {
     if (!editTitle.trim()) return;
-    setSaving(true);
-    let dueDate: string | null = null;
-    if (editDate) {
-      const dateStr = editTime ? `${editDate}T${editTime}` : `${editDate}T00:00`;
-      dueDate = new Date(dateStr).toISOString();
+    const scheduleErr = validateScheduleOnDate(editDate, editStartTime, editEndTime);
+    if (scheduleErr) {
+      setEditError(scheduleErr);
+      return;
     }
-    await onEdit(id, { title: editTitle.trim(), priority: editPriority, dueDate });
+    setSaving(true);
+    setEditError(null);
+
+    let dueDate: string | null = null;
+    let startTime: string | null = null;
+    let endTime: string | null = null;
+
+    const schedule = buildSchedulePayload(editDate, editStartTime, editEndTime);
+    if (schedule) {
+      dueDate = schedule.dueDate;
+      startTime = schedule.startTime;
+      endTime = schedule.endTime;
+    } else if (editDate) {
+      dueDate = new Date(`${editDate}T00:00`).toISOString();
+      startTime = null;
+      endTime = null;
+    }
+
+    await onEdit(id, {
+      title: editTitle.trim(),
+      priority: editPriority,
+      dueDate,
+      startTime,
+      endTime,
+    });
     setSaving(false);
     setEditingId(null);
   };
@@ -958,20 +1083,39 @@ function TaskList({
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-gray-500">Time</span>
+                  <span className="text-xs font-medium text-gray-500">Start</span>
                   <input
                     type="time"
-                    value={editTime}
-                    onChange={(e) => setEditTime(e.target.value)}
+                    value={editStartTime}
+                    onChange={(e) => setEditStartTime(e.target.value)}
                     className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1 text-sm focus:border-black/40 focus:outline-none"
                   />
-                  {editTime && (
-                    <button type="button" onClick={() => setEditTime("")} className="text-xs text-gray-400 hover:text-gray-600">
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500">End</span>
+                  <input
+                    type="time"
+                    value={editEndTime}
+                    onChange={(e) => setEditEndTime(e.target.value)}
+                    className="rounded-lg border border-gray-200 bg-[#F9F9F9] px-3 py-1 text-sm focus:border-black/40 focus:outline-none"
+                  />
+                  {(editStartTime || editEndTime) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditStartTime("");
+                        setEditEndTime("");
+                      }}
+                      className="text-xs text-gray-400 hover:text-gray-600"
+                    >
                       clear
                     </button>
                   )}
                 </div>
               </div>
+              {editError && (
+                <p className="text-xs text-red-600">{editError}</p>
+              )}
             </li>
           );
         }
@@ -1018,7 +1162,9 @@ function TaskList({
             )}
             {t.dueDate && (
               <span className="text-[11px] text-gray-400 shrink-0 tabular-nums">
-                {formatDueDateTime(t.dueDate)}
+                {isTaskScheduled(t)
+                  ? formatScheduleRange(t.startTime!, t.endTime!)
+                  : formatDueDateTime(t.dueDate)}
               </span>
             )}
             <button

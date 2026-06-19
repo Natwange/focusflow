@@ -1,6 +1,7 @@
 const prisma = require("./prisma");
 const { findOwnedResource } = require("./ownershipAssert");
 const { sanitizeUserText } = require("./sanitizeInput");
+const { validateTaskScheduleFields, parseOptionalScheduleDate } = require("./taskSchedule");
 
 /**
  * Same filters as GET /tasks.
@@ -40,8 +41,15 @@ async function listTasksForUser(
  */
 async function createTaskForUser(
   userId,
-  { title, goalId, estimatedMin, dueDate, priority }
+  { title, goalId, estimatedMin, dueDate, priority, startTime, endTime }
 ) {
+  const scheduleCheck = validateTaskScheduleFields({ startTime, endTime });
+  if (!scheduleCheck.ok) {
+    const err = new Error(scheduleCheck.error);
+    err.code = "VALIDATION";
+    throw err;
+  }
+
   const safeTitle = sanitizeUserText(title);
 
   if (goalId) {
@@ -68,6 +76,8 @@ async function createTaskForUser(
       estimatedMin: estimatedMin != null ? Number(estimatedMin) : null,
       priority: priority || "medium",
       dueDate: dueDate ? new Date(dueDate) : null,
+      startTime: startTime ? new Date(startTime) : null,
+      endTime: endTime ? new Date(endTime) : null,
     },
   });
 }
@@ -75,10 +85,28 @@ async function createTaskForUser(
 /**
  * Update allowed fields on a task (already ownership-checked).
  */
-async function updateTaskForUser(taskId, { title, dueDate, status }) {
+async function updateTaskForUser(
+  taskId,
+  { title, dueDate, status, startTime, endTime }
+) {
+  const scheduleCheck = validateTaskScheduleFields({ startTime, endTime });
+  if (!scheduleCheck.ok) {
+    const err = new Error(scheduleCheck.error);
+    err.code = "VALIDATION";
+    throw err;
+  }
+
   const data = {};
   if (title !== undefined) data.title = sanitizeUserText(title);
   if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
+  if (startTime !== undefined) {
+    const parsed = parseOptionalScheduleDate(startTime);
+    if (parsed !== undefined) data.startTime = parsed;
+  }
+  if (endTime !== undefined) {
+    const parsed = parseOptionalScheduleDate(endTime);
+    if (parsed !== undefined) data.endTime = parsed;
+  }
   if (status !== undefined) {
     data.status = String(status);
     if (status === "done") data.completedAt = new Date();

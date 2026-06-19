@@ -125,6 +125,8 @@ const mockPrisma = {
         priority: data.priority || "medium",
         status: data.status || "todo",
         dueDate: data.dueDate ?? null,
+        startTime: data.startTime ?? null,
+        endTime: data.endTime ?? null,
         completedAt: data.completedAt ?? null,
         createdAt: new Date(),
       };
@@ -411,6 +413,64 @@ describe("Security-critical integration flows", () => {
         title: "Write tests",
         priority: "high",
       });
+    });
+
+    test("creates task with valid schedule range", async () => {
+      await seedUser({
+        id: "user_1",
+        email: "alice@example.com",
+        password: "ValidPass123!",
+      });
+      const agent = request.agent(app);
+      await loginAs(agent, { email: "alice@example.com", password: "ValidPass123!" });
+
+      const res = await agent.post("/tasks").send({
+        title: "LeetCode",
+        startTime: "2026-06-18T14:00:00.000Z",
+        endTime: "2026-06-18T15:00:00.000Z",
+        dueDate: "2026-06-18T14:00:00.000Z",
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.startTime).toBeTruthy();
+      expect(res.body.endTime).toBeTruthy();
+    });
+
+    test("rejects partial schedule (start only)", async () => {
+      await seedUser({
+        id: "user_1",
+        email: "alice@example.com",
+        password: "ValidPass123!",
+      });
+      const agent = request.agent(app);
+      await loginAs(agent, { email: "alice@example.com", password: "ValidPass123!" });
+
+      const res = await agent.post("/tasks").send({
+        title: "Broken",
+        startTime: "2026-06-18T14:00:00.000Z",
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/both be set/);
+    });
+
+    test("rejects invalid schedule range", async () => {
+      await seedUser({
+        id: "user_1",
+        email: "alice@example.com",
+        password: "ValidPass123!",
+      });
+      const agent = request.agent(app);
+      await loginAs(agent, { email: "alice@example.com", password: "ValidPass123!" });
+
+      const res = await agent.post("/tasks").send({
+        title: "Broken",
+        startTime: "2026-06-18T16:00:00.000Z",
+        endTime: "2026-06-18T15:00:00.000Z",
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/later than startTime/);
     });
   });
 

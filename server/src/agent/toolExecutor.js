@@ -76,6 +76,9 @@ function mapThrownError(err) {
   if (err instanceof PlanInputError) {
     return failure(err.message, { summary: err.message });
   }
+  if (err?.code === "VALIDATION") {
+    return failure(err.message, { summary: err.message });
+  }
   if (err?.code === "NOT_FOUND") {
     return failure(err.message, { summary: err.message });
   }
@@ -164,11 +167,15 @@ async function runCreateTask(userId, args) {
     task.dueDate != null
       ? new Date(task.dueDate).toISOString()
       : null;
+  const scheduled =
+    task.startTime != null && task.endTime != null
+      ? ` scheduled ${new Date(task.startTime).toISOString()}–${new Date(task.endTime).toISOString()}`
+      : "";
   return success({
     data: { task },
     summary: due
-      ? `Created task "${task.title}" due ${due}.`
-      : `Created task "${task.title}" with no due date.`,
+      ? `Created task "${task.title}" due ${due}.${scheduled}`
+      : `Created task "${task.title}" with no due date.${scheduled}`,
   });
 }
 
@@ -247,6 +254,15 @@ async function runUpdateTask(userId, args) {
   if (args.updates.title) changes.push(`renamed to "${updated.title}"`);
   if (args.updates.dueDate !== undefined) {
     changes.push(args.updates.dueDate ? `due date set to ${new Date(args.updates.dueDate).toISOString()}` : "due date cleared");
+  }
+  if (args.updates.startTime !== undefined || args.updates.endTime !== undefined) {
+    if (updated.startTime && updated.endTime) {
+      changes.push(
+        `scheduled ${new Date(updated.startTime).toISOString()}–${new Date(updated.endTime).toISOString()}`
+      );
+    } else {
+      changes.push("schedule cleared");
+    }
   }
   if (args.updates.status) changes.push(`status set to ${updated.status}`);
 

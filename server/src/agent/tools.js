@@ -1,4 +1,5 @@
 const { z } = require("zod");
+const { refineTaskSchedule } = require("../lib/taskSchedule");
 
 const taskPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 const taskStatusSchema = z.enum(["todo", "doing", "done"]);
@@ -25,13 +26,17 @@ const toolArgSchemas = {
     excludeDone: z.boolean().optional(),
   }),
 
-  create_task: z.object({
-    title: z.string().trim().min(1, "title is required").max(500),
-    goalId: z.union([goalIdField, z.null()]).optional(),
-    estimatedMin: z.coerce.number().int().nonnegative().nullable().optional(),
-    dueDate: z.union([isoLikeString, z.null()]).optional(),
-    priority: taskPrioritySchema.optional(),
-  }),
+  create_task: z
+    .object({
+      title: z.string().trim().min(1, "title is required").max(500),
+      goalId: z.union([goalIdField, z.null()]).optional(),
+      estimatedMin: z.coerce.number().int().nonnegative().nullable().optional(),
+      dueDate: z.union([isoLikeString, z.null()]).optional(),
+      startTime: z.union([isoLikeString, z.null()]).optional(),
+      endTime: z.union([isoLikeString, z.null()]).optional(),
+      priority: taskPrioritySchema.optional(),
+    })
+    .superRefine(refineTaskSchedule),
 
   get_focus_summary: z.object({
     tzOffsetMinutes: z.coerce.number().int().min(-840).max(840).optional(),
@@ -84,18 +89,24 @@ const toolArgSchemas = {
     confirmed: z.boolean().optional(),
   }),
 
-  update_task: z.object({
-    taskId: z.string().trim().min(1).max(64).optional(),
-    taskTitle: z.string().trim().min(1).max(500).optional(),
-    updates: z.object({
-      title: z.string().trim().min(1).max(500).optional(),
-      dueDate: z.union([isoLikeString, z.null()]).optional(),
-      status: z.enum(["todo", "done"]).optional(),
-    }),
-  }).refine(
-    (d) => d.taskId || d.taskTitle,
-    { message: "Provide taskId or taskTitle to identify the task." }
-  ),
+  update_task: z
+    .object({
+      taskId: z.string().trim().min(1).max(64).optional(),
+      taskTitle: z.string().trim().min(1).max(500).optional(),
+      updates: z
+        .object({
+          title: z.string().trim().min(1).max(500).optional(),
+          dueDate: z.union([isoLikeString, z.null()]).optional(),
+          startTime: z.union([isoLikeString, z.null()]).optional(),
+          endTime: z.union([isoLikeString, z.null()]).optional(),
+          status: z.enum(["todo", "done"]).optional(),
+        })
+        .superRefine(refineTaskSchedule),
+    })
+    .refine(
+      (d) => d.taskId || d.taskTitle,
+      { message: "Provide taskId or taskTitle to identify the task." }
+    ),
 
   complete_task: z.object({
     taskId: z.string().trim().min(1).max(64).optional(),
@@ -216,11 +227,13 @@ const TOOL_CATALOG = {
     readOnly: true,
   },
   create_task: {
-    description: "Create a single task for the user.",
+    description:
+      "Create a single task for the user. Optional startTime and endTime (ISO UTC) schedule a timed block; both must be provided together.",
     readOnly: false,
   },
   update_task: {
-    description: "Update an existing task's title, due date, or status. Identify by taskId or taskTitle.",
+    description:
+      "Update an existing task's title, due date, schedule (startTime/endTime), or status. Identify by taskId or taskTitle.",
     readOnly: false,
   },
   complete_task: {
@@ -371,6 +384,14 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
           goalId: { type: ["string", "null"] },
           estimatedMin: { type: ["integer", "null"], minimum: 0 },
           dueDate: { type: ["string", "null"], description: "ISO 8601 UTC" },
+          startTime: {
+            type: ["string", "null"],
+            description: "ISO 8601 UTC block start; requires endTime",
+          },
+          endTime: {
+            type: ["string", "null"],
+            description: "ISO 8601 UTC block end; requires startTime",
+          },
           priority: {
             type: "string",
             enum: ["low", "medium", "high", "urgent"],
@@ -396,6 +417,14 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
             properties: {
               title: { type: "string", description: "New title" },
               dueDate: { type: ["string", "null"], description: "New due date ISO 8601 UTC, or null to clear" },
+              startTime: {
+                type: ["string", "null"],
+                description: "Schedule block start ISO UTC; set with endTime",
+              },
+              endTime: {
+                type: ["string", "null"],
+                description: "Schedule block end ISO UTC; set with startTime",
+              },
               status: { type: "string", enum: ["todo", "done"] },
             },
             additionalProperties: false,

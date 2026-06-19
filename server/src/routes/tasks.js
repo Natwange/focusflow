@@ -16,7 +16,7 @@ const router = express.Router();
 router.post("/", validateBody(taskCreateBodySchema), async (req, res) => {
   try {
     const userId = req.user.id;
-    const { title, goalId, estimatedMin, dueDate, priority } = req.body;
+    const { title, goalId, estimatedMin, dueDate, priority, startTime, endTime } = req.body;
     const safeTitle = sanitizeUserText(title);
 
     if (goalId) {
@@ -38,6 +38,8 @@ router.post("/", validateBody(taskCreateBodySchema), async (req, res) => {
         estimatedMin: estimatedMin != null ? Number(estimatedMin) : null,
         priority: priority || "medium",
         dueDate: dueDate ? new Date(dueDate) : null,
+        startTime: startTime ? new Date(startTime) : null,
+        endTime: endTime ? new Date(endTime) : null,
       },
     });
 
@@ -126,7 +128,8 @@ router.patch("/:id", validateBody(taskUpdateBodySchema), async (req, res) => {
   try {
     const userId = req.user.id;
     const taskId = req.params.id;
-    const { title, dueDate, estimatedMin, goalId, status, priority } = req.body;
+    const { title, dueDate, estimatedMin, goalId, status, priority, startTime, endTime } =
+      req.body;
 
     const task = await requireOwnedResource({
       model: prisma.task,
@@ -152,6 +155,8 @@ router.patch("/:id", validateBody(taskUpdateBodySchema), async (req, res) => {
     const data = {};
     if (title !== undefined) data.title = sanitizeUserText(title);
     if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
+    if (startTime !== undefined) data.startTime = startTime ? new Date(startTime) : null;
+    if (endTime !== undefined) data.endTime = endTime ? new Date(endTime) : null;
     if (estimatedMin !== undefined) data.estimatedMin = estimatedMin != null ? Number(estimatedMin) : null;
     if (goalId !== undefined) data.goalId = goalId || null;
     if (priority !== undefined) {
@@ -197,7 +202,15 @@ router.patch("/:id/status", validateBody(taskStatusBodySchema), async (req, res)
         status,
         completedAt: status === "done" ? new Date() : null,
       },
-      select: { id: true, title: true, status: true, completedAt: true, dueDate: true },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        completedAt: true,
+        dueDate: true,
+        startTime: true,
+        endTime: true,
+      },
     });
 
     return res.json(updated);
