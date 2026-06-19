@@ -20,7 +20,6 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Plus,
   Circle,
   CircleCheck,
@@ -194,7 +193,6 @@ export default function TasksPage() {
   const [newEndTime, setNewEndTime] = useState("");
   const [dayEditTaskId, setDayEditTaskId] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
-  const [showCompleted, setShowCompleted] = useState(false);
   const [taskIdPendingDelete, setTaskIdPendingDelete] = useState<string | null>(null);
 
   const getRange = useCallback(() => {
@@ -375,9 +373,6 @@ export default function TasksPage() {
     return map;
   })();
 
-  const activeTasks = tasks.filter((t) => t.status !== "done");
-  const completedTasks = tasks.filter((t) => t.status === "done");
-
   const todayStart = startOfDay(new Date());
   const todayKey = toISODate(todayStart);
   const isViewingToday = toISODate(startOfDay(cursor)) === todayKey;
@@ -403,6 +398,12 @@ export default function TasksPage() {
     : null;
 
   const dayViewKey = toISODate(startOfDay(cursor));
+  const dayViewTasks = tasks.filter((t) => {
+    const anchor = t.dueDate || t.startTime;
+    if (!anchor) return false;
+    return taskDueCalendarDayKey(anchor) === dayViewKey;
+  });
+  const dayViewDoneCount = dayViewTasks.filter((t) => t.status === "done").length;
 
   const addTaskSection = (
     <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm">
@@ -643,7 +644,7 @@ export default function TasksPage() {
                 </div>
               ) : (
                 <TaskList
-                  tasks={activeTasks}
+                  tasks={tasks}
                   onStatus={updateStatus}
                   onDelete={(id) => setTaskIdPendingDelete(id)}
                   onEdit={editTask}
@@ -653,12 +654,6 @@ export default function TasksPage() {
                 />
               )}
             </div>
-            <CompletedTasksPanel
-              completedTasks={completedTasks}
-              showCompleted={showCompleted}
-              onToggle={() => setShowCompleted((v) => !v)}
-              onDelete={(id) => setTaskIdPendingDelete(id)}
-            />
           </section>
         )}
 
@@ -726,7 +721,7 @@ export default function TasksPage() {
                 </div>
               ) : (
                 <TaskList
-                  tasks={activeTasks}
+                  tasks={tasks}
                   onStatus={updateStatus}
                   onDelete={(id) => setTaskIdPendingDelete(id)}
                   onEdit={editTask}
@@ -736,29 +731,33 @@ export default function TasksPage() {
                 />
               )}
             </div>
-            <CompletedTasksPanel
-              completedTasks={completedTasks}
-              showCompleted={showCompleted}
-              onToggle={() => setShowCompleted((v) => !v)}
-              onDelete={(id) => setTaskIdPendingDelete(id)}
-            />
           </section>
         )}
 
         {/* Day view */}
         {view === "day" && (
           <section className="rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-sm space-y-8">
-            <div>
-              {isViewingToday ? (
-                <p className="text-lg sm:text-xl font-semibold text-gray-900 tracking-tight">
-                  Today •{" "}
-                  {cursor.toLocaleDateString(undefined, {
-                    month: "long",
-                    day: "numeric",
-                  })}
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                {isViewingToday ? (
+                  <p className="text-lg sm:text-xl font-semibold text-gray-900 tracking-tight">
+                    Today •{" "}
+                    {cursor.toLocaleDateString(undefined, {
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </p>
+                ) : (
+                  <p className="text-base font-semibold text-gray-900">{formatShort(cursor)}</p>
+                )}
+              </div>
+              {dayViewTasks.length > 0 && (
+                <p className="text-sm text-gray-500 tabular-nums">
+                  <span className="font-semibold text-green-700">{dayViewDoneCount}</span>
+                  {" of "}
+                  <span className="font-semibold text-gray-800">{dayViewTasks.length}</span>
+                  {" completed"}
                 </p>
-              ) : (
-                <p className="text-base font-semibold text-gray-900">{formatShort(cursor)}</p>
               )}
             </div>
             {loading ? (
@@ -769,7 +768,7 @@ export default function TasksPage() {
             ) : (
               <>
                 <DayTimeline
-                  tasks={activeTasks}
+                  tasks={tasks}
                   dayKey={dayViewKey}
                   showOverdue={showOverdue}
                   todayKey={todayKey}
@@ -784,7 +783,7 @@ export default function TasksPage() {
                       Edit task
                     </h3>
                     <TaskList
-                      tasks={activeTasks.filter((t) => t.id === dayEditTaskId)}
+                      tasks={tasks.filter((t) => t.id === dayEditTaskId)}
                       onStatus={updateStatus}
                       onDelete={(id) => setTaskIdPendingDelete(id)}
                       onEdit={editTask}
@@ -798,13 +797,6 @@ export default function TasksPage() {
                 )}
               </>
             )}
-
-            <CompletedTasksPanel
-              completedTasks={completedTasks}
-              showCompleted={showCompleted}
-              onToggle={() => setShowCompleted((v) => !v)}
-              onDelete={(id) => setTaskIdPendingDelete(id)}
-            />
           </section>
         )}
 
@@ -835,70 +827,6 @@ function priorityPill(p: TaskPriority): string {
 
 function priorityLabel(p: TaskPriority): string {
   return PRIORITY_OPTIONS.find((o) => o.value === p)?.label ?? p;
-}
-
-function CompletedTasksPanel({
-  completedTasks,
-  showCompleted,
-  onToggle,
-  onDelete,
-}: {
-  completedTasks: Task[];
-  showCompleted: boolean;
-  onToggle: () => void;
-  onDelete: (id: string) => void;
-}) {
-  return (
-    <div className="border-t border-gray-100 pt-8">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between text-left rounded-lg border border-gray-100 bg-gray-50/80 px-4 py-3 hover:bg-gray-100/80 dark:border-[#2a303a] dark:bg-[#1c2028] dark:hover:bg-[#232936]"
-      >
-        <div className="flex items-center gap-2">
-          <ChevronDown
-            size={16}
-            className={`text-gray-500 shrink-0 dark:text-[#cfd6e2] ${showCompleted ? "rotate-180" : ""}`}
-          />
-          <span className="text-sm font-semibold text-gray-800 dark:text-[#f5f7fb]">Completed</span>
-        </div>
-        <span className="text-xs text-gray-500 tabular-nums dark:text-[#cfd6e2]">
-          {completedTasks.length} {completedTasks.length === 1 ? "task" : "tasks"}
-        </span>
-      </button>
-      {showCompleted && (
-        <div className="mt-4 space-y-2">
-          {completedTasks.length === 0 ? (
-            <p className="text-sm text-gray-500 py-2 dark:text-[#cfd6e2]">No completed tasks in this range.</p>
-          ) : (
-            <ul className="space-y-2">
-              {completedTasks.map((t) => (
-                <li
-                  key={t.id}
-                  className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-sm text-gray-600 hover:bg-gray-50/80 dark:border-[#2a303a] dark:bg-[#171a20] dark:text-[#cfd6e2] dark:hover:bg-[#1f2430]"
-                >
-                  <span className="line-through flex-1 min-w-0">{t.title}</span>
-                  {t.dueDate && (
-                    <span className="text-[11px] text-gray-400 shrink-0 dark:text-[#9aa4b5]">
-                      {formatDueDateTime(t.dueDate)}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onDelete(t.id)}
-                    aria-label="Delete completed task"
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function formatDueDateTime(iso: string): string {
@@ -1137,7 +1065,11 @@ function TaskList({
         return (
           <li
             key={t.id}
-            className="group flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap rounded-xl border border-gray-200 bg-white px-4 py-4 hover:bg-gray-50 hover:border-gray-300"
+            className={`group flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap rounded-xl border px-4 py-4 ${
+              t.status === "done"
+                ? "border-gray-200 bg-gray-50/80 hover:bg-gray-50"
+                : "border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300"
+            }`}
           >
             <button
               type="button"
@@ -1165,6 +1097,7 @@ function TaskList({
               {priorityLabel(t.priority)}
             </span>
             {showOverdue &&
+              t.status !== "done" &&
               t.dueDate &&
               (() => {
                 const key = taskDueCalendarDayKey(t.dueDate);

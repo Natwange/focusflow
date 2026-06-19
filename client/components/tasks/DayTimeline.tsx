@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Circle,
   CircleCheck,
@@ -14,6 +15,8 @@ import {
   formatScheduleRange,
   isTaskScheduled,
   minutesFromMidnightLocal,
+  minutesFromMidnightNow,
+  timelineTopPxForMinutes,
 } from "@/lib/taskSchedule";
 
 type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -57,6 +60,21 @@ function taskBelongsOnDay(task: DayTimelineTask, dayKey: string): boolean {
   return taskDueCalendarDayKey(anchor) === dayKey;
 }
 
+function CurrentTimeIndicator({ topPx }: { topPx: number }) {
+  return (
+    <div
+      className="absolute left-0 right-0 z-20 pointer-events-none"
+      style={{ top: topPx }}
+      aria-hidden
+    >
+      <div className="relative flex items-center">
+        <div className="absolute -left-1.5 h-2.5 w-2.5 rounded-full bg-red-500 shadow-sm" />
+        <div className="h-0.5 w-full bg-red-500" />
+      </div>
+    </div>
+  );
+}
+
 export function DayTimeline({
   tasks,
   dayKey,
@@ -67,11 +85,23 @@ export function DayTimeline({
   onDelete,
   statusLoading,
 }: DayTimelineProps) {
+  const isToday = dayKey === todayKey;
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!isToday) return;
+    const tick = () => setNow(new Date());
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, [isToday]);
+
   const dayTasks = tasks.filter((t) => taskBelongsOnDay(t, dayKey));
   const scheduled = dayTasks.filter((t) => isTaskScheduled(t));
   const unscheduled = dayTasks.filter((t) => !isTaskScheduled(t));
 
   const overdueUnscheduled = unscheduled.filter((t) => {
+    if (t.status === "done") return false;
     if (!showOverdue || !t.dueDate) return false;
     const key = taskDueCalendarDayKey(t.dueDate);
     return key != null && key < todayKey;
@@ -79,6 +109,10 @@ export function DayTimeline({
   const regularUnscheduled = unscheduled.filter(
     (t) => !overdueUnscheduled.includes(t)
   );
+
+  const nowMinutes = minutesFromMidnightNow(now);
+  const nowTopPx = timelineTopPxForMinutes(nowMinutes);
+  const showNowLine = isToday && nowMinutes >= 0 && nowMinutes < 24 * 60;
 
   return (
     <div className="space-y-6">
@@ -169,6 +203,8 @@ export function DayTimeline({
                 />
               ))}
 
+              {showNowLine && <CurrentTimeIndicator topPx={nowTopPx} />}
+
               {scheduled.length === 0 && (
                 <p className="absolute inset-0 flex items-center justify-center text-sm text-gray-400 px-4 text-center">
                   No timed tasks — add start and end times to see blocks here.
@@ -176,18 +212,23 @@ export function DayTimeline({
               )}
 
               {scheduled.map((task) => {
+                const done = task.status === "done";
                 const startMin = minutesFromMidnightLocal(task.startTime!);
                 const endMin = minutesFromMidnightLocal(task.endTime!);
-                const top = (startMin / 60) * DAY_TIMELINE_HOUR_HEIGHT_PX;
+                const top = timelineTopPxForMinutes(startMin);
                 const height = Math.max(
-                  ((endMin - startMin) / 60) * DAY_TIMELINE_HOUR_HEIGHT_PX,
+                  timelineTopPxForMinutes(endMin - startMin),
                   28
                 );
 
                 return (
                   <div
                     key={task.id}
-                    className={`absolute left-1 right-1 sm:left-2 sm:right-2 rounded-lg border border-gray-200 bg-white shadow-sm border-l-4 ${PRIORITY_BORDER[task.priority]} overflow-hidden`}
+                    className={`absolute left-1 right-1 sm:left-2 sm:right-2 rounded-lg border shadow-sm border-l-4 overflow-hidden z-10 ${
+                      done
+                        ? "border-gray-200 bg-gray-50/90 border-l-green-500 opacity-90"
+                        : `border-gray-200 bg-white ${PRIORITY_BORDER[task.priority]}`
+                    }`}
                     style={{ top, height }}
                   >
                     <div className="flex h-full items-start gap-1.5 px-2 py-1.5">
@@ -209,10 +250,20 @@ export function DayTimeline({
                         )}
                       </button>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs sm:text-sm font-semibold text-gray-900 truncate leading-tight">
+                        <p
+                          className={`text-xs sm:text-sm truncate leading-tight ${
+                            done
+                              ? "font-medium text-gray-500 line-through"
+                              : "font-semibold text-gray-900"
+                          }`}
+                        >
                           {task.title}
                         </p>
-                        <p className="text-[10px] text-gray-500 tabular-nums">
+                        <p
+                          className={`text-[10px] tabular-nums ${
+                            done ? "text-gray-400 line-through" : "text-gray-500"
+                          }`}
+                        >
                           {formatScheduleRange(task.startTime!, task.endTime!)}
                         </p>
                       </div>
@@ -260,8 +311,14 @@ function UnscheduledTaskRow({
   onDelete: (id: string) => void;
   statusLoading: string | null;
 }) {
+  const done = task.status === "done";
+
   return (
-    <li className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm">
+    <li
+      className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-sm ${
+        done ? "border-gray-200 bg-gray-50/80" : "border-gray-200 bg-white"
+      }`}
+    >
       <button
         type="button"
         onClick={() => onStatus(task.id, task.status === "done" ? "todo" : "done")}
@@ -276,7 +333,11 @@ function UnscheduledTaskRow({
           <Circle size={18} className="text-gray-400" />
         )}
       </button>
-      <span className="flex-1 min-w-0 font-medium text-gray-900 truncate">
+      <span
+        className={`flex-1 min-w-0 truncate ${
+          done ? "font-normal text-gray-500 line-through" : "font-medium text-gray-900"
+        }`}
+      >
         {task.title}
       </span>
       {overdue && (

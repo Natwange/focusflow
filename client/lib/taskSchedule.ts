@@ -60,6 +60,18 @@ export function minutesFromMidnightLocal(iso: string): number {
   return d.getHours() * 60 + d.getMinutes();
 }
 
+/** Minutes since local midnight for the current moment (includes seconds for sub-hour precision). */
+export function minutesFromMidnightNow(date = new Date()): number {
+  return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
+}
+
+export function timelineTopPxForMinutes(
+  minutes: number,
+  hourHeightPx = DAY_TIMELINE_HOUR_HEIGHT_PX
+): number {
+  return (minutes / 60) * hourHeightPx;
+}
+
 export function parseScheduleTimes(
   startTime: string | null | undefined,
   endTime: string | null | undefined
