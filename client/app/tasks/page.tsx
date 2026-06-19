@@ -602,7 +602,7 @@ export default function TasksPage() {
           </div>
         </section>
 
-        {view === "day" && addTaskSection}
+        {addTaskSection}
 
         {/* Week view: day strip + task list */}
         {view === "week" && (
@@ -803,7 +803,6 @@ export default function TasksPage() {
           </section>
         )}
 
-        {view !== "day" && addTaskSection}
       </main>
 
       <ConfirmDialog
