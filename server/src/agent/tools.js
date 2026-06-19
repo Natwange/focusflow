@@ -194,6 +194,28 @@ const toolArgSchemas = {
     goalTitle: z.string().min(1).optional(),
     lookbackDays: z.coerce.number().int().min(7).max(366).optional(),
   }),
+
+  retrieve_memory: z.object({
+    query: z.string().trim().min(1).max(500),
+    limit: z.coerce.number().int().min(1).max(20).optional(),
+  }),
+
+  store_memory: z.object({
+    content: z.string().trim().min(1).max(500),
+  }),
+
+  list_memories: z.object({
+    limit: z.coerce.number().int().min(1).max(50).optional(),
+  }),
+
+  delete_memory: z
+    .object({
+      memoryId: z.string().trim().min(1).max(128).optional(),
+      query: z.string().trim().min(1).max(500).optional(),
+    })
+    .refine((d) => d.memoryId || d.query, {
+      message: "Provide memoryId or query to identify the memory to delete.",
+    }),
 };
 
 /** V1 tool names exposed to the future LLM layer. */
@@ -218,6 +240,10 @@ const V1_TOOL_NAMES = Object.freeze([
   "evaluate_agent_outcomes",
   "get_agent_strategy_memory",
   "get_adaptive_recommendation",
+  "retrieve_memory",
+  "store_memory",
+  "list_memories",
+  "delete_memory",
 ]);
 
 const TOOL_CATALOG = {
@@ -317,6 +343,26 @@ const TOOL_CATALOG = {
     description:
       "Ranked recommendation for what to do next on a goal (or the most urgent goal) using current evaluation, outcome memory, and behavior signals. Use for 'what should I do?', 'how should I fix this?', or 'what do you recommend?'. Never auto-applies changes.",
     readOnly: true,
+  },
+  retrieve_memory: {
+    description:
+      "Search the user's long-term Mem0 preferences (study times, focus length, workload limits). Use when personalization would help and memories were not already injected.",
+    readOnly: true,
+  },
+  store_memory: {
+    description:
+      "Save a stable user preference to long-term memory (e.g. morning study, 45-minute focus sessions). Never store passwords, tokens, or secrets.",
+    readOnly: false,
+  },
+  list_memories: {
+    description:
+      "List stored long-term preferences for this user. Use when they ask what you remember about them.",
+    readOnly: true,
+  },
+  delete_memory: {
+    description:
+      "Delete a stored preference by memoryId or by semantic query (e.g. 'weekends'). Use when the user asks to forget something.",
+    readOnly: false,
   },
 };
 
@@ -767,6 +813,72 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
             minimum: 7,
             maximum: 366,
             description: "Behavior lookback window (default 30)",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "retrieve_memory",
+      description: TOOL_CATALOG.retrieve_memory.description,
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "What to search for in stored preferences" },
+          limit: { type: "integer", minimum: 1, maximum: 20 },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "store_memory",
+      description: TOOL_CATALOG.store_memory.description,
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "Stable preference to remember (no secrets)",
+          },
+        },
+        required: ["content"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_memories",
+      description: TOOL_CATALOG.list_memories.description,
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", minimum: 1, maximum: 50 },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_memory",
+      description: TOOL_CATALOG.delete_memory.description,
+      parameters: {
+        type: "object",
+        properties: {
+          memoryId: { type: "string", description: "Exact memory id from list_memories" },
+          query: {
+            type: "string",
+            description: "Semantic match when id is unknown (e.g. 'weekends')",
           },
         },
         additionalProperties: false,

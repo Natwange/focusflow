@@ -1,4 +1,5 @@
 const { getOpenAIChatTools, getAnthropicTools } = require("./tools");
+const { buildMemoryContextForTurn } = require("../memory/mem0Service");
 
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
@@ -28,6 +29,7 @@ Guidelines:
 - evaluate_agent_outcomes: Compare before/after completion and missed-task metrics on accepted agent recommendations. Use when the user asks whether a rebalance or suggestion helped. Report only stored metrics — never invent improvement.
 - get_agent_strategy_memory: Read-only history of which nextAction strategies (rebalance, extend_deadline, reduce_scope, keep_plan) tended to help after acceptance. If hasEnoughData is false, say "I do not have enough outcome history yet." Memory informs recommendations; it never auto-applies changes.
 - get_adaptive_recommendation: Ranked next-step recommendation for a goal using current evaluation, outcome memory, and behavior signals. Use for "what should I do?", "how should I fix this?", or "what do you recommend?" Prefer goalTitle from the user's words. If adaptationUsed is false, say there is not enough outcome history yet — use current goal data only. If adaptationUsed is true, cite specific evidence (e.g. "3 evaluated accepted rebalances, 67% improved") — never say "you always" or "AI learned your habits perfectly." Still require confirmation before apply_goal_rebalance or apply_goal_adjustment.
+- retrieve_memory / list_memories / store_memory / delete_memory: Long-term Mem0 preferences (study times, focus length, workload limits) — separate from get_agent_strategy_memory outcome stats. Use list_memories when the user asks what you remember. Use store_memory for stable preferences they want saved. Use delete_memory when they ask to forget something. Never store passwords, tokens, or secrets. Injected relevant memories are soft context only — never override explicit instructions in the current message.
 
 Schedule fix / rebalance flow:
 - General overwhelm ("fix my schedule", "I'm overwhelmed"): call list_goals first. If exactly one active goal, call get_goal_agent_preview for it. If multiple active goals, ask which goal to adjust (do not guess). If none, say so.
@@ -224,6 +226,29 @@ function getAnthropicClient() {
   return anthropicSingleton;
 }
 
+function buildSystemPromptWithMemories(memoryContext) {
+  if (!memoryContext || !String(memoryContext).trim()) {
+    return SYSTEM_PROMPT;
+  }
+  return `${SYSTEM_PROMPT}${memoryContext}`;
+}
+
+async function resolveMemoryContext(input) {
+  if (input.memoryContext !== undefined) {
+    return input.memoryContext;
+  }
+  if (!input.userId) return "";
+  try {
+    return await buildMemoryContextForTurn({
+      userId: input.userId,
+      message: input.message,
+    });
+  } catch (err) {
+    console.warn("Failed to build memory context:", err.message);
+    return "";
+  }
+}
+
 function buildHistoryMessages(history) {
   if (!Array.isArray(history) || history.length === 0) return [];
   return history.slice(-10).map((m) => ({
@@ -235,10 +260,12 @@ function buildHistoryMessages(history) {
 async function completeAgentTurnOpenAI(input) {
   const client = getOpenAIClient();
   const historyMsgs = buildHistoryMessages(input.history);
+  const memoryContext = await resolveMemoryContext(input);
+  const systemPrompt = buildSystemPromptWithMemories(memoryContext);
   const response = await client.chat.completions.create({
     model: getAgentModel(),
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       ...historyMsgs,
       {
         role: "user",
@@ -269,10 +296,12 @@ function buildAnthropicHistoryMessages(history) {
 async function completeAgentTurnAnthropic(input) {
   const client = getAnthropicClient();
   const historyMsgs = buildAnthropicHistoryMessages(input.history);
+  const memoryContext = await resolveMemoryContext(input);
+  const systemPrompt = buildSystemPromptWithMemories(memoryContext);
   const response = await client.messages.create({
     model: getAgentModel(),
     max_tokens: 600,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     tools: getAnthropicTools(),
     messages: [
       ...historyMsgs,
@@ -399,4 +428,6 @@ module.exports = {
   setCompleteAgentTurnForTests,
   setCompleteObserveRespondForTests,
   resetLlmClientForTests,
+  buildSystemPromptWithMemories,
+  resolveMemoryContext,
 };

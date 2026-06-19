@@ -101,6 +101,7 @@ async function resolvePendingConfirmationNode(state) {
 
 async function callModelNode(state) {
   const llmResult = await completeAgentTurn({
+    userId: state.userId,
     message: state.message,
     tzOffsetMinutes: state.tzOffsetMinutes,
     history: state.history,

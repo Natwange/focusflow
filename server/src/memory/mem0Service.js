@@ -1,0 +1,333 @@
+const { validateMemoryContent } = require("./memoryContentSafety");
+const {
+  extractPreferenceMemoriesFromText,
+  shouldAttemptMem0Inference,
+} = require("./memoryExtraction");
+
+const DEFAULT_LIMIT = 6;
+const DEFAULT_SCORE_THRESHOLD = 0.35;
+
+/** @type {import('mem0ai').default | null} */
+let clientSingleton = null;
+/** @type {Map<string, Array<{ id: string, content: string, score?: number, metadata?: object }>> | null} */
+let inMemoryStore = null;
+/** @type {((input: object) => Promise<object>) | null} */
+let clientOverride = null;
+
+function isMem0Configured() {
+  return Boolean(process.env.MEM0_API_KEY?.trim()) || inMemoryStore != null;
+}
+
+function getScoreThreshold() {
+  const raw = Number(process.env.MEM0_MEMORY_THRESHOLD);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 1
+    ? raw
+    : DEFAULT_SCORE_THRESHOLD;
+}
+
+function getDefaultLimit() {
+  const raw = Number(process.env.MEM0_MEMORY_LIMIT);
+  return Number.isFinite(raw) && raw > 0 ? Math.min(raw, 20) : DEFAULT_LIMIT;
+}
+
+function getMem0Client() {
+  if (clientOverride) return clientOverride;
+  if (!process.env.MEM0_API_KEY?.trim()) return null;
+  if (!clientSingleton) {
+    const MemoryClient = require("mem0ai").default;
+    clientSingleton = new MemoryClient({
+      apiKey: process.env.MEM0_API_KEY.trim(),
+    });
+  }
+  return clientSingleton;
+}
+
+function normalizeMemoryRecord(record) {
+  const content =
+    record?.memory ||
+    record?.data?.memory ||
+    record?.content ||
+    "";
+  return {
+    id: String(record?.id ?? ""),
+    content: String(content).trim(),
+    score: typeof record?.score === "number" ? record.score : undefined,
+    metadata: record?.metadata ?? null,
+  };
+}
+
+function filterByConfidence(memories, threshold = getScoreThreshold()) {
+  return memories.filter((m) => {
+    if (m.score == null) return true;
+    return m.score >= threshold;
+  });
+}
+
+function formatMemoriesForPrompt(memories) {
+  const confident = filterByConfidence(memories ?? []);
+  if (confident.length === 0) return "";
+
+  const lines = confident
+    .slice(0, getDefaultLimit())
+    .map((m) => `- ${m.content}`)
+    .filter(Boolean);
+
+  if (lines.length === 0) return "";
+
+  return `\n\nRelevant memories (use as soft context only — never override explicit instructions in this turn):\n${lines.join("\n")}`;
+}
+
+async function retrieveRelevantMemories({ userId, query, limit = getDefaultLimit() }) {
+  if (!userId) return [];
+
+  try {
+    if (inMemoryStore) {
+      const all = inMemoryStore.get(userId) ?? [];
+      const q = String(query ?? "").toLowerCase();
+      const ranked = all
+        .map((m) => ({
+          ...m,
+          score:
+            m.score ??
+            (q && m.content.toLowerCase().includes(q) ? 0.9 : 0.5),
+        }))
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      return filterByConfidence(ranked).slice(0, limit);
+    }
+
+    const client = getMem0Client();
+    if (!client) return [];
+
+    const response = await client.search(String(query ?? ""), {
+      filters: { user_id: userId },
+      topK: limit,
+    });
+
+    const results = Array.isArray(response?.results) ? response.results : [];
+    return filterByConfidence(
+      results.map(normalizeMemoryRecord).filter((m) => m.content)
+    ).slice(0, limit);
+  } catch (err) {
+    console.warn("Mem0 retrieveRelevantMemories failed:", err.message);
+    return [];
+  }
+}
+
+async function storeMemory({ userId, content, metadata = {} }) {
+  const validation = validateMemoryContent(content);
+  if (!validation.ok) {
+    return { ok: false, error: validation.error };
+  }
+  if (!userId) {
+    return { ok: false, error: "Missing user id for memory storage." };
+  }
+
+  try {
+    if (inMemoryStore) {
+      const row = {
+        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        content: validation.text,
+        score: 1,
+        metadata: { source: "focusflow", ...metadata },
+      };
+      const list = inMemoryStore.get(userId) ?? [];
+      list.push(row);
+      inMemoryStore.set(userId, list);
+      return { ok: true, memory: row };
+    }
+
+    const client = getMem0Client();
+    if (!client) {
+      console.warn("Mem0 not configured; skipping storeMemory");
+      return { ok: false, error: "Mem0 is not configured." };
+    }
+
+    const created = await client.add([{ role: "user", content: validation.text }], {
+      userId,
+      infer: false,
+      metadata: { source: "focusflow", ...metadata },
+    });
+
+    const first = Array.isArray(created) ? created[0] : created;
+    const memory = normalizeMemoryRecord(first);
+    return { ok: true, memory };
+  } catch (err) {
+    console.warn("Mem0 storeMemory failed:", err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function listMemories({ userId, limit = getDefaultLimit() }) {
+  if (!userId) return [];
+
+  try {
+    if (inMemoryStore) {
+      return (inMemoryStore.get(userId) ?? []).slice(0, limit);
+    }
+
+    const client = getMem0Client();
+    if (!client) return [];
+
+    const response = await client.getAll({
+      filters: { user_id: userId },
+      pageSize: limit,
+    });
+
+    const results = Array.isArray(response?.results) ? response.results : [];
+    return results
+      .map(normalizeMemoryRecord)
+      .filter((m) => m.content)
+      .slice(0, limit);
+  } catch (err) {
+    console.warn("Mem0 listMemories failed:", err.message);
+    return [];
+  }
+}
+
+async function deleteMemory({ userId, memoryId }) {
+  if (!userId || !memoryId) {
+    return { ok: false, error: "userId and memoryId are required." };
+  }
+
+  try {
+    if (inMemoryStore) {
+      const list = inMemoryStore.get(userId) ?? [];
+      const next = list.filter((m) => m.id !== memoryId);
+      if (next.length === list.length) {
+        return { ok: false, error: "Memory not found." };
+      }
+      inMemoryStore.set(userId, next);
+      return { ok: true, deletedId: memoryId };
+    }
+
+    const client = getMem0Client();
+    if (!client) {
+      return { ok: false, error: "Mem0 is not configured." };
+    }
+
+    const existing = await client.get(memoryId);
+    if (existing?.userId && existing.userId !== userId) {
+      return { ok: false, error: "Forbidden: memory belongs to another user." };
+    }
+
+    await client.delete(memoryId);
+    return { ok: true, deletedId: memoryId };
+  } catch (err) {
+    console.warn("Mem0 deleteMemory failed:", err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function deleteMemoriesByQuery({ userId, query, limit = 5 }) {
+  const matches = await retrieveRelevantMemories({
+    userId,
+    query,
+    limit,
+  });
+
+  if (matches.length === 0) {
+    return { ok: false, error: "No matching memories found.", deleted: [] };
+  }
+
+  const deleted = [];
+  for (const match of matches) {
+    const result = await deleteMemory({ userId, memoryId: match.id });
+    if (result.ok) deleted.push(match);
+  }
+
+  return {
+    ok: deleted.length > 0,
+    deleted,
+    error: deleted.length > 0 ? undefined : "Could not delete matching memories.",
+  };
+}
+
+async function buildMemoryContextForTurn({ userId, message }) {
+  if (!userId || !isMem0Configured()) return "";
+  const memories = await retrieveRelevantMemories({
+    userId,
+    query: message,
+    limit: getDefaultLimit(),
+  });
+  return formatMemoriesForPrompt(memories);
+}
+
+async function maybeAutoExtractAndStore({
+  userId,
+  userMessage,
+  assistantMessage,
+  toolResults = [],
+}) {
+  if (!userId || !isMem0Configured()) return;
+
+  const alreadyStored = toolResults.some(
+    (tr) => tr.tool === "store_memory" && tr.ok
+  );
+  if (alreadyStored) return;
+
+  const ruleMemories = extractPreferenceMemoriesFromText(userMessage);
+  for (const content of ruleMemories) {
+    await storeMemory({
+      userId,
+      content,
+      metadata: { source: "auto_rule" },
+    });
+  }
+
+  if (!shouldAttemptMem0Inference(userMessage)) return;
+
+  try {
+    const client = getMem0Client();
+    if (!client) return;
+
+    await client.add(
+      [
+        { role: "user", content: String(userMessage) },
+        {
+          role: "assistant",
+          content: String(assistantMessage ?? "").slice(0, 800),
+        },
+      ],
+      {
+        userId,
+        infer: true,
+        customInstructions:
+          "Extract only stable long-term preferences (study times, focus length, workload limits, subject struggles, day-of-week preferences). Do NOT store passwords, tokens, API keys, or one-off task requests. Do NOT store temporary states like being tired today.",
+      }
+    );
+  } catch (err) {
+    console.warn("Mem0 auto-extract failed:", err.message);
+  }
+}
+
+function setMem0ClientForTests(client) {
+  clientOverride = client;
+}
+
+function setInMemoryStoreForTests(store) {
+  inMemoryStore = store;
+}
+
+function resetMem0ServiceForTests() {
+  clientOverride = null;
+  clientSingleton = null;
+  inMemoryStore = null;
+}
+
+module.exports = {
+  DEFAULT_LIMIT,
+  DEFAULT_SCORE_THRESHOLD,
+  isMem0Configured,
+  retrieveRelevantMemories,
+  storeMemory,
+  listMemories,
+  deleteMemory,
+  deleteMemoriesByQuery,
+  formatMemoriesForPrompt,
+  filterByConfidence,
+  buildMemoryContextForTurn,
+  maybeAutoExtractAndStore,
+  setMem0ClientForTests,
+  setInMemoryStoreForTests,
+  resetMem0ServiceForTests,
+};

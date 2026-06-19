@@ -18,7 +18,13 @@ const { evaluateOutcomesForUser } = require("../lib/agentOutcomeEvaluator");
 const { getAgentStrategyStatsForUser } = require("../lib/agentStrategyStats");
 const { getAdaptiveRecommendationForUser } = require("../lib/adaptiveRecommendationContext");
 const { parseGoalDeadline } = require("../lib/goalDeadlineParser");
-const { resolveTask } = require("../lib/taskResolver");
+const {
+  retrieveRelevantMemories,
+  storeMemory,
+  listMemories,
+  deleteMemory,
+  deleteMemoriesByQuery,
+} = require("../memory/mem0Service");
 const {
   formatCreatedTaskSummary,
   formatLocalDateTime,
@@ -809,6 +815,81 @@ async function runConfirmGoalPlan(userId, args) {
   });
 }
 
+async function runRetrieveMemory(userId, args) {
+  const memories = await retrieveRelevantMemories({
+    userId,
+    query: args.query,
+    limit: args.limit,
+  });
+  if (memories.length === 0) {
+    return success({
+      data: { memories: [] },
+      summary: "No relevant stored preferences found for that query.",
+    });
+  }
+  const lines = memories.map((m) => `• ${m.content}`);
+  return success({
+    data: { memories },
+    summary: `Relevant preferences:\n${lines.join("\n")}`,
+  });
+}
+
+async function runStoreMemory(userId, args) {
+  const result = await storeMemory({
+    userId,
+    content: args.content,
+    metadata: { source: "agent_tool" },
+  });
+  if (!result.ok) {
+    return failure(result.error, { summary: result.error });
+  }
+  return success({
+    data: { memory: result.memory },
+    summary: `Saved preference: "${result.memory.content}"`,
+  });
+}
+
+async function runListMemories(userId, args) {
+  const memories = await listMemories({ userId, limit: args.limit });
+  if (memories.length === 0) {
+    return success({
+      data: { memories: [] },
+      summary: "I don't have any stored preferences for you yet.",
+    });
+  }
+  const lines = memories.map((m) => `• ${m.content}`);
+  return success({
+    data: { memories },
+    summary: `Here's what I remember about your preferences:\n${lines.join("\n")}`,
+  });
+}
+
+async function runDeleteMemory(userId, args) {
+  if (args.memoryId) {
+    const result = await deleteMemory({ userId, memoryId: args.memoryId });
+    if (!result.ok) {
+      return failure(result.error, { summary: result.error });
+    }
+    return success({
+      data: { deletedId: result.deletedId },
+      summary: "Removed that preference from memory.",
+    });
+  }
+
+  const result = await deleteMemoriesByQuery({
+    userId,
+    query: args.query,
+  });
+  if (!result.ok) {
+    return failure(result.error, { summary: result.error });
+  }
+  const titles = result.deleted.map((m) => m.content).join("; ");
+  return success({
+    data: { deleted: result.deleted },
+    summary: `Forgot: ${titles}`,
+  });
+}
+
 /**
  * Execute a V1 agent tool for an authenticated user.
  *
@@ -877,6 +958,14 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runGetAgentStrategyMemory(ctx.userId, parsed.args);
       case "get_adaptive_recommendation":
         return await runGetAdaptiveRecommendation(ctx.userId, ctx, parsed.args);
+      case "retrieve_memory":
+        return await runRetrieveMemory(ctx.userId, parsed.args);
+      case "store_memory":
+        return await runStoreMemory(ctx.userId, parsed.args);
+      case "list_memories":
+        return await runListMemories(ctx.userId, parsed.args);
+      case "delete_memory":
+        return await runDeleteMemory(ctx.userId, parsed.args);
       default:
         return failure(`Unknown tool: ${toolName}`, {
           summary: `Tool "${toolName}" is not available.`,

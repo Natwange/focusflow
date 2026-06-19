@@ -16,6 +16,7 @@ const {
   isAffirmativeConfirmation,
   pendingConfirmationToToolCall,
 } = require("./pendingConfirmationResolver");
+const { maybeAutoExtractAndStore } = require("../memory/mem0Service");
 function getOrchestratorMode() {
   const mode = String(process.env.AGENT_ORCHESTRATOR || "custom").toLowerCase();
   return mode === "langgraph" ? "langgraph" : "custom";
@@ -47,6 +48,10 @@ const WRITE_TOOLS_USE_TOOL_SUMMARY = new Set([
   "confirm_goal_plan",
   "apply_goal_rebalance",
   "apply_goal_adjustment",
+  "store_memory",
+  "delete_memory",
+  "retrieve_memory",
+  "list_memories",
 ]);
 
 function collectMutationTypes(toolResults) {
@@ -382,7 +387,12 @@ async function runLlmTurn({
   });
   if (retryResponse) return retryResponse;
 
-  const llmResult = await completeAgentTurn({ message, tzOffsetMinutes, history });
+  const llmResult = await completeAgentTurn({
+    userId,
+    message,
+    tzOffsetMinutes,
+    history,
+  });
 
   if (llmResult.type === "message") {
     const text =
@@ -456,33 +466,48 @@ async function run({
   history = [],
   pendingConfirmation = null,
 }) {
+  let result;
+
   if (!isLlmConfigured()) {
-    return runRuleBasedFallback({ userId, message, tzOffsetMinutes });
+    result = await runRuleBasedFallback({ userId, message, tzOffsetMinutes });
+  } else {
+    try {
+      if (getOrchestratorMode() === "langgraph") {
+        const { runLangGraphAgent } = require("./langGraphAgent");
+        result = await runLangGraphAgent({
+          userId,
+          message,
+          tzOffsetMinutes,
+          history,
+          pendingConfirmation,
+        });
+      } else {
+        result = await runLlmTurn({
+          userId,
+          message,
+          tzOffsetMinutes,
+          history,
+          pendingConfirmation,
+        });
+      }
+    } catch (err) {
+      console.error("Agent LLM turn failed, using rule-based fallback:", err);
+      result = await runRuleBasedFallback({ userId, message, tzOffsetMinutes });
+    }
   }
 
   try {
-    if (getOrchestratorMode() === "langgraph") {
-      const { runLangGraphAgent } = require("./langGraphAgent");
-      return await runLangGraphAgent({
-        userId,
-        message,
-        tzOffsetMinutes,
-        history,
-        pendingConfirmation,
-      });
-    }
-
-    return await runLlmTurn({
+    await maybeAutoExtractAndStore({
       userId,
-      message,
-      tzOffsetMinutes,
-      history,
-      pendingConfirmation,
+      userMessage: message,
+      assistantMessage: result.assistantMessage,
+      toolResults: result.toolResults ?? [],
     });
   } catch (err) {
-    console.error("Agent LLM turn failed, using rule-based fallback:", err);
-    return runRuleBasedFallback({ userId, message, tzOffsetMinutes });
+    console.warn("Mem0 post-turn persistence failed:", err.message);
   }
+
+  return result;
 }
 
 module.exports = {
