@@ -68,6 +68,8 @@ function taskMatchesDueDateQuery(
     : null;
 
   if (includeOverdue && startKey && dueKey < startKey) {
+    // Completed tasks belong on their due date only — not every future week.
+    if (task.status === "done") return false;
     return true;
   }
 

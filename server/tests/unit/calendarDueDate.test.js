@@ -51,4 +51,32 @@ describe("calendarDueDate", () => {
       })
     ).toBe(true);
   });
+
+  test("completed overdue tasks are not included in later weeks", () => {
+    const task = { dueDate: "2026-05-12T00:00:00.000Z", status: "done" };
+    const start = new Date("2026-06-15T04:00:00.000Z");
+    const end = new Date("2026-06-22T03:59:59.999Z");
+    expect(
+      taskMatchesDueDateQuery(task, {
+        startDate: start,
+        endDate: end,
+        includeOverdue: true,
+        tzOffsetMinutes: 240,
+      })
+    ).toBe(false);
+  });
+
+  test("incomplete overdue tasks still appear when includeOverdue is true", () => {
+    const task = { dueDate: "2026-05-12T00:00:00.000Z", status: "todo" };
+    const start = new Date("2026-06-15T04:00:00.000Z");
+    const end = new Date("2026-06-22T03:59:59.999Z");
+    expect(
+      taskMatchesDueDateQuery(task, {
+        startDate: start,
+        endDate: end,
+        includeOverdue: true,
+        tzOffsetMinutes: 240,
+      })
+    ).toBe(true);
+  });
 });
