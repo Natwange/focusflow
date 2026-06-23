@@ -3,6 +3,14 @@ const { completeAgentTurn } = require("./llmClient");
 const { isV1ToolName, parseToolArgs } = require("./tools");
 const { listTasksArgsForTodayIntent, isCreateTaskRetryMessage, findLastUserCreateTaskArgs } = require("./ruleParser");
 const {
+  extractExplicitRememberContent,
+  isExplicitRememberRequest,
+} = require("../memory/memoryExtraction");
+const { isMem0Configured } = require("../memory/mem0Service");
+
+const MEM0_NOT_CONFIGURED_MESSAGE =
+  "Long-term memory isn't enabled on the server yet — MEM0_API_KEY needs to be set in your API environment (e.g. Render → Environment). Once that's added, ask me again to remember this.";
+const {
   isAffirmativeConfirmation,
   pendingConfirmationToToolCall,
 } = require("./pendingConfirmationResolver");
@@ -87,6 +95,28 @@ async function resolvePendingConfirmationNode(state) {
       return {
         directToolCall: { toolName: "create_task", toolArgs },
         toolName: "create_task",
+        toolArgs,
+        nextStep: "execute_tool",
+      };
+    }
+  }
+
+  if (isExplicitRememberRequest(state.message)) {
+    const content = extractExplicitRememberContent(state.message);
+    if (content) {
+      if (!isMem0Configured()) {
+        return {
+          assistantMessage: MEM0_NOT_CONFIGURED_MESSAGE,
+          toolResults: [],
+          responsePendingConfirmation: null,
+          clientActions: [],
+          nextStep: "finalize",
+        };
+      }
+      const toolArgs = { content };
+      return {
+        directToolCall: { toolName: "store_memory", toolArgs },
+        toolName: "store_memory",
         toolArgs,
         nextStep: "execute_tool",
       };

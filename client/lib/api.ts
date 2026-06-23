@@ -2,13 +2,25 @@
 // Local: http://localhost:4000
 // Production (two Render hosts / mobile cookie issues): https://<next-host>/api/bff
 //   and set server-only BACKEND_URL on the Next service to the real API origin.
-// The replace(...) just removes a trailing "/" if there is one,
-// so we don't accidentally end up with "http://...//auth/login"
+//
+// Hybrid direct-API experiment (production):
+//   NEXT_PUBLIC_HYBRID_AUTH_ROUTING=1
+//   NEXT_PUBLIC_DIRECT_API_URL=https://<api-host>
+// While enabled, every api() call bypasses the BFF and hits the Express API directly.
 import { redirectToLoginAfterUnauthorized, requestBasePath } from "@/lib/authRedirect";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import {
+  getAppApiBase,
+  getDirectApiBase,
+  isHybridAuthRoutingEnabled,
+  isLoginPath,
+  isLoginTransientHttpStatus,
+  logHybridExperiment,
+  resolveRequestBase,
+} from "@/lib/apiConfig";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
 let refreshInFlight: Promise<boolean> | null = null;
+let loginHealthWarmInFlight: Promise<void> | null = null;
 
 function shouldAttemptRefresh(path: string, isRetry: boolean): boolean {
   if (isRetry) return false;
@@ -23,14 +35,69 @@ function shouldAttemptRefresh(path: string, isRetry: boolean): boolean {
   );
 }
 
+async function warmDirectApiHealth(): Promise<number | null> {
+  const directBase = getDirectApiBase();
+  if (!directBase) return null;
+
+  try {
+    const res = await fetchWithTimeout(
+      `${directBase}/health`,
+      { credentials: "include" },
+      8_000
+    );
+    logHybridExperiment("health_check", {
+      status: res.status,
+      url: `${directBase}/health`,
+    });
+    return res.status;
+  } catch (err) {
+    logHybridExperiment("health_check", {
+      status: null,
+      error: err instanceof Error ? err.message : String(err),
+      url: `${directBase}/health`,
+    });
+    return null;
+  }
+}
+
+async function warmDirectApiBeforeLogin(): Promise<void> {
+  if (!isHybridAuthRoutingEnabled()) return;
+  if (!loginHealthWarmInFlight) {
+    loginHealthWarmInFlight = warmDirectApiHealth()
+      .then(() => undefined)
+      .finally(() => {
+        loginHealthWarmInFlight = null;
+      });
+  }
+  await loginHealthWarmInFlight;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function tryRefreshSession(): Promise<boolean> {
-  if (!API_URL) return false;
-  const url = `${API_URL}/auth/refresh`;
+  const refreshBase = resolveRequestBase("/auth/refresh");
+  const url = `${refreshBase}/auth/refresh`;
+
+  logHybridExperiment("request_start", {
+    path: "/auth/refresh",
+    method: "POST",
+    base: refreshBase,
+  });
+
   const res = await fetchWithTimeout(url, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
   });
+
+  logHybridExperiment("response", {
+    path: "/auth/refresh",
+    status: res.status,
+    base: refreshBase,
+  });
+
   return res.ok;
 }
 
@@ -46,21 +113,37 @@ async function refreshSessionOnce(): Promise<boolean> {
 }
 
 export async function api(path: string, opts: RequestInit = {}): Promise<any> {
-  return apiOnce(path, opts, false);
+  return apiOnce(path, opts, false, false);
 }
 
 async function apiOnce(
   path: string,
   opts: RequestInit,
-  isRetry: boolean
+  isUnauthorizedRetry: boolean,
+  isLoginTransientRetry: boolean
 ): Promise<any> {
-  if (!API_URL) {
+  const appBase = getAppApiBase();
+  if (!appBase) {
     throw new Error(
       "NEXT_PUBLIC_API_URL is not set. Add it to your .env.local (e.g. NEXT_PUBLIC_API_URL=http://localhost:4000)."
     );
   }
 
-  const url = path.startsWith("/") ? `${API_URL}${path}` : `${API_URL}/${path}`;
+  const base = requestBasePath(path);
+  if (isLoginPath(path) && isHybridAuthRoutingEnabled() && !isLoginTransientRetry) {
+    await warmDirectApiBeforeLogin();
+  }
+
+  const requestBase = resolveRequestBase(path);
+  const url = path.startsWith("/") ? `${requestBase}${path}` : `${requestBase}/${path}`;
+  const method = (opts.method ?? "GET").toString().toUpperCase();
+
+  logHybridExperiment("request_start", {
+    path: base,
+    method,
+    base: requestBase,
+    loginTransientRetry: isLoginTransientRetry,
+  });
 
   const res = await fetchWithTimeout(url, {
     ...opts,
@@ -69,6 +152,13 @@ async function apiOnce(
       ...(opts.headers || {}),
       "Content-Type": "application/json",
     },
+  });
+
+  logHybridExperiment("response", {
+    path: base,
+    status: res.status,
+    base: requestBase,
+    loginTransientRetry: isLoginTransientRetry,
   });
 
   const text = await res.text();
@@ -80,6 +170,22 @@ async function apiOnce(
   }
 
   if (!res.ok) {
+    if (
+      isLoginPath(path) &&
+      isHybridAuthRoutingEnabled() &&
+      !isLoginTransientRetry &&
+      isLoginTransientHttpStatus(res.status)
+    ) {
+      logHybridExperiment("login_retry", {
+        path: base,
+        status: res.status,
+        delayMs: 3000,
+        base: requestBase,
+      });
+      await sleep(3000);
+      return apiOnce(path, opts, isUnauthorizedRetry, true);
+    }
+
     let message =
       typeof data === "object" &&
       data !== null &&
@@ -89,7 +195,6 @@ async function apiOnce(
         : `Request failed: ${res.status}`;
 
     if (res.status === 429 && message === "Request failed: 429") {
-      const base = requestBasePath(path);
       if (base === "/auth/register") {
         message =
           "Too many sign-up attempts. Please wait a few minutes and try again.";
@@ -105,10 +210,10 @@ async function apiOnce(
       }
     }
 
-    if (res.status === 401 && shouldAttemptRefresh(path, isRetry)) {
+    if (res.status === 401 && shouldAttemptRefresh(path, isUnauthorizedRetry)) {
       const refreshed = await refreshSessionOnce();
       if (refreshed) {
-        return apiOnce(path, opts, true);
+        return apiOnce(path, opts, true, isLoginTransientRetry);
       }
     }
 
@@ -121,3 +226,10 @@ async function apiOnce(
 
   return data;
 }
+
+export {
+  getAppApiBase,
+  getDirectApiBase,
+  isHybridAuthRoutingEnabled,
+  resolveRequestBase,
+} from "@/lib/apiConfig";

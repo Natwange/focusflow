@@ -16,7 +16,11 @@ const {
   isAffirmativeConfirmation,
   pendingConfirmationToToolCall,
 } = require("./pendingConfirmationResolver");
-const { maybeAutoExtractAndStore } = require("../memory/mem0Service");
+const { maybeAutoExtractAndStore, storeMemory, isMem0Configured } = require("../memory/mem0Service");
+const {
+  extractExplicitRememberContent,
+  isExplicitRememberRequest,
+} = require("../memory/memoryExtraction");
 function getOrchestratorMode() {
   const mode = String(process.env.AGENT_ORCHESTRATOR || "custom").toLowerCase();
   return mode === "langgraph" ? "langgraph" : "custom";
@@ -332,6 +336,53 @@ async function runCreateTaskRetryIfNeeded({
   });
 }
 
+async function runExplicitRememberIfNeeded({ userId, message }) {
+  if (!isExplicitRememberRequest(message)) return null;
+
+  const content = extractExplicitRememberContent(message);
+  if (!content) return null;
+
+  if (!isMem0Configured()) {
+    return withMutations({
+      assistantMessage:
+        "Long-term memory isn't enabled on the server yet — MEM0_API_KEY needs to be set in your API environment (e.g. Render → Environment). Once that's added, ask me again to remember this.",
+      toolResults: [],
+      pendingConfirmation: null,
+      clientActions: [],
+    });
+  }
+
+  const result = await storeMemory({
+    userId,
+    content,
+    metadata: { source: "explicit_remember" },
+  });
+
+  const toolResults = [
+    {
+      tool: "store_memory",
+      args: { content },
+      ok: result.ok,
+      result: result.ok
+        ? {
+            ok: true,
+            summary: `Saved preference: "${result.memory.content}"`,
+            data: { memory: result.memory },
+          }
+        : { ok: false, summary: result.error, error: result.error },
+    },
+  ];
+
+  return withMutations({
+    assistantMessage: result.ok
+      ? `Got it — I'll remember: ${result.memory.content}`
+      : result.error || "I couldn't save that preference.",
+    toolResults,
+    pendingConfirmation: null,
+    clientActions: collectClientActions(toolResults),
+  });
+}
+
 /**
  * @param {ChatRunInput} input
  * @returns {Promise<AgentChatResponse>}
@@ -378,6 +429,9 @@ async function runLlmTurn({
       });
     }
   }
+
+  const rememberResponse = await runExplicitRememberIfNeeded({ userId, message });
+  if (rememberResponse) return rememberResponse;
 
   const retryResponse = await runCreateTaskRetryIfNeeded({
     userId,

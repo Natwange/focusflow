@@ -61,6 +61,9 @@ function createApp() {
     res.json({
       status: "ok",
       time: new Date().toISOString(),
+      mem0: {
+        configured: Boolean(process.env.MEM0_API_KEY?.trim()),
+      },
       loginFailureLimit: {
         disabled: true,
         max: 0,

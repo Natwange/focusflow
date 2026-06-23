@@ -14,7 +14,42 @@ function isTransientState(text) {
 }
 
 function isExplicitRememberCommand(text) {
-  return /\bremember\s+that\b/i.test(text) || /\bplease\s+remember\b/i.test(text);
+  return isExplicitRememberRequest(text);
+}
+
+function isExplicitRememberRequest(text) {
+  if (isForgetCommand(text)) return false;
+  return (
+    /\bremember\b/i.test(text) ||
+    /\bkeep\s+in\s+mind\b/i.test(text) ||
+    /\bsave\s+this\s+preference\b/i.test(text)
+  );
+}
+
+function extractExplicitRememberContent(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return null;
+
+  const patterns = [
+    /\bremember\s+that\s+(.+?)(?:[.!?]|$)/i,
+    /\bplease\s+remember\s+(?:that\s+)?(.+?)(?:[.!?]|$)/i,
+    /\bremember\s+(.+?)(?:[.!?]|$)/i,
+    /\bkeep\s+in\s+mind\s+that\s+(.+?)(?:[.!?]|$)/i,
+    /\bkeep\s+in\s+mind\s+(.+?)(?:[.!?]|$)/i,
+  ];
+
+  for (const re of patterns) {
+    const m = trimmed.match(re);
+    if (!m?.[1]) continue;
+    const body = m[1].trim().replace(/^that\s+/i, "");
+    if (body.length < 3) continue;
+    const candidate = /^user\s+preference:/i.test(body)
+      ? body
+      : `User preference: ${body}`;
+    if (validateMemoryContent(candidate).ok) return candidate;
+  }
+
+  return null;
 }
 
 function isForgetCommand(text) {
@@ -39,6 +74,12 @@ function extractPreferenceMemoriesFromText(text) {
   if (rememberMatch?.[1]) {
     const candidate = `User preference: ${rememberMatch[1].trim()}`;
     if (validateMemoryContent(candidate).ok) memories.push(candidate);
+    return memories;
+  }
+
+  const explicit = extractExplicitRememberContent(trimmed);
+  if (explicit) {
+    memories.push(explicit);
     return memories;
   }
 
@@ -103,7 +144,9 @@ function shouldAttemptMem0Inference(text) {
 
 module.exports = {
   extractPreferenceMemoriesFromText,
+  extractExplicitRememberContent,
   isExplicitRememberCommand,
+  isExplicitRememberRequest,
   isForgetCommand,
   isGenericTaskRequest,
   isTransientState,

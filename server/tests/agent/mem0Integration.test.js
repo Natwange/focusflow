@@ -64,6 +64,22 @@ describe("agent Mem0 integration", () => {
     expect(buildSystemPromptWithMemories(ctx)).toMatch(/45-minute/i);
   });
 
+  test("explicit remember stores without LLM", async () => {
+    setCompleteAgentTurnForTests(async () => {
+      throw new Error("LLM should not run for explicit remember");
+    });
+
+    const res = await runLlmTurn({
+      userId: "user_1",
+      message: "Remember I like doing LeetCode every day",
+      tzOffsetMinutes: 0,
+    });
+
+    expect(res.toolResults[0].tool).toBe("store_memory");
+    expect(res.toolResults[0].ok).toBe(true);
+    expect(res.assistantMessage).toMatch(/LeetCode/i);
+  });
+
   test("memory retrieval failure does not crash agent turn", async () => {
     resetMem0ServiceForTests();
 

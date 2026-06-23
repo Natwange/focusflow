@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import {
+  getAppApiBase,
+  getDirectApiBase,
+  isHybridAuthRoutingEnabled,
+  logHybridExperiment,
+} from "@/lib/apiConfig";
 
 const HIDDEN_BEFORE_WAKE_MS = 60_000;
 const WAKE_PING_TIMEOUT_MS = 8_000;
@@ -11,8 +17,10 @@ const WAKE_PING_TIMEOUT_MS = 8_000;
  */
 export function ApiTabWake() {
   useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
-    if (!base) return;
+    const wakeBase = isHybridAuthRoutingEnabled()
+      ? getDirectApiBase()
+      : getAppApiBase() || null;
+    if (!wakeBase) return;
 
     let hiddenAt: number | null = null;
 
@@ -26,15 +34,23 @@ export function ApiTabWake() {
       hiddenAt = null;
       if (hiddenMs < HIDDEN_BEFORE_WAKE_MS) return;
 
-      const url = `${base}/health`;
+      const url = `${wakeBase}/health`;
       const signal =
         typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
           ? AbortSignal.timeout(WAKE_PING_TIMEOUT_MS)
           : undefined;
 
-      void fetch(url, { credentials: "include", signal }).catch(() => {
-        /* best-effort warm-up */
-      });
+      void fetch(url, { credentials: "include", signal })
+        .then((res) => {
+          logHybridExperiment("health_check", {
+            status: res.status,
+            url,
+            source: "tab_wake",
+          });
+        })
+        .catch(() => {
+          /* best-effort warm-up */
+        });
     };
 
     document.addEventListener("visibilitychange", onVisibility);

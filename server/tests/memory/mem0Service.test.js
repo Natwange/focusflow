@@ -167,6 +167,14 @@ describe("memoryExtraction", () => {
     expect(memories[0]).toMatch(/45-minute/i);
   });
 
+  test("extractExplicitRememberContent handles remember without that", () => {
+    const { extractExplicitRememberContent } = require("../../src/memory/memoryExtraction");
+    const content = extractExplicitRememberContent(
+      "Remember I like doing LeetCode every day"
+    );
+    expect(content).toMatch(/LeetCode/i);
+  });
+
   test("ignores transient states", () => {
     expect(isTransientState("I'm tired today")).toBe(true);
     expect(extractPreferenceMemoriesFromText("I'm tired today")).toEqual([]);
