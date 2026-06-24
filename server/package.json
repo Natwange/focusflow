@@ -19,6 +19,7 @@
   "type": "commonjs",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
+    "@composio/core": "^0.11.0",
     "@langchain/core": "^1.1.48",
     "@langchain/langgraph": "^1.4.1",
     "@prisma/adapter-pg": "^7.4.2",

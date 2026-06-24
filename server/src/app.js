@@ -17,6 +17,8 @@ const journalRoutes = require("./routes/journal");
 const focusRoutes = require("./routes/focus");
 const activityRoutes = require("./routes/activity");
 const agentRoutes = require("./routes/agent");
+const integrationsRoutes = require("./routes/integrations");
+const { composioOAuthCallback } = integrationsRoutes;
 
 function createApp() {
   const app = express();
@@ -56,6 +58,8 @@ function createApp() {
   app.use("/focus", auth, focusRoutes);
   app.use("/activity", auth, activityRoutes);
   app.use("/agent", auth, agentRoutes);
+  app.use("/integrations", auth, integrationsRoutes);
+  app.get("/integrations/composio/callback", composioOAuthCallback);
 
   app.get("/health", (req, res) => {
     res.json({
@@ -63,6 +67,9 @@ function createApp() {
       time: new Date().toISOString(),
       mem0: {
         configured: Boolean(process.env.MEM0_API_KEY?.trim()),
+      },
+      composio: {
+        configured: Boolean(process.env.COMPOSIO_API_KEY?.trim()),
       },
       loginFailureLimit: {
         disabled: true,

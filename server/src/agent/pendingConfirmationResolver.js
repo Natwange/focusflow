@@ -23,7 +23,14 @@ function isAffirmativeConfirmation(message) {
     /^delete\s+it\b/,
     /^yes,?\s*apply\s+it/,
     /^apply\s+it\b/,
-    /^please\s+(?:create|schedule|confirm|delete|apply)\b/,
+    /^yes,?\s*send\s+it/,
+    /^send\s+it\b/,
+    /^yes,?\s*schedule\s+it/,
+    /^schedule\s+it\b/,
+    /^yes,?\s*export\s+it/,
+    /^export\s+it\b/,
+    /^yes,?\s*create\s+it/,
+    /^please\s+(?:create|schedule|confirm|delete|apply|send|export)\b/,
   ];
 
   return patterns.some((pattern) => pattern.test(text));
@@ -97,6 +104,72 @@ function pendingConfirmationToToolCall(pendingConfirmation) {
       toolArgs.spreadEvenly = Boolean(pendingConfirmation.spreadEvenly);
     }
     return { toolName: "apply_goal_adjustment", toolArgs };
+  }
+
+  if (
+    pendingConfirmation.type === "gmail_send_email" &&
+    pendingConfirmation.to &&
+    pendingConfirmation.subject &&
+    pendingConfirmation.body
+  ) {
+    return {
+      toolName: "gmail_send_email",
+      toolArgs: {
+        to: String(pendingConfirmation.to),
+        subject: String(pendingConfirmation.subject),
+        body: String(pendingConfirmation.body),
+        cc: pendingConfirmation.cc,
+        bcc: pendingConfirmation.bcc,
+        confirmed: true,
+      },
+    };
+  }
+
+  if (
+    (pendingConfirmation.type === "calendar_create_event" ||
+      pendingConfirmation.type === "calendar_bulk_create") &&
+    Array.isArray(pendingConfirmation.events) &&
+    pendingConfirmation.events.length > 0
+  ) {
+    return {
+      toolName: "calendar_create_event",
+      toolArgs: {
+        events: pendingConfirmation.events,
+        confirmed: true,
+      },
+    };
+  }
+
+  if (
+    pendingConfirmation.type === "notion_export_goal" &&
+    pendingConfirmation.goalId
+  ) {
+    return {
+      toolName: "notion_export_goal",
+      toolArgs: {
+        goalId: String(pendingConfirmation.goalId),
+        goalTitle: pendingConfirmation.goalTitle,
+        pageTitle: pendingConfirmation.pageTitle,
+        parentPageId: pendingConfirmation.parentPageId,
+        confirmed: true,
+      },
+    };
+  }
+
+  if (
+    pendingConfirmation.type === "notion_create_page" &&
+    pendingConfirmation.title &&
+    pendingConfirmation.content
+  ) {
+    return {
+      toolName: "notion_create_page",
+      toolArgs: {
+        title: String(pendingConfirmation.title),
+        content: String(pendingConfirmation.content),
+        parentPageId: pendingConfirmation.parentPageId,
+        confirmed: true,
+      },
+    };
   }
 
   return null;

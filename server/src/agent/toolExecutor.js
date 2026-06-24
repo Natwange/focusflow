@@ -36,6 +36,18 @@ const {
   looksLikeInventedSlug,
 } = require("../lib/goalResolver");
 const { isV1ToolName, parseToolArgs } = require("./tools");
+const {
+  runCalendarCreateEvent,
+  runCalendarListEvents,
+} = require("../integrations/composio/calendarTools");
+const {
+  runGmailSendEmail,
+  runGmailCreateDraft,
+} = require("../integrations/composio/gmailTools");
+const {
+  runNotionCreatePage,
+  runNotionExportGoal,
+} = require("../integrations/composio/notionTools");
 
 const DEFAULT_FOCUS_MINUTES = {
   focus: 25,
@@ -966,6 +978,18 @@ async function executeTool(ctx, toolName, rawArgs) {
         return await runListMemories(ctx.userId, parsed.args);
       case "delete_memory":
         return await runDeleteMemory(ctx.userId, parsed.args);
+      case "calendar_create_event":
+        return await runCalendarCreateEvent(ctx.userId, parsed.args);
+      case "calendar_list_events":
+        return await runCalendarListEvents(ctx.userId, parsed.args);
+      case "gmail_send_email":
+        return await runGmailSendEmail(ctx.userId, parsed.args);
+      case "gmail_create_draft":
+        return await runGmailCreateDraft(ctx.userId, parsed.args);
+      case "notion_create_page":
+        return await runNotionCreatePage(ctx.userId, parsed.args);
+      case "notion_export_goal":
+        return await runNotionExportGoal(ctx.userId, parsed.args);
       default:
         return failure(`Unknown tool: ${toolName}`, {
           summary: `Tool "${toolName}" is not available.`,

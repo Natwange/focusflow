@@ -216,6 +216,75 @@ const toolArgSchemas = {
     .refine((d) => d.memoryId || d.query, {
       message: "Provide memoryId or query to identify the memory to delete.",
     }),
+
+  calendar_create_event: z.object({
+    summary: z.string().trim().min(1).max(200).optional(),
+    description: z.string().trim().max(2000).optional(),
+    startTime: z.string().trim().min(1).max(64).optional(),
+    endTime: z.string().trim().min(1).max(64).optional(),
+    location: z.string().trim().max(300).optional(),
+    timezone: z.string().trim().max(64).optional(),
+    confirmed: z.boolean().optional(),
+    events: z
+      .array(
+        z.object({
+          summary: z.string().trim().min(1).max(200),
+          description: z.string().trim().max(2000).optional(),
+          startTime: z.string().trim().min(1).max(64),
+          endTime: z.string().trim().min(1).max(64).optional(),
+          location: z.string().trim().max(300).optional(),
+          timezone: z.string().trim().max(64).optional(),
+        })
+      )
+      .max(25)
+      .optional(),
+  }).refine(
+    (d) =>
+      (Array.isArray(d.events) && d.events.length > 0) ||
+      (d.summary && d.startTime),
+    { message: "Provide summary+startTime or a non-empty events array." }
+  ),
+
+  calendar_list_events: z.object({
+    timeMin: z.string().trim().min(1).max(64).optional(),
+    timeMax: z.string().trim().min(1).max(64).optional(),
+    query: z.string().trim().max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(50).optional(),
+  }),
+
+  gmail_send_email: z.object({
+    to: z.string().trim().email().max(320),
+    subject: z.string().trim().min(1).max(300),
+    body: z.string().trim().min(1).max(20000),
+    cc: z.string().trim().max(500).optional(),
+    bcc: z.string().trim().max(500).optional(),
+    confirmed: z.boolean().optional(),
+  }),
+
+  gmail_create_draft: z.object({
+    to: z.string().trim().email().max(320),
+    subject: z.string().trim().min(1).max(300),
+    body: z.string().trim().min(1).max(20000),
+    cc: z.string().trim().max(500).optional(),
+    bcc: z.string().trim().max(500).optional(),
+  }),
+
+  notion_create_page: z.object({
+    title: z.string().trim().min(1).max(200),
+    content: z.string().trim().min(1).max(50000),
+    parentPageId: z.string().trim().max(128).optional(),
+    confirmed: z.boolean().optional(),
+  }),
+
+  notion_export_goal: z.object({
+    goalId: z.string().trim().min(1).max(64).optional(),
+    goalTitle: z.string().trim().min(1).max(200).optional(),
+    pageTitle: z.string().trim().max(200).optional(),
+    parentPageId: z.string().trim().max(128).optional(),
+    confirmed: z.boolean().optional(),
+  }).refine((d) => d.goalId || d.goalTitle, {
+    message: "Provide goalId or goalTitle.",
+  }),
 };
 
 /** V1 tool names exposed to the future LLM layer. */
@@ -244,6 +313,12 @@ const V1_TOOL_NAMES = Object.freeze([
   "store_memory",
   "list_memories",
   "delete_memory",
+  "calendar_create_event",
+  "calendar_list_events",
+  "gmail_send_email",
+  "gmail_create_draft",
+  "notion_create_page",
+  "notion_export_goal",
 ]);
 
 const TOOL_CATALOG = {
@@ -362,6 +437,36 @@ const TOOL_CATALOG = {
   delete_memory: {
     description:
       "Delete a stored preference by memoryId or by semantic query (e.g. 'weekends'). Use when the user asks to forget something.",
+    readOnly: false,
+  },
+  calendar_create_event: {
+    description:
+      "Create Google Calendar event(s). Requires Google Calendar connected. NEVER set confirmed:true on first call — preview first, then execute after user approval. Use events[] for bulk scheduling.",
+    readOnly: false,
+  },
+  calendar_list_events: {
+    description:
+      "List Google Calendar events in a time range. Read-only. Requires Google Calendar connected.",
+    readOnly: true,
+  },
+  gmail_send_email: {
+    description:
+      "Send email via Gmail. NEVER set confirmed:true on first call — always preview and wait for explicit user approval before sending.",
+    readOnly: false,
+  },
+  gmail_create_draft: {
+    description:
+      "Create a Gmail draft (does not send). Requires Gmail connected.",
+    readOnly: false,
+  },
+  notion_create_page: {
+    description:
+      "Create a Notion page. NEVER set confirmed:true on first call — preview first, create after approval. Requires Notion connected.",
+    readOnly: false,
+  },
+  notion_export_goal: {
+    description:
+      "Export a FocusFlow goal plan to a structured Notion page. NEVER set confirmed:true on first call — preview export, then create after approval.",
     readOnly: false,
   },
 };
@@ -880,6 +985,133 @@ const OPENAI_CHAT_TOOLS = Object.freeze([
             type: "string",
             description: "Semantic match when id is unknown (e.g. 'weekends')",
           },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "calendar_create_event",
+      description: TOOL_CATALOG.calendar_create_event.description,
+      parameters: {
+        type: "object",
+        properties: {
+          summary: { type: "string" },
+          description: { type: "string" },
+          startTime: { type: "string", description: "ISO UTC start" },
+          endTime: { type: "string", description: "ISO UTC end" },
+          location: { type: "string" },
+          timezone: { type: "string" },
+          confirmed: { type: "boolean" },
+          events: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                summary: { type: "string" },
+                description: { type: "string" },
+                startTime: { type: "string" },
+                endTime: { type: "string" },
+                location: { type: "string" },
+                timezone: { type: "string" },
+              },
+              required: ["summary", "startTime"],
+            },
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "calendar_list_events",
+      description: TOOL_CATALOG.calendar_list_events.description,
+      parameters: {
+        type: "object",
+        properties: {
+          timeMin: { type: "string" },
+          timeMax: { type: "string" },
+          query: { type: "string" },
+          limit: { type: "integer", minimum: 1, maximum: 50 },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "gmail_send_email",
+      description: TOOL_CATALOG.gmail_send_email.description,
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string" },
+          subject: { type: "string" },
+          body: { type: "string" },
+          cc: { type: "string" },
+          bcc: { type: "string" },
+          confirmed: { type: "boolean" },
+        },
+        required: ["to", "subject", "body"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "gmail_create_draft",
+      description: TOOL_CATALOG.gmail_create_draft.description,
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string" },
+          subject: { type: "string" },
+          body: { type: "string" },
+          cc: { type: "string" },
+          bcc: { type: "string" },
+        },
+        required: ["to", "subject", "body"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "notion_create_page",
+      description: TOOL_CATALOG.notion_create_page.description,
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          content: { type: "string" },
+          parentPageId: { type: "string" },
+          confirmed: { type: "boolean" },
+        },
+        required: ["title", "content"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "notion_export_goal",
+      description: TOOL_CATALOG.notion_export_goal.description,
+      parameters: {
+        type: "object",
+        properties: {
+          goalId: { type: "string" },
+          goalTitle: { type: "string" },
+          pageTitle: { type: "string" },
+          parentPageId: { type: "string" },
+          confirmed: { type: "boolean" },
         },
         additionalProperties: false,
       },
