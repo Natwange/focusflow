@@ -103,16 +103,14 @@ async function startConnect(userId, toolkit) {
 
   const callbackUrl = `${apiBase}/integrations/composio/callback?state=${encodeURIComponent(state)}`;
 
-  const link = await client.connectedAccounts.link(
+  const connectionRequest = await client.connectedAccounts.link(
     composioUserId(userId),
     authConfigId,
     { callbackUrl }
   );
 
-  const connectedAccountId =
-    link?.connectedAccountId || link?.id || link?.connected_account_id || null;
-  const redirectUrl =
-    link?.redirectUrl || link?.redirect_url || link?.url || null;
+  const connectedAccountId = connectionRequest?.id ?? null;
+  const redirectUrl = connectionRequest?.redirectUrl ?? null;
 
   if (!redirectUrl) {
     return { ok: false, error: "Composio did not return a redirect URL." };

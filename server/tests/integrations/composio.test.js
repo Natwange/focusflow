@@ -68,8 +68,9 @@ describe("Composio integrations", () => {
   const mockClient = {
     connectedAccounts: {
       link: jest.fn(async () => ({
+        id: "ca_test_1",
         redirectUrl: "https://composio.example/oauth",
-        connectedAccountId: "ca_test_1",
+        status: "INITIATED",
       })),
       waitForConnection: jest.fn(async () => ({ status: "ACTIVE" })),
       delete: jest.fn(async () => ({})),

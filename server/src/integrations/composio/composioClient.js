@@ -9,8 +9,17 @@ let modulePromise = null;
 /** @type {import('@composio/core').Composio | null} */
 let clientOverride = null;
 
+function getComposioApiKey() {
+  return process.env.COMPOSIO_API_KEY?.trim() || "";
+}
+
+function getComposioBaseUrl() {
+  const raw = process.env.COMPOSIO_BASE_URL?.trim();
+  return raw ? raw.replace(/\/$/, "") : undefined;
+}
+
 function isComposioConfigured() {
-  return Boolean(process.env.COMPOSIO_API_KEY?.trim()) || clientOverride != null;
+  return Boolean(getComposioApiKey()) || clientOverride != null;
 }
 
 async function loadComposioModule() {
@@ -25,10 +34,15 @@ async function getComposioClient() {
   if (!isComposioConfigured()) return null;
   if (!clientSingleton) {
     const { Composio } = await loadComposioModule();
-    clientSingleton = new Composio({
-      apiKey: process.env.COMPOSIO_API_KEY?.trim(),
+    const config = {
+      apiKey: getComposioApiKey(),
       allowTracking: false,
-    });
+    };
+    const baseURL = getComposioBaseUrl();
+    if (baseURL) {
+      config.baseURL = baseURL;
+    }
+    clientSingleton = new Composio(config);
   }
   return clientSingleton;
 }
