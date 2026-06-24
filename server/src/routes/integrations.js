@@ -9,8 +9,28 @@ const {
   disconnect,
 } = require("../integrations/composio/connectionService");
 const { isComposioConfigured } = require("../integrations/composio/composioClient");
+const { redactSensitive } = require("../integrations/composio/redact");
 
 const router = express.Router();
+
+function errorToPlain(err) {
+  if (!err || typeof err !== "object") return err;
+  return Object.fromEntries(
+    Object.getOwnPropertyNames(err).map((key) => [key, err[key]])
+  );
+}
+
+function logComposioConnectError(err) {
+  console.error("Composio connect error:", {
+    name: err?.name,
+    message: err?.message,
+    cause: redactSensitive(errorToPlain(err?.cause)),
+    response: redactSensitive(errorToPlain(err?.response)),
+    data: redactSensitive(err?.data),
+    error: JSON.stringify(redactSensitive(err?.error ?? null), null, 2),
+    raw: JSON.stringify(redactSensitive(errorToPlain(err)), null, 2),
+  });
+}
 
 const toolkitSchema = z.enum(SUPPORTED_TOOLKITS);
 
@@ -51,7 +71,7 @@ router.post(
         status: result.status,
       });
     } catch (err) {
-      console.error("Composio connect error:", err);
+      logComposioConnectError(err);
       return res.status(500).json({ error: "Failed to start connection." });
     }
   }
