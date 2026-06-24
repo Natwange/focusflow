@@ -8,6 +8,7 @@ const authRoutes = require("./routes/auth");
 const prisma = require("./lib/prisma");
 const { prismaErrorMessage } = require("./lib/prismaErrors");
 const { auditAuthEvent } = require("./lib/auditLogger");
+const { getAuthCookieConfig } = require("./lib/authCookie");
 
 const auth = require("./middleware/auth");
 const goalRoutes = require("./routes/goals");
@@ -71,6 +72,7 @@ function createApp() {
       composio: {
         configured: Boolean(process.env.COMPOSIO_API_KEY?.trim()),
       },
+      authCookies: getAuthCookieConfig(),
       loginFailureLimit: {
         disabled: true,
         max: 0,

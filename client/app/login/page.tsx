@@ -92,7 +92,7 @@ export default function LoginPage() {
     setLoading(true); // show "Logging in..." and disable the button
 
     try {
-      // Call our shared API helper, which will POST to http://localhost:4000/auth/login
+      // Direct API when hybrid routing is on (see lib/apiConfig.ts + /api/config)
       await api("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email: normalizeEmail(email), password }),

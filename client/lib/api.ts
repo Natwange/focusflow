@@ -10,6 +10,7 @@
 import { redirectToLoginAfterUnauthorized, requestBasePath } from "@/lib/authRedirect";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import {
+  ensureApiRoutingConfig,
   getAppApiBase,
   getDirectApiBase,
   isHybridAuthRoutingEnabled,
@@ -122,6 +123,8 @@ async function apiOnce(
   isUnauthorizedRetry: boolean,
   isLoginTransientRetry: boolean
 ): Promise<any> {
+  await ensureApiRoutingConfig();
+
   const appBase = getAppApiBase();
   if (!appBase) {
     throw new Error(
@@ -137,6 +140,15 @@ async function apiOnce(
   const requestBase = resolveRequestBase(path);
   const url = path.startsWith("/") ? `${requestBase}${path}` : `${requestBase}/${path}`;
   const method = (opts.method ?? "GET").toString().toUpperCase();
+
+  if (isLoginPath(path)) {
+    logHybridExperiment("routing_config", {
+      path: base,
+      loginUrl: url,
+      hybrid: isHybridAuthRoutingEnabled(),
+      viaBff: url.includes("/api/bff"),
+    });
+  }
 
   logHybridExperiment("request_start", {
     path: base,
@@ -228,6 +240,7 @@ async function apiOnce(
 }
 
 export {
+  ensureApiRoutingConfig,
   getAppApiBase,
   getDirectApiBase,
   isHybridAuthRoutingEnabled,

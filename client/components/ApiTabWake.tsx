@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import {
+  ensureApiRoutingConfig,
   getAppApiBase,
   getDirectApiBase,
   isHybridAuthRoutingEnabled,
@@ -17,11 +18,7 @@ const WAKE_PING_TIMEOUT_MS = 8_000;
  */
 export function ApiTabWake() {
   useEffect(() => {
-    const wakeBase = isHybridAuthRoutingEnabled()
-      ? getDirectApiBase()
-      : getAppApiBase() || null;
-    if (!wakeBase) return;
-
+    let cancelled = false;
     let hiddenAt: number | null = null;
 
     const onVisibility = () => {
@@ -33,6 +30,11 @@ export function ApiTabWake() {
       const hiddenMs = Date.now() - hiddenAt;
       hiddenAt = null;
       if (hiddenMs < HIDDEN_BEFORE_WAKE_MS) return;
+
+      const wakeBase = isHybridAuthRoutingEnabled()
+        ? getDirectApiBase()
+        : getAppApiBase() || null;
+      if (!wakeBase) return;
 
       const url = `${wakeBase}/health`;
       const signal =
@@ -53,8 +55,15 @@ export function ApiTabWake() {
         });
     };
 
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
+    void ensureApiRoutingConfig().then(() => {
+      if (cancelled) return;
+      document.addEventListener("visibilitychange", onVisibility);
+    });
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   return null;

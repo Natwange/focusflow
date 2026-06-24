@@ -14,26 +14,59 @@ function isProduction() {
 }
 
 /**
+ * Cross-origin SPA + API (e.g. focusflow-client + focusflow-server on Render) requires
+ * SameSite=None; Secure so the browser stores cookies on the API host and sends them
+ * on credentialed fetch from the web origin.
+ */
+function usesCrossOriginAuthCookies() {
+  const crossOriginFlag = String(process.env.COOKIE_CROSS_ORIGIN ?? "").toLowerCase();
+  if (crossOriginFlag === "1" || crossOriginFlag === "true") return true;
+
+  const sameSiteEnv = String(process.env.COOKIE_SAME_SITE ?? "").toLowerCase();
+  if (sameSiteEnv === "none") return true;
+
+  if (isProduction() && process.env.CLIENT_ORIGIN?.trim()) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Auth cookies on a different host than the web app (e.g. Vercel + API on Railway) are cross-site.
  * Mobile browsers are especially strict with auth cookies on cross-origin fetch requests.
  * Default production behavior to SameSite=None (+Secure) so sign-in persists on mobile.
  * You can still override via COOKIE_SAME_SITE to "strict" or "lax" if needed.
  */
 function httpOnlyCookieBaseOptions() {
-  const prod = isProduction();
+  const crossOrigin = usesCrossOriginAuthCookies();
   const raw = (process.env.COOKIE_SAME_SITE || "").toLowerCase();
-  let sameSite = "lax";
+  let sameSite = crossOrigin ? "none" : "lax";
   if (raw === "none" || raw === "strict" || raw === "lax") {
     sameSite = raw;
-  } else if (prod) {
-    sameSite = "none";
   }
-  const secure = sameSite === "none" ? true : prod;
+  const secure = sameSite === "none" ? true : isProduction();
   return {
     httpOnly: true,
     secure,
     sameSite,
     path: "/",
+  };
+}
+
+/** For /health audits — describes Set-Cookie attributes on auth responses. */
+function getAuthCookieConfig() {
+  const opts = httpOnlyCookieBaseOptions();
+  return {
+    accessTokenName: ACCESS_TOKEN_COOKIE,
+    refreshTokenName: REFRESH_TOKEN_COOKIE,
+    httpOnly: opts.httpOnly,
+    secure: opts.secure,
+    sameSite: opts.sameSite,
+    path: opts.path,
+    crossOrigin: usesCrossOriginAuthCookies(),
+    persistent: usePersistentAuthCookies(),
+    domain: null,
   };
 }
 
@@ -74,4 +107,7 @@ module.exports = {
   clearSessionCookies,
   clearAccessTokenCookie,
   clearRefreshTokenCookie,
+  getAuthCookieConfig,
+  httpOnlyCookieBaseOptions,
+  usesCrossOriginAuthCookies,
 };
