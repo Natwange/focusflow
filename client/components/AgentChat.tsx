@@ -216,7 +216,7 @@ export default function AgentChat() {
         onPointerDown={onBubbleDragStart}
         onClick={onBubbleClick}
         style={{ left: position.x, top: position.y }}
-        className="fixed z-[9998] rounded-full bg-black p-3 text-white shadow-lg hover:bg-black/90 transition cursor-grab active:cursor-grabbing dark:bg-white dark:text-black dark:hover:bg-white/90"
+        className="fixed z-40 rounded-full bg-black p-3 text-white shadow-lg hover:bg-black/90 transition cursor-grab active:cursor-grabbing dark:bg-white dark:text-black dark:hover:bg-white/90"
         role="button"
         aria-label="Open agent chat"
       >
@@ -229,7 +229,7 @@ export default function AgentChat() {
     <div
       ref={containerRef}
       style={{ left: position.x, top: position.y }}
-      className="fixed z-[9998] w-80 max-h-[420px] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-[#2a303a] dark:bg-[#13161b]"
+      className="fixed z-40 w-80 max-h-[420px] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-[#2a303a] dark:bg-[#13161b]"
     >
       {/* Header — draggable */}
       <div
