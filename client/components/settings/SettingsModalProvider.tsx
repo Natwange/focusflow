@@ -18,6 +18,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { resetAgentChatSession } from "@/lib/agentEvents";
 import { useTheme } from "@/components/ThemeProvider";
 import type { ThemePreference } from "@/lib/themeStorage";
 
@@ -144,6 +145,7 @@ function SettingsModalShell({ onClose }: { onClose: () => void }) {
     } catch {
       // Still navigate away; cookie may already be invalid
     }
+    resetAgentChatSession();
     onClose();
     router.replace("/login");
     router.refresh();

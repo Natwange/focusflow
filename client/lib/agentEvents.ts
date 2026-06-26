@@ -32,6 +32,19 @@ export function onAgentMutation(callback: (detail: AgentMutationDetail) => void)
 }
 
 const OPEN_CHAT_EVENT = "focusflow:open-agent-chat";
+const RESET_CHAT_SESSION_EVENT = "focusflow:agent-chat-reset";
+
+/** Clear in-memory Oti chat when the signed-in user changes or signs out. */
+export function resetAgentChatSession() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(RESET_CHAT_SESSION_EVENT));
+}
+
+export function onAgentChatSessionReset(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(RESET_CHAT_SESSION_EVENT, callback);
+  return () => window.removeEventListener(RESET_CHAT_SESSION_EVENT, callback);
+}
 
 export function openAgentChatWithMessage(message: string) {
   if (typeof window === "undefined") return;

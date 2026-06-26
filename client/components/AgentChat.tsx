@@ -6,7 +6,7 @@ import { Sparkles, X, Send, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useFocusTimer } from "@/context/FocusTimerContext";
 import { handleAgentClientActions } from "@/lib/agentClientActions";
-import { emitAgentMutation, onOpenAgentChat } from "@/lib/agentEvents";
+import { emitAgentMutation, onOpenAgentChat, onAgentChatSessionReset } from "@/lib/agentEvents";
 import { renderChatMessage } from "@/lib/renderChatMessage";
 import type { AgentMutationDetail } from "@/lib/agentEvents";
 
@@ -84,8 +84,54 @@ export default function AgentChat() {
   } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeUserIdRef = useRef<string | null>(null);
   const focusTimer = useFocusTimer();
   const focusTimerActive = focusTimer.isActive;
+
+  const resetChatSession = useCallback(() => {
+    setOpen(false);
+    setInput("");
+    setMessages([]);
+    setLoading(false);
+    setPendingConfirmation(null);
+  }, []);
+
+  useEffect(() => {
+    return onAgentChatSessionReset(resetChatSession);
+  }, [resetChatSession]);
+
+  useEffect(() => {
+    if (PUBLIC_ROUTES.has(pathname)) {
+      activeUserIdRef.current = null;
+      resetChatSession();
+      return;
+    }
+
+    let cancelled = false;
+    api("/me")
+      .then((data) => {
+        if (cancelled) return;
+        const userId =
+          typeof data?.user?.id === "string" ? data.user.id : null;
+        if (
+          activeUserIdRef.current != null &&
+          userId != null &&
+          activeUserIdRef.current !== userId
+        ) {
+          resetChatSession();
+        }
+        activeUserIdRef.current = userId;
+      })
+      .catch(() => {
+        if (cancelled) return;
+        activeUserIdRef.current = null;
+        resetChatSession();
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, resetChatSession]);
 
   const sendMessage = useCallback(
     async (text: string) => {

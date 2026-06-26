@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { resetAgentChatSession } from "@/lib/agentEvents";
 import { isFocusSessionInProgress } from "@/lib/focusTimerStorage";
 import {
   formatSecondsRemaining,
@@ -59,6 +60,7 @@ export function SessionInactivityMonitor() {
     } catch {
       /* cookie may already be invalid */
     }
+    resetAgentChatSession();
     router.replace("/login?timeout=1");
     router.refresh();
   }, [clearTimers, router]);
