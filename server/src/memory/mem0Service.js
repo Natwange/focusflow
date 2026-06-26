@@ -403,6 +403,14 @@ async function deleteMemory({ userId, memoryId }) {
   }
 }
 
+function normalizeMemoryContentForMatch(content) {
+  return String(content ?? "")
+    .toLowerCase()
+    .replace(/^user\s+preference:\s*/i, "")
+    .replace(/^user\s+likes\s+(?:doing\s+)?/i, "")
+    .trim();
+}
+
 function findMemoriesMatchingQuery(memories, query) {
   const q = String(query ?? "").trim().toLowerCase();
   if (!q) return [];
@@ -410,18 +418,24 @@ function findMemoriesMatchingQuery(memories, query) {
   const scored = (memories ?? [])
     .map((memory) => {
       const content = String(memory.content ?? "").toLowerCase();
-      const normalized = content
-        .replace(/^user\s+preference:\s*/i, "")
-        .trim();
+      const normalized = normalizeMemoryContentForMatch(memory.content);
 
       if (normalized === q || content === q) {
         return { memory, rank: 3 };
       }
       if (
         content.includes(`preference: ${q}`) ||
-        content.endsWith(`: ${q}`)
+        content.endsWith(`: ${q}`) ||
+        normalized.includes(q)
       ) {
         return { memory, rank: 2 };
+      }
+      const tokens = q.split(/\s+/).filter((t) => t.length > 2);
+      if (
+        tokens.length >= 2 &&
+        tokens.every((token) => normalized.includes(token) || content.includes(token))
+      ) {
+        return { memory, rank: 1 };
       }
       if (content.includes(q)) {
         return { memory, rank: 1 };

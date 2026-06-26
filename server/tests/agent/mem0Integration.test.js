@@ -260,4 +260,60 @@ describe("agent Mem0 integration", () => {
     expect(recall.assistantMessage).not.toMatch(/sudoku/i);
     expect(recall.assistantMessage).not.toMatch(/preference: what/i);
   });
+
+  test("forget about me and leetcode morning preferences", async () => {
+    setCompleteAgentTurnForTests(async () => {
+      throw new Error("LLM should not run for specific forget");
+    });
+
+    await storeMemory({
+      userId: "user_1",
+      content: "User preference: about me",
+    });
+    await storeMemory({
+      userId: "user_1",
+      content: "User preference: i like to do LeetCode in the morning",
+    });
+    await storeMemory({
+      userId: "user_1",
+      content: "User preference: I enjoy planning",
+    });
+
+    const forgetAboutMe = await runLlmTurn({
+      userId: "user_1",
+      message: "delete the about me preference",
+      tzOffsetMinutes: 0,
+    });
+    expect(forgetAboutMe.toolResults[0].ok).toBe(true);
+    expect(forgetAboutMe.assistantMessage).toMatch(/about me/i);
+
+    await storeMemory({
+      userId: "user_2",
+      content: "User preference: about me",
+    });
+    const forgetQuoted = await runLlmTurn({
+      userId: "user_2",
+      message: 'delete the "about me" preference',
+      tzOffsetMinutes: 0,
+    });
+    expect(forgetQuoted.toolResults[0].ok).toBe(true);
+
+    const forgetLeetcode = await runLlmTurn({
+      userId: "user_1",
+      message:
+        "delete the user preference i like to do leetcode in the morning",
+      tzOffsetMinutes: 0,
+    });
+    expect(forgetLeetcode.toolResults[0].ok).toBe(true);
+    expect(forgetLeetcode.assistantMessage).toMatch(/leetcode/i);
+
+    const recall = await runLlmTurn({
+      userId: "user_1",
+      message: "what do you remember about me?",
+      tzOffsetMinutes: 0,
+    });
+    expect(recall.assistantMessage).toMatch(/planning/i);
+    expect(recall.assistantMessage).not.toMatch(/about me/i);
+    expect(recall.assistantMessage).not.toMatch(/leetcode/i);
+  });
 });

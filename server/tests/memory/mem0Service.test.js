@@ -377,7 +377,20 @@ describe("memoryExtraction", () => {
     } = require("../../src/memory/memoryExtraction");
     expect(extractMemoryForgetQuery("delete the sudoku memory")).toBe("sudoku");
     expect(extractMemoryForgetQuery("remove the what preference,")).toBe("what");
-    expect(isMemoryForgetSpecificRequest("forget the leetcode preference")).toBe(true);
+    expect(extractMemoryForgetQuery("delete the about me preference")).toBe(
+      "about me"
+    );
+    expect(extractMemoryForgetQuery('delete the "about me" preference')).toBe(
+      "about me"
+    );
+    expect(
+      extractMemoryForgetQuery(
+        "delete the user preference i like to do leetcode in the morning"
+      )
+    ).toBe("i like to do leetcode in the morning");
+    expect(isMemoryForgetSpecificRequest("forget the leetcode preference")).toBe(
+      true
+    );
     expect(extractMemoryForgetQuery("forget everything about me")).toBeNull();
   });
 

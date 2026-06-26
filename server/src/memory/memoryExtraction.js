@@ -32,24 +32,44 @@ function isMemoryRecallRequest(text) {
   );
 }
 
+function normalizeForgetQuery(raw) {
+  let query = String(raw ?? "").trim();
+  if (
+    (query.startsWith('"') && query.endsWith('"')) ||
+    (query.startsWith("'") && query.endsWith("'"))
+  ) {
+    query = query.slice(1, -1).trim();
+  }
+  query = query.replace(/^the\s+/i, "").trim();
+  query = query.replace(/\s+(?:one|entry|item)$/i, "").trim();
+  return query;
+}
+
 function extractMemoryForgetQuery(text) {
   const trimmed = String(text ?? "")
     .trim()
     .replace(/[,;.!?]+$/, "");
   if (!trimmed || isMemoryForgetAllRequest(trimmed)) return null;
+  if (
+    !/\b(?:delete|remove|forget|clear|drop|don't remember|do not remember)\b/i.test(
+      trimmed
+    )
+  ) {
+    return null;
+  }
 
   const patterns = [
-    /\b(?:delete|remove|forget|clear|drop)\s+(?:the\s+)?(.+?)\s+(?:memory|memories|preference|preferences)\b/i,
-    /\b(?:delete|remove|forget|clear)\s+(?:my\s+)?(.+?)\s+preference\b/i,
-    /\bforget\s+(?:about\s+)?(.+?)$/i,
-    /\b(?:don't|do not)\s+remember\s+(?:that\s+)?(.+?)$/i,
+    /\b(?:delete|remove|forget|clear|drop)\s+(?:the\s+)?["'](.+?)["']\s*(?:memory|memories|preference|preferences)?\s*$/i,
+    /\b(?:delete|remove|forget|clear|drop)\s+(?:the\s+)?user\s+preference\s+(.+?)\s*$/i,
+    /\b(?:delete|remove|forget|clear|drop)\s+(?:the\s+)?(.+?)\s+(?:memory|memories|preference|preferences)\s*$/i,
+    /\bforget\s+(?:about\s+)?(.+?)\s*$/i,
+    /\b(?:don't|do not)\s+remember\s+(?:that\s+)?(.+?)\s*$/i,
   ];
 
   for (const re of patterns) {
     const m = trimmed.match(re);
     if (!m?.[1]) continue;
-    let query = m[1].trim().replace(/^(?:that|about|my|the)\s+/i, "");
-    query = query.replace(/\s+(?:one|entry|item)$/i, "").trim();
+    const query = normalizeForgetQuery(m[1]);
     if (!query) continue;
     return query;
   }
