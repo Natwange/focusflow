@@ -24,6 +24,8 @@ const {
   listMemories,
   deleteMemory,
   deleteMemoriesByQuery,
+  deleteAllMemoriesForUser,
+  formatForgetAllSummary,
   formatMemoryListSummary,
   storeMemoryInferred,
   rememberConfirmationMessage,
@@ -888,6 +890,15 @@ async function runListMemories(userId, args) {
 }
 
 async function runDeleteMemory(userId, args) {
+  if (args.deleteAll) {
+    const result = await deleteAllMemoriesForUser({ userId, limit: 50 });
+    const summary = formatForgetAllSummary(result);
+    return success({
+      data: { deleted: result.deleted },
+      summary,
+    });
+  }
+
   if (args.memoryId) {
     const result = await deleteMemory({ userId, memoryId: args.memoryId });
     if (!result.ok) {

@@ -168,4 +168,50 @@ describe("agent Mem0 integration", () => {
     expect(b.assistantMessage).toMatch(/night/i);
     expect(b.assistantMessage).not.toMatch(/30-minute/i);
   });
+
+  test("bare recall question lists memories without LLM", async () => {
+    setCompleteAgentTurnForTests(async () => {
+      throw new Error("LLM should not run for memory recall");
+    });
+
+    await storeMemory({
+      userId: "user_1",
+      content: "User prefers morning study.",
+    });
+
+    const res = await runLlmTurn({
+      userId: "user_1",
+      message: "what do you remember?",
+      tzOffsetMinutes: 0,
+    });
+
+    expect(res.toolResults[0].tool).toBe("list_memories");
+    expect(res.assistantMessage).toMatch(/morning/i);
+  });
+
+  test("forget all clears stored preferences", async () => {
+    setCompleteAgentTurnForTests(async () => {
+      throw new Error("LLM should not run for forget-all");
+    });
+
+    await storeMemory({
+      userId: "user_1",
+      content: "User prefers morning study.",
+    });
+
+    const forget = await runLlmTurn({
+      userId: "user_1",
+      message: "forget everything about me",
+      tzOffsetMinutes: 0,
+    });
+    expect(forget.toolResults[0].tool).toBe("delete_memory");
+    expect(forget.assistantMessage).toMatch(/Cleared 1/i);
+
+    const recall = await runLlmTurn({
+      userId: "user_1",
+      message: "what do you remember?",
+      tzOffsetMinutes: 0,
+    });
+    expect(recall.assistantMessage).toMatch(/don't have any stored preferences/i);
+  });
 });

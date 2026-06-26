@@ -23,7 +23,8 @@ const {
   buildMem0EntityFilters,
   filterMemoriesForUser,
   rememberUserPreference,
-  storeMemoryInferred,
+  deleteAllMemoriesForUser,
+  formatForgetAllSummary,
 } = require("../../src/memory/mem0Service");
 
 describe("mem0Service", () => {
@@ -259,6 +260,18 @@ describe("mem0Service", () => {
     expect(inferCalls[0].options.infer).toBe(true);
     expect(inferCalls[0].messages[0].content).toMatch(/save this preference/i);
   });
+
+  test("deleteAllMemoriesForUser removes every listed preference", async () => {
+    await storeMemory({ userId: "user_a", content: "User prefers mornings." });
+    await storeMemory({ userId: "user_a", content: "User prefers 30-minute focus." });
+    await storeMemory({ userId: "user_b", content: "User prefers nights." });
+
+    const result = await deleteAllMemoriesForUser({ userId: "user_a" });
+    expect(result.deleted).toHaveLength(2);
+    expect(await listMemories({ userId: "user_a" })).toHaveLength(0);
+    expect(await listMemories({ userId: "user_b" })).toHaveLength(1);
+    expect(formatForgetAllSummary(result)).toMatch(/Cleared 2/i);
+  });
 });
 
 describe("memoryExtraction", () => {
@@ -294,12 +307,20 @@ describe("memoryExtraction", () => {
     } = require("../../src/memory/memoryExtraction");
 
     expect(isMemoryRecallRequest("what do you remember about me?")).toBe(true);
+    expect(isMemoryRecallRequest("what do you remember?")).toBe(true);
+    expect(isMemoryRecallRequest("what do you remeber about me?")).toBe(true);
     expect(isMemoryRecallRequest("what do you know about me?")).toBe(true);
     expect(isMemoryRecallRequest("list what you remember about me")).toBe(true);
     expect(isExplicitRememberRequest("what do you remember about me?")).toBe(false);
     expect(
       extractExplicitRememberContent("what do you remember about me?")
     ).toBeNull();
+  });
+
+  test("forget-all requests are detected", () => {
+    const { isMemoryForgetAllRequest } = require("../../src/memory/memoryExtraction");
+    expect(isMemoryForgetAllRequest("forget everything about me")).toBe(true);
+    expect(isMemoryForgetAllRequest("clear all my memories")).toBe(true);
   });
 
   test("rejects junk remember fragments", () => {

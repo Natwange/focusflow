@@ -23,12 +23,27 @@ function isMemoryRecallRequest(text) {
 
   return (
     /\bwhat\s+(?:do\s+)?(?:you\s+)?know\s+about\s+me\b/i.test(trimmed) ||
-    /\bwhat\s+(?:do\s+)?(?:you\s+)?remember\s+about\s+me\b/i.test(trimmed) ||
+    /\bwhat\s+(?:do\s+)?(?:you\s+)?rem(?:emb\w*|eber)\b/i.test(trimmed) ||
     /\b(?:do|can)\s+you\s+remember\s+(?:anything\s+)?about\s+me\b/i.test(trimmed) ||
     /\blist\s+(?:what\s+)?(?:you\s+)?remember(?:\s+about\s+me)?\b/i.test(trimmed) ||
     /\bshow\s+(?:me\s+)?(?:what\s+)?(?:you\s+)?remember(?:\s+about\s+me)?\b/i.test(trimmed) ||
     /\btell\s+me\s+what\s+you\s+(?:know|remember)\s+about\s+me\b/i.test(trimmed) ||
     /\bwhat\s+(?:are\s+)?my\s+(?:stored\s+)?preferences\b/i.test(trimmed)
+  );
+}
+
+function isMemoryForgetAllRequest(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return false;
+
+  return (
+    /\bforget\s+(?:everything|all)(?:\s+(?:about|you\s+know\s+about))?\s*(?:me|my\s+preferences?)?\b/i.test(
+      trimmed
+    ) ||
+    /\b(?:clear|delete|erase|wipe)\s+(?:all\s+)?(?:my\s+)?(?:stored\s+)?(?:memories|preferences)\b/i.test(
+      trimmed
+    ) ||
+    /\bforget\s+what\s+you\s+(?:know|remember)\s+about\s+me\b/i.test(trimmed)
   );
 }
 
@@ -111,7 +126,11 @@ function resolveRememberStoragePlan(text) {
 }
 
 function isForgetCommand(text) {
-  return /\bforget\s+that\b/i.test(text) || /\bdo not remember\b/i.test(text);
+  return (
+    isMemoryForgetAllRequest(text) ||
+    /\bforget\s+that\b/i.test(text) ||
+    /\bdo not remember\b/i.test(text)
+  );
 }
 
 /**
@@ -212,6 +231,7 @@ module.exports = {
   isExplicitRememberCommand,
   isExplicitRememberRequest,
   isMemoryRecallRequest,
+  isMemoryForgetAllRequest,
   isJunkRememberContent,
   isForgetCommand,
   isGenericTaskRequest,

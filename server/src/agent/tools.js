@@ -218,9 +218,10 @@ const toolArgSchemas = {
     .object({
       memoryId: z.string().trim().min(1).max(128).optional(),
       query: z.string().trim().min(1).max(500).optional(),
+      deleteAll: z.boolean().optional(),
     })
-    .refine((d) => d.memoryId || d.query, {
-      message: "Provide memoryId or query to identify the memory to delete.",
+    .refine((d) => d.deleteAll || d.memoryId || d.query, {
+      message: "Provide deleteAll, memoryId, or query.",
     }),
 
   calendar_create_event: z.object({

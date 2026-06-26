@@ -427,6 +427,39 @@ async function deleteMemoriesByQuery({ userId, query, limit = 5 }) {
   };
 }
 
+async function deleteAllMemoriesForUser({ userId, limit = 50 }) {
+  if (!userId) {
+    return { ok: false, error: "Missing user id.", deleted: [] };
+  }
+
+  const memories = await listMemories({ userId, limit });
+  if (memories.length === 0) {
+    return { ok: true, deleted: [], empty: true };
+  }
+
+  const deleted = [];
+  for (const memory of memories) {
+    if (!memory.id) continue;
+    const result = await deleteMemory({ userId, memoryId: memory.id });
+    if (result.ok) deleted.push(memory);
+  }
+
+  return {
+    ok: deleted.length > 0,
+    deleted,
+    empty: deleted.length === 0,
+    error:
+      deleted.length > 0 ? undefined : "Could not delete stored preferences.",
+  };
+}
+
+function formatForgetAllSummary(result) {
+  if (result.empty || result.deleted.length === 0) {
+    return "You don't have any stored preferences to clear.";
+  }
+  return `Cleared ${result.deleted.length} stored preference(s).`;
+}
+
 async function buildMemoryContextForTurn({ userId, message }) {
   if (!userId || !isMem0Configured()) return "";
   const memories = await retrieveRelevantMemories({
@@ -526,6 +559,8 @@ module.exports = {
   listMemories,
   deleteMemory,
   deleteMemoriesByQuery,
+  deleteAllMemoriesForUser,
+  formatForgetAllSummary,
   formatMemoriesForPrompt,
   filterByConfidence,
   buildMemoryContextForTurn,

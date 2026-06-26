@@ -5,6 +5,7 @@ const { listTasksArgsForTodayIntent, isCreateTaskRetryMessage, findLastUserCreat
 const {
   isExplicitRememberRequest,
   isMemoryRecallRequest,
+  isMemoryForgetAllRequest,
   resolveRememberStoragePlan,
 } = require("../memory/memoryExtraction");
 const { isMem0Configured } = require("../memory/mem0Service");
@@ -102,6 +103,24 @@ async function resolvePendingConfirmationNode(state) {
     }
   }
 
+  if (isMemoryForgetAllRequest(state.message)) {
+    if (!isMem0Configured()) {
+      return {
+        assistantMessage: MEM0_NOT_CONFIGURED_MESSAGE,
+        toolResults: [],
+        responsePendingConfirmation: null,
+        clientActions: [],
+        nextStep: "finalize",
+      };
+    }
+    return {
+      directToolCall: { toolName: "delete_memory", toolArgs: { deleteAll: true } },
+      toolName: "delete_memory",
+      toolArgs: { deleteAll: true },
+      nextStep: "execute_tool",
+    };
+  }
+
   if (isMemoryRecallRequest(state.message)) {
     if (!isMem0Configured()) {
       return {
@@ -113,9 +132,9 @@ async function resolvePendingConfirmationNode(state) {
       };
     }
     return {
-      directToolCall: { toolName: "list_memories", toolArgs: {} },
+      directToolCall: { toolName: "list_memories", toolArgs: { limit: 20 } },
       toolName: "list_memories",
-      toolArgs: {},
+      toolArgs: { limit: 20 },
       nextStep: "execute_tool",
     };
   }
