@@ -10,7 +10,11 @@ const {
   listTasksArgsForTodayIntent,
   isCreateTaskRetryMessage,
   findLastUserCreateTaskArgs,
+  isRescheduleDateFollowUp,
+  findRescheduleContext,
+  buildRescheduleFollowUpToolArgs,
 } = require("./ruleParser");
+const { resolveTask } = require("../lib/taskResolver");
 const { isV1ToolName, parseToolArgs } = require("./tools");
 const {
   isAffirmativeConfirmation,
@@ -316,6 +320,54 @@ async function assistantMessageAfterToolExecution(input) {
   return fallback;
 }
 
+async function runRescheduleFollowUpIfNeeded({
+  userId,
+  message,
+  tzOffsetMinutes,
+  history,
+}) {
+  if (!isRescheduleDateFollowUp(message)) return null;
+
+  const context = findRescheduleContext(history);
+  if (!context?.taskTitle) return null;
+
+  const resolved = await resolveTask(userId, { taskTitle: context.taskTitle });
+  if (!resolved.ok) {
+    return withMutations({
+      assistantMessage: resolved.error,
+      toolResults: [],
+      pendingConfirmation: null,
+      clientActions: [],
+    });
+  }
+
+  const toolArgs = buildRescheduleFollowUpToolArgs(
+    message,
+    tzOffsetMinutes,
+    history,
+    resolved.task
+  );
+  if (!toolArgs) return null;
+
+  const ctx = { userId, tzOffsetMinutes };
+  const toolResults = await executeToolChain(ctx, "update_task", toolArgs);
+  const responsePendingConfirmation = extractPendingConfirmation(toolResults);
+  const assistantMessage = await assistantMessageAfterToolExecution({
+    message,
+    tzOffsetMinutes,
+    toolName: "update_task",
+    args: toolArgs,
+    toolResults,
+  });
+
+  return withMutations({
+    assistantMessage,
+    toolResults,
+    pendingConfirmation: responsePendingConfirmation,
+    clientActions: collectClientActions(toolResults),
+  });
+}
+
 async function runCreateTaskRetryIfNeeded({
   userId,
   message,
@@ -524,6 +576,14 @@ async function runLlmTurn({
     history,
   });
   if (retryResponse) return retryResponse;
+
+  const rescheduleResponse = await runRescheduleFollowUpIfNeeded({
+    userId,
+    message,
+    tzOffsetMinutes,
+    history,
+  });
+  if (rescheduleResponse) return rescheduleResponse;
 
   const llmResult = await completeAgentTurn({
     userId,

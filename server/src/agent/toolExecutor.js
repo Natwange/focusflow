@@ -41,6 +41,8 @@ const {
   looksLikeInventedSlug,
 } = require("../lib/goalResolver");
 const { isV1ToolName, parseToolArgs } = require("./tools");
+const { resolveTask } = require("../lib/taskResolver");
+const { shiftIsoToLocalDay } = require("./ruleParser");
 const {
   runCalendarCreateEvent,
   runCalendarListEvents,
@@ -268,8 +270,35 @@ async function runUpdateTask(userId, args, ctx = {}) {
   }
 
   const task = resolved.task;
-  const updated = await updateTaskForUser(task.id, args.updates);
   const tzOffsetMinutes = ctx.tzOffsetMinutes ?? 0;
+  let updates = { ...args.updates };
+
+  const hasStart = updates.startTime !== undefined;
+  const hasEnd = updates.endTime !== undefined;
+  if (hasStart !== hasEnd) {
+    const { startTime: _s, endTime: _e, ...rest } = updates;
+    updates = rest;
+  }
+
+  if (
+    updates.dueDate &&
+    updates.startTime === undefined &&
+    updates.endTime === undefined &&
+    task.startTime &&
+    task.endTime
+  ) {
+    updates = {
+      ...updates,
+      startTime: shiftIsoToLocalDay(
+        task.startTime,
+        updates.dueDate,
+        tzOffsetMinutes
+      ),
+      endTime: shiftIsoToLocalDay(task.endTime, updates.dueDate, tzOffsetMinutes),
+    };
+  }
+
+  const updated = await updateTaskForUser(task.id, updates);
   const changes = [];
   if (args.updates.title) changes.push(`renamed to "${updated.title}"`);
   if (args.updates.dueDate !== undefined) {

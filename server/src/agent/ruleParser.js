@@ -545,6 +545,203 @@ function parseRuleBasedMessage(message, tzOffsetMinutes = 0) {
   };
 }
 
+function extractQuotedTaskTitle(text) {
+  const t = String(text ?? "");
+  const rescheduleMatch = t.match(/\breschedule\s+['"]([^'"]+)['"]/i);
+  if (rescheduleMatch?.[1]) {
+    return rescheduleMatch[1].trim().replace(/[.!?]+$/, "");
+  }
+  const doubleQuoted = t.match(/"([^"]+)"/);
+  if (doubleQuoted?.[1]) return doubleQuoted[1].trim();
+  return null;
+}
+
+function extractRescheduleTaskTitle(message) {
+  const m = String(message ?? "").match(
+    /\b(?:reschedule|move|push)\s+(?:my\s+)?(.+?)(?:\s+to\b|$)/i
+  );
+  if (!m?.[1]) return null;
+  return cleanTaskTitle(m[1]);
+}
+
+function isRescheduleDateFollowUp(message) {
+  const trimmed = String(message ?? "").trim();
+  if (!trimmed || trimmed.length > 80) return false;
+  const lower = trimmed.toLowerCase();
+  if (/^\s*(today|tomorrow)\s*$/i.test(trimmed)) return true;
+  if (parseNamedCalendarDateInText(trimmed)) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return true;
+  if (
+    /^\s*(today|tomorrow)\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*$/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isRescheduleClarificationAssistantMessage(text) {
+  const t = String(text ?? "");
+  return (
+    /\breschedule\b/i.test(t) &&
+    /\b(when would you like|move this task|specific date|date and time)\b/i.test(
+      t
+    )
+  );
+}
+
+function findRescheduleContext(history) {
+  if (!Array.isArray(history) || history.length === 0) return null;
+
+  let lastAssistant = null;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    if (history[i]?.role === "assistant" && history[i].text) {
+      lastAssistant = history[i].text;
+      break;
+    }
+  }
+  if (!lastAssistant || !isRescheduleClarificationAssistantMessage(lastAssistant)) {
+    return null;
+  }
+
+  let taskTitle = extractQuotedTaskTitle(lastAssistant);
+  if (!taskTitle) {
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      const entry = history[i];
+      if (entry?.role !== "user" || !entry.text) continue;
+      taskTitle = extractRescheduleTaskTitle(entry.text);
+      if (taskTitle) break;
+    }
+  }
+  if (!taskTitle) return null;
+
+  return { taskTitle };
+}
+
+function localClockFromUtcIso(iso, tzOffsetMinutes) {
+  const tz = parseTzOffsetMinutes(tzOffsetMinutes);
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { hour: 9, minute: 0 };
+  const localMs = d.getTime() - tz * 60 * 1000;
+  const local = new Date(localMs);
+  return {
+    hour: local.getUTCHours(),
+    minute: local.getUTCMinutes(),
+  };
+}
+
+function shiftIsoToLocalDay(iso, targetDueIso, tzOffsetMinutes) {
+  const tz = parseTzOffsetMinutes(tzOffsetMinutes);
+  const { hour, minute } = localClockFromUtcIso(iso, tzOffsetMinutes);
+  const targetKey = localKeyFromUtcDate(new Date(targetDueIso), tz);
+  const [yStr, mStr, dStr] = targetKey.split("-");
+  return localCalendarDateToUtcIso({
+    year: Number(yStr),
+    month: Number(mStr),
+    day: Number(dStr),
+    hour,
+    minute,
+    tzOffsetMinutes,
+  });
+}
+
+function parseRescheduleDayAndTime(message, tzOffsetMinutes) {
+  const trimmed = String(message ?? "").trim();
+  const atMatch = trimmed.match(
+    /^(today|tomorrow)\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i
+  );
+  if (atMatch) {
+    const dayOffset = atMatch[1].toLowerCase() === "tomorrow" ? 1 : 0;
+    const clock = parseClockHour(atMatch[2], atMatch[3], atMatch[4]);
+    if (!clock) return null;
+    return { dayOffset, hour: clock.hour, minute: clock.minute };
+  }
+
+  if (/^today$/i.test(trimmed)) return { dayOffset: 0, hour: 9, minute: 0 };
+  if (/^tomorrow$/i.test(trimmed)) return { dayOffset: 1, hour: 9, minute: 0 };
+
+  const named = parseNamedCalendarDateInText(trimmed);
+  if (named) return { named, hour: 9, minute: 0 };
+
+  const isoDay = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDay) {
+    return {
+      named: {
+        year: Number(isoDay[1]),
+        month: Number(isoDay[2]),
+        day: Number(isoDay[3]),
+      },
+      hour: 9,
+      minute: 0,
+    };
+  }
+
+  return null;
+}
+
+function buildRescheduleUpdateArgs(message, tzOffsetMinutes, task) {
+  const parsed = parseRescheduleDayAndTime(message, tzOffsetMinutes);
+  if (!parsed) return null;
+
+  let hour = parsed.hour ?? 9;
+  let minute = parsed.minute ?? 0;
+  if (parsed.dayOffset === undefined && task.dueDate) {
+    const clock = localClockFromUtcIso(task.dueDate, tzOffsetMinutes);
+    hour = clock.hour;
+    minute = clock.minute;
+  } else if (parsed.dayOffset !== undefined && task.dueDate && parsed.hour === 9 && parsed.minute === 0) {
+    const clock = localClockFromUtcIso(task.dueDate, tzOffsetMinutes);
+    hour = clock.hour;
+    minute = clock.minute;
+  }
+
+  let dueDate;
+  if (parsed.dayOffset !== undefined) {
+    dueDate = localDateTimeToUtcIso({
+      dayOffset: parsed.dayOffset,
+      hour,
+      minute,
+      tzOffsetMinutes,
+    });
+  } else if (parsed.named) {
+    dueDate = localCalendarDateToUtcIso({
+      ...parsed.named,
+      hour,
+      minute,
+      tzOffsetMinutes,
+    });
+  } else {
+    return null;
+  }
+
+  const updates = { dueDate };
+  if (task.startTime && task.endTime) {
+    updates.startTime = shiftIsoToLocalDay(
+      task.startTime,
+      dueDate,
+      tzOffsetMinutes
+    );
+    updates.endTime = shiftIsoToLocalDay(task.endTime, dueDate, tzOffsetMinutes);
+  }
+
+  return updates;
+}
+
+function buildRescheduleFollowUpToolArgs(message, tzOffsetMinutes, history, task) {
+  if (!isRescheduleDateFollowUp(message)) return null;
+  const context = findRescheduleContext(history);
+  if (!context?.taskTitle) return null;
+
+  const updates = buildRescheduleUpdateArgs(message, tzOffsetMinutes, task);
+  if (!updates) return null;
+
+  return {
+    taskTitle: context.taskTitle,
+    updates,
+  };
+}
+
 module.exports = {
   INTENTS,
   MESSAGE_MAX_LENGTH,
@@ -559,4 +756,10 @@ module.exports = {
   isCreateTaskRetryMessage,
   findLastUserCreateTaskArgs,
   cleanTaskTitle,
+  isRescheduleDateFollowUp,
+  findRescheduleContext,
+  buildRescheduleUpdateArgs,
+  buildRescheduleFollowUpToolArgs,
+  localDateTimeToUtcIso,
+  shiftIsoToLocalDay,
 };

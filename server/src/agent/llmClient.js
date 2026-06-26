@@ -1,5 +1,6 @@
 const { getOpenAIChatTools, getAnthropicTools } = require("./tools");
 const { buildMemoryContextForTurn } = require("../memory/mem0Service");
+const { localKeyFromUtcDate, parseTzOffsetMinutes } = require("../lib/focusSummary");
 
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
@@ -11,7 +12,7 @@ You may call at most one tool per turn. All writes go through validated tools on
 Guidelines:
 - list_tasks: For "today's tasks" or remaining work, use excludeDone true, includeOverdue true, and today's date range in ISO UTC. Respect tzOffsetMinutes when provided in context.
 - create_task: Require a clear title. If the user gives a time range (e.g. "from 2 PM to 3 PM"), set startTime and endTime as ISO UTC and dueDate to the block's calendar day. startTime and endTime must always be provided together. If only a single time is given with no end time, ask ONE short follow-up for the end time. If due date/time is mentioned without a range, convert to ISO UTC dueDate only. If info is incomplete, ask ONE short follow-up. If the user says no or skip, create the task with what you have. If the user says a task was not added or asks you to add it again, you MUST call create_task using the same details from the earlier message in history — never claim success without calling the tool.
-- update_task: Use to change a task's title, due date, schedule (startTime/endTime together), or status. Identify by taskTitle (user's words) or taskId. Pass only changed fields in updates.
+- update_task: Use to change a task's title, due date, schedule (startTime/endTime together), or status. Identify by taskTitle (user's words) or taskId. Pass only changed fields in updates. When rescheduling to a new day, set dueDate to ISO UTC for that local calendar day and preserve the task's existing local time-of-day when the user only names a day (e.g. "today"). If the task has startTime and endTime, shift both to the new day together — never pass only startTime or only endTime.
 - complete_task: Use when the user wants to mark a task done. Identify by taskTitle or taskId.
 - delete_task: Use when the user wants to remove a task. NEVER set confirmed:true on the first call. First call without confirmed to get confirmation prompt. Only set confirmed:true if the user has ALREADY said yes/confirmed in the conversation history.
 - get_focus_summary: Use when the user asks about focus time or streak.
@@ -116,9 +117,13 @@ function buildUserTurnContent(message, tzOffsetMinutes) {
   const tz =
     tzOffsetMinutes !== undefined ? Number(tzOffsetMinutes) : 0;
   const now = new Date();
-  const localMs = now.getTime() - tz * 60 * 1000;
-  const localIso = new Date(localMs).toISOString().slice(0, 16);
-  return `User message: ${message}\n\nContext: tzOffsetMinutes=${tz}. Current UTC time: ${now.toISOString()}. User's local time: ${localIso}. When the user says "today" or "tomorrow", use their local date to compute the correct ISO UTC date/time.`;
+  const parsedTz = parseTzOffsetMinutes(tz);
+  const todayKey = localKeyFromUtcDate(now, parsedTz);
+  const localMs = now.getTime() - parsedTz * 60 * 1000;
+  const local = new Date(localMs);
+  const localDate = `${local.getUTCFullYear()}-${String(local.getUTCMonth() + 1).padStart(2, "0")}-${String(local.getUTCDate()).padStart(2, "0")}`;
+  const localTime = `${String(local.getUTCHours()).padStart(2, "0")}:${String(local.getUTCMinutes()).padStart(2, "0")}`;
+  return `User message: ${message}\n\nContext: tzOffsetMinutes=${tz}. Current UTC time: ${now.toISOString()}. User's local calendar date today: ${todayKey} (verify: ${localDate}). User's local time now: ${localTime}. When the user says "today" or "tomorrow", use ${todayKey} as today and compute the correct ISO UTC date/time from their local timezone — never invent a different calendar day.`;
 }
 
 function buildObserveUserContent(input) {

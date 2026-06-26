@@ -1,7 +1,8 @@
 const { StateGraph, START, END, Annotation } = require("@langchain/langgraph");
 const { completeAgentTurn } = require("./llmClient");
 const { isV1ToolName, parseToolArgs } = require("./tools");
-const { listTasksArgsForTodayIntent, isCreateTaskRetryMessage, findLastUserCreateTaskArgs } = require("./ruleParser");
+const { listTasksArgsForTodayIntent, isCreateTaskRetryMessage, findLastUserCreateTaskArgs, isRescheduleDateFollowUp, findRescheduleContext, buildRescheduleFollowUpToolArgs } = require("./ruleParser");
+const { resolveTask } = require("../lib/taskResolver");
 const {
   isExplicitRememberRequest,
   isMemoryRecallRequest,
@@ -100,6 +101,31 @@ async function resolvePendingConfirmationNode(state) {
         toolArgs,
         nextStep: "execute_tool",
       };
+    }
+  }
+
+  if (isRescheduleDateFollowUp(state.message)) {
+    const context = findRescheduleContext(state.history);
+    if (context?.taskTitle) {
+      const resolved = await resolveTask(state.userId, {
+        taskTitle: context.taskTitle,
+      });
+      if (resolved.ok) {
+        const toolArgs = buildRescheduleFollowUpToolArgs(
+          state.message,
+          state.tzOffsetMinutes,
+          state.history,
+          resolved.task
+        );
+        if (toolArgs) {
+          return {
+            directToolCall: { toolName: "update_task", toolArgs },
+            toolName: "update_task",
+            toolArgs,
+            nextStep: "execute_tool",
+          };
+        }
+      }
     }
   }
 
