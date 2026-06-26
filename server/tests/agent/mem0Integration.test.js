@@ -214,4 +214,50 @@ describe("agent Mem0 integration", () => {
     });
     expect(recall.assistantMessage).toMatch(/don't have any stored preferences/i);
   });
+
+  test("specific forget deletes matching preference without LLM", async () => {
+    setCompleteAgentTurnForTests(async () => {
+      throw new Error("LLM should not run for specific forget");
+    });
+
+    await storeMemory({
+      userId: "user_1",
+      content: "User preference: I do sudoku every now and then to keep my brain sharp",
+    });
+    await storeMemory({
+      userId: "user_1",
+      content: "User preference: what",
+    });
+    await storeMemory({
+      userId: "user_1",
+      content: "User preference: I enjoy planning",
+    });
+
+    const forgetSudoku = await runLlmTurn({
+      userId: "user_1",
+      message: "delete the sudoku memory",
+      tzOffsetMinutes: 0,
+    });
+    expect(forgetSudoku.toolResults[0].tool).toBe("delete_memory");
+    expect(forgetSudoku.toolResults[0].ok).toBe(true);
+    expect(forgetSudoku.assistantMessage).toMatch(/sudoku/i);
+
+    const forgetWhat = await runLlmTurn({
+      userId: "user_1",
+      message: "remove the what preference,",
+      tzOffsetMinutes: 0,
+    });
+    expect(forgetWhat.toolResults[0].tool).toBe("delete_memory");
+    expect(forgetWhat.toolResults[0].ok).toBe(true);
+    expect(forgetWhat.assistantMessage).toMatch(/what/i);
+
+    const recall = await runLlmTurn({
+      userId: "user_1",
+      message: "what do you remember about me?",
+      tzOffsetMinutes: 0,
+    });
+    expect(recall.assistantMessage).toMatch(/planning/i);
+    expect(recall.assistantMessage).not.toMatch(/sudoku/i);
+    expect(recall.assistantMessage).not.toMatch(/preference: what/i);
+  });
 });

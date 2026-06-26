@@ -154,6 +154,53 @@ describe("mem0Service", () => {
     expect(result.deleted.length).toBeGreaterThan(0);
   });
 
+  test("delete by query falls back to text match when semantic search misses", async () => {
+    resetMem0ServiceForTests();
+    setInMemoryStoreForTests(null);
+    setMem0ClientForTests({
+      search: async () => ({ results: [] }),
+      getAll: async () => ({
+        results: [
+          {
+            id: "m1",
+            memory: "User preference: I do sudoku every now and then to keep my brain sharp",
+            user_id: toMem0UserId("user_a"),
+          },
+          {
+            id: "m2",
+            memory: "User preference: what",
+            user_id: toMem0UserId("user_a"),
+          },
+        ],
+      }),
+      delete: async (id) => ({ id }),
+    });
+
+    const sudoku = await deleteMemoriesByQuery({
+      userId: "user_a",
+      query: "sudoku",
+    });
+    expect(sudoku.ok).toBe(true);
+    expect(sudoku.deleted[0].content).toMatch(/sudoku/i);
+
+    const what = await deleteMemoriesByQuery({
+      userId: "user_a",
+      query: "what",
+    });
+    expect(what.ok).toBe(true);
+    expect(what.deleted[0].content).toMatch(/^User preference: what$/i);
+  });
+
+  test("findMemoriesMatchingQuery prefers exact short-query matches", () => {
+    const { findMemoriesMatchingQuery } = require("../../src/memory/mem0Service");
+    const memories = [
+      { id: "1", content: "User preference: what" },
+      { id: "2", content: "User preference: I enjoy planning" },
+    ];
+    expect(findMemoriesMatchingQuery(memories, "what")).toHaveLength(1);
+    expect(findMemoriesMatchingQuery(memories, "what")[0].id).toBe("1");
+  });
+
   test("retrieval failure does not throw", async () => {
     resetMem0ServiceForTests();
     setInMemoryStoreForTests(null);
@@ -321,6 +368,17 @@ describe("memoryExtraction", () => {
     const { isMemoryForgetAllRequest } = require("../../src/memory/memoryExtraction");
     expect(isMemoryForgetAllRequest("forget everything about me")).toBe(true);
     expect(isMemoryForgetAllRequest("clear all my memories")).toBe(true);
+  });
+
+  test("specific forget requests extract a query", () => {
+    const {
+      extractMemoryForgetQuery,
+      isMemoryForgetSpecificRequest,
+    } = require("../../src/memory/memoryExtraction");
+    expect(extractMemoryForgetQuery("delete the sudoku memory")).toBe("sudoku");
+    expect(extractMemoryForgetQuery("remove the what preference,")).toBe("what");
+    expect(isMemoryForgetSpecificRequest("forget the leetcode preference")).toBe(true);
+    expect(extractMemoryForgetQuery("forget everything about me")).toBeNull();
   });
 
   test("rejects junk remember fragments", () => {

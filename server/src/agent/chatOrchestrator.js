@@ -28,12 +28,14 @@ const {
   rememberUserPreference,
   rememberConfirmationMessage,
   deleteAllMemoriesForUser,
+  deleteMemoriesByQuery,
   formatForgetAllSummary,
 } = require("../memory/mem0Service");
 const {
   isExplicitRememberRequest,
   isMemoryRecallRequest,
   isMemoryForgetAllRequest,
+  extractMemoryForgetQuery,
 } = require("../memory/memoryExtraction");
 function getOrchestratorMode() {
   const mode = String(process.env.AGENT_ORCHESTRATOR || "custom").toLowerCase();
@@ -434,6 +436,47 @@ async function runMemoryForgetAllIfNeeded({ userId, message }) {
   });
 }
 
+async function runMemoryForgetSpecificIfNeeded({ userId, message }) {
+  const query = extractMemoryForgetQuery(message);
+  if (!query) return null;
+
+  if (!isMem0Configured()) {
+    return withMutations({
+      assistantMessage:
+        "Long-term memory isn't enabled on the server yet — MEM0_API_KEY needs to be set in your API environment (e.g. Render → Environment). Once that's added, ask me again.",
+      toolResults: [],
+      pendingConfirmation: null,
+      clientActions: [],
+    });
+  }
+
+  const result = await deleteMemoriesByQuery({ userId, query });
+  const summary = result.ok
+    ? `Forgot: ${result.deleted.map((m) => m.content).join("; ")}`
+    : `No matching memories found for "${query}".`;
+
+  const toolResults = [
+    {
+      tool: "delete_memory",
+      args: { query },
+      ok: result.ok,
+      result: {
+        ok: result.ok,
+        summary,
+        error: result.error,
+        data: { deleted: result.deleted },
+      },
+    },
+  ];
+
+  return withMutations({
+    assistantMessage: summary,
+    toolResults,
+    pendingConfirmation: null,
+    clientActions: collectClientActions(toolResults),
+  });
+}
+
 async function runMemoryRecallIfNeeded({ userId, message }) {
   if (!isMemoryRecallRequest(message)) return null;
 
@@ -562,6 +605,12 @@ async function runLlmTurn({
 
   const forgetResponse = await runMemoryForgetAllIfNeeded({ userId, message });
   if (forgetResponse) return forgetResponse;
+
+  const forgetSpecificResponse = await runMemoryForgetSpecificIfNeeded({
+    userId,
+    message,
+  });
+  if (forgetSpecificResponse) return forgetSpecificResponse;
 
   const recallResponse = await runMemoryRecallIfNeeded({ userId, message });
   if (recallResponse) return recallResponse;

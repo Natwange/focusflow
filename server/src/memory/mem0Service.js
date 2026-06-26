@@ -403,12 +403,58 @@ async function deleteMemory({ userId, memoryId }) {
   }
 }
 
+function findMemoriesMatchingQuery(memories, query) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q) return [];
+
+  const scored = (memories ?? [])
+    .map((memory) => {
+      const content = String(memory.content ?? "").toLowerCase();
+      const normalized = content
+        .replace(/^user\s+preference:\s*/i, "")
+        .trim();
+
+      if (normalized === q || content === q) {
+        return { memory, rank: 3 };
+      }
+      if (
+        content.includes(`preference: ${q}`) ||
+        content.endsWith(`: ${q}`)
+      ) {
+        return { memory, rank: 2 };
+      }
+      if (content.includes(q)) {
+        return { memory, rank: 1 };
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.rank - a.rank);
+
+  if (q.length <= 4) {
+    return scored.filter((entry) => entry.rank >= 2).map((entry) => entry.memory);
+  }
+
+  return scored.map((entry) => entry.memory);
+}
+
 async function deleteMemoriesByQuery({ userId, query, limit = 5 }) {
-  const matches = await retrieveRelevantMemories({
-    userId,
-    query,
-    limit,
-  });
+  const normalizedQuery = String(query ?? "").trim();
+  if (!normalizedQuery) {
+    return { ok: false, error: "No matching memories found.", deleted: [] };
+  }
+
+  const all = await listMemories({ userId, limit: 50 });
+  let matches = findMemoriesMatchingQuery(all, normalizedQuery).slice(0, limit);
+
+  if (matches.length === 0) {
+    const semantic = await retrieveRelevantMemories({
+      userId,
+      query: normalizedQuery,
+      limit,
+    });
+    matches = findMemoriesMatchingQuery(semantic, normalizedQuery).slice(0, limit);
+  }
 
   if (matches.length === 0) {
     return { ok: false, error: "No matching memories found.", deleted: [] };
@@ -558,6 +604,7 @@ module.exports = {
   rememberConfirmationMessage,
   listMemories,
   deleteMemory,
+  findMemoriesMatchingQuery,
   deleteMemoriesByQuery,
   deleteAllMemoriesForUser,
   formatForgetAllSummary,

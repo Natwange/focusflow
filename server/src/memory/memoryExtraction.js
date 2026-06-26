@@ -32,6 +32,35 @@ function isMemoryRecallRequest(text) {
   );
 }
 
+function extractMemoryForgetQuery(text) {
+  const trimmed = String(text ?? "")
+    .trim()
+    .replace(/[,;.!?]+$/, "");
+  if (!trimmed || isMemoryForgetAllRequest(trimmed)) return null;
+
+  const patterns = [
+    /\b(?:delete|remove|forget|clear|drop)\s+(?:the\s+)?(.+?)\s+(?:memory|memories|preference|preferences)\b/i,
+    /\b(?:delete|remove|forget|clear)\s+(?:my\s+)?(.+?)\s+preference\b/i,
+    /\bforget\s+(?:about\s+)?(.+?)$/i,
+    /\b(?:don't|do not)\s+remember\s+(?:that\s+)?(.+?)$/i,
+  ];
+
+  for (const re of patterns) {
+    const m = trimmed.match(re);
+    if (!m?.[1]) continue;
+    let query = m[1].trim().replace(/^(?:that|about|my|the)\s+/i, "");
+    query = query.replace(/\s+(?:one|entry|item)$/i, "").trim();
+    if (!query) continue;
+    return query;
+  }
+
+  return null;
+}
+
+function isMemoryForgetSpecificRequest(text) {
+  return extractMemoryForgetQuery(text) != null;
+}
+
 function isMemoryForgetAllRequest(text) {
   const trimmed = String(text ?? "").trim();
   if (!trimmed) return false;
@@ -232,6 +261,8 @@ module.exports = {
   isExplicitRememberRequest,
   isMemoryRecallRequest,
   isMemoryForgetAllRequest,
+  isMemoryForgetSpecificRequest,
+  extractMemoryForgetQuery,
   isJunkRememberContent,
   isForgetCommand,
   isGenericTaskRequest,

@@ -7,6 +7,7 @@ const {
   isExplicitRememberRequest,
   isMemoryRecallRequest,
   isMemoryForgetAllRequest,
+  extractMemoryForgetQuery,
   resolveRememberStoragePlan,
 } = require("../memory/memoryExtraction");
 const { isMem0Configured } = require("../memory/mem0Service");
@@ -143,6 +144,28 @@ async function resolvePendingConfirmationNode(state) {
       directToolCall: { toolName: "delete_memory", toolArgs: { deleteAll: true } },
       toolName: "delete_memory",
       toolArgs: { deleteAll: true },
+      nextStep: "execute_tool",
+    };
+  }
+
+  const forgetQuery = extractMemoryForgetQuery(state.message);
+  if (forgetQuery) {
+    if (!isMem0Configured()) {
+      return {
+        assistantMessage: MEM0_NOT_CONFIGURED_MESSAGE,
+        toolResults: [],
+        responsePendingConfirmation: null,
+        clientActions: [],
+        nextStep: "finalize",
+      };
+    }
+    return {
+      directToolCall: {
+        toolName: "delete_memory",
+        toolArgs: { query: forgetQuery },
+      },
+      toolName: "delete_memory",
+      toolArgs: { query: forgetQuery },
       nextStep: "execute_tool",
     };
   }
