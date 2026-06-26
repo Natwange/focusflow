@@ -183,12 +183,12 @@ export default function AgentChat() {
         <button
           type="button"
           onClick={openChat}
-          className={`fixed z-40 inline-flex items-center gap-2 rounded-full border border-[#0556d4]/40 bg-[#066afe] px-4 py-2.5 text-sm font-medium text-white shadow-[0_4px_20px_rgba(6,106,254,0.35)] transition hover:bg-[#0556d4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#066afe] right-4 sm:right-6 ${
+          className={`fixed z-40 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black px-4 py-2.5 text-sm font-medium text-white shadow-lg transition hover:bg-black/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground dark:border-white/20 dark:bg-white dark:text-[#0b0c0f] dark:hover:bg-white/90 dark:shadow-[0_4px_20px_rgba(255,255,255,0.08)] right-4 sm:right-6 ${
             focusTimerActive ? "bottom-20 sm:bottom-[5.5rem]" : "bottom-5 sm:bottom-6"
           }`}
           aria-label="Ask Oti"
         >
-          <Sparkles size={16} className="shrink-0 text-sky-200" aria-hidden />
+          <Sparkles size={16} className="shrink-0 text-white/70 dark:text-[#0b0c0f]/60" aria-hidden />
           <span>Ask Oti</span>
         </button>
       )}
@@ -219,10 +219,7 @@ export default function AgentChat() {
           {/* Intro + messages */}
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {messages.length === 0 && (
-              <div className="shrink-0 border-b border-border bg-gradient-to-br from-[#066afe]/10 via-card to-card px-4 py-5">
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#066afe] text-white shadow-md">
-                  <Sparkles size={22} className="text-sky-100" aria-hidden />
-                </div>
+              <div className="shrink-0 border-b border-border bg-gradient-to-br from-card-muted via-card to-card px-4 py-5">
                 <p className="text-sm leading-relaxed text-foreground">
                   I can help you plan tasks, run focus sessions, and stay on track
                   with your goals.
@@ -239,7 +236,7 @@ export default function AgentChat() {
                   key={i}
                   className={`max-w-[92%] whitespace-pre-wrap rounded-xl px-3 py-2.5 text-sm ${
                     m.role === "user"
-                      ? "ml-auto bg-[#066afe] text-white"
+                      ? "ml-auto bg-black text-white dark:bg-white dark:text-[#0b0c0f]"
                       : "mr-auto bg-card-muted text-foreground"
                   }`}
                 >
@@ -264,7 +261,7 @@ export default function AgentChat() {
             }}
             className="shrink-0 border-t border-border bg-card px-4 py-3"
           >
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-input px-3 py-2 shadow-sm focus-within:border-[#066afe]/50 focus-within:ring-2 focus-within:ring-[#066afe]/20">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-input px-3 py-2 shadow-sm focus-within:border-foreground/30 focus-within:ring-2 focus-within:ring-foreground/10">
               <input
                 ref={inputRef}
                 type="text"
@@ -277,7 +274,7 @@ export default function AgentChat() {
               <button
                 type="submit"
                 disabled={!input.trim() || loading}
-                className="shrink-0 rounded-lg p-1.5 text-[#066afe] transition hover:bg-card-muted disabled:opacity-30"
+                className="shrink-0 rounded-lg p-1.5 text-foreground transition hover:bg-card-muted disabled:opacity-30"
                 aria-label="Send"
               >
                 <Send size={16} />
