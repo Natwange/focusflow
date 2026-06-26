@@ -16,10 +16,11 @@ const {
   isAffirmativeConfirmation,
   pendingConfirmationToToolCall,
 } = require("./pendingConfirmationResolver");
-const { maybeAutoExtractAndStore, storeMemory, isMem0Configured } = require("../memory/mem0Service");
+const { maybeAutoExtractAndStore, storeMemory, listMemories, isMem0Configured, formatMemoryListSummary } = require("../memory/mem0Service");
 const {
   extractExplicitRememberContent,
   isExplicitRememberRequest,
+  isMemoryRecallRequest,
 } = require("../memory/memoryExtraction");
 function getOrchestratorMode() {
   const mode = String(process.env.AGENT_ORCHESTRATOR || "custom").toLowerCase();
@@ -336,6 +337,41 @@ async function runCreateTaskRetryIfNeeded({
   });
 }
 
+async function runMemoryRecallIfNeeded({ userId, message }) {
+  if (!isMemoryRecallRequest(message)) return null;
+
+  if (!isMem0Configured()) {
+    return withMutations({
+      assistantMessage:
+        "Long-term memory isn't enabled on the server yet — MEM0_API_KEY needs to be set in your API environment (e.g. Render → Environment). Once that's added, ask me again.",
+      toolResults: [],
+      pendingConfirmation: null,
+      clientActions: [],
+    });
+  }
+
+  const memories = await listMemories({ userId });
+  const toolResults = [
+    {
+      tool: "list_memories",
+      args: {},
+      ok: true,
+      result: {
+        ok: true,
+        summary: formatMemoryListSummary(memories),
+        data: { memories },
+      },
+    },
+  ];
+
+  return withMutations({
+    assistantMessage: formatMemoryListSummary(memories),
+    toolResults,
+    pendingConfirmation: null,
+    clientActions: collectClientActions(toolResults),
+  });
+}
+
 async function runExplicitRememberIfNeeded({ userId, message }) {
   if (!isExplicitRememberRequest(message)) return null;
 
@@ -429,6 +465,9 @@ async function runLlmTurn({
       });
     }
   }
+
+  const recallResponse = await runMemoryRecallIfNeeded({ userId, message });
+  if (recallResponse) return recallResponse;
 
   const rememberResponse = await runExplicitRememberIfNeeded({ userId, message });
   if (rememberResponse) return rememberResponse;

@@ -18,6 +18,10 @@ const {
   maybeAutoExtractAndStore,
   setInMemoryStoreForTests,
   resetMem0ServiceForTests,
+  setMem0ClientForTests,
+  toMem0UserId,
+  buildMem0EntityFilters,
+  filterMemoriesForUser,
 } = require("../../src/memory/mem0Service");
 
 describe("mem0Service", () => {
@@ -65,6 +69,62 @@ describe("mem0Service", () => {
     expect(b[0].content).toMatch(/night/i);
   });
 
+  test("toMem0UserId namespaces FocusFlow users for Mem0", () => {
+    expect(toMem0UserId("clxyz123")).toBe("focusflow:clxyz123");
+    expect(buildMem0EntityFilters("clxyz123")).toEqual({
+      OR: [{ user_id: "focusflow:clxyz123" }, { user_id: "clxyz123" }],
+    });
+  });
+
+  test("filterMemoriesForUser drops records without owner or wrong owner", () => {
+    const scoped = toMem0UserId("user_a");
+    const kept = filterMemoriesForUser(
+      [
+        { id: "1", content: "mine", user_id: scoped },
+        { id: "2", content: "orphan" },
+        { id: "3", content: "theirs", user_id: toMem0UserId("user_b") },
+      ],
+      "user_a"
+    );
+    expect(kept).toHaveLength(1);
+    expect(kept[0].content).toBe("mine");
+  });
+
+  test("listMemories passes scoped filters to Mem0 client", async () => {
+    const savedKey = process.env.MEM0_API_KEY;
+    resetMem0ServiceForTests();
+    setInMemoryStoreForTests(null);
+
+    const calls = [];
+    setMem0ClientForTests({
+      getAll: async (options) => {
+        calls.push(options);
+        return {
+          results: [
+            {
+              id: "m1",
+              memory: "User prefers mornings.",
+              user_id: toMem0UserId("user_a"),
+            },
+            {
+              id: "m2",
+              memory: "User prefers nights.",
+              user_id: toMem0UserId("user_b"),
+            },
+          ],
+        };
+      },
+    });
+
+    const memories = await listMemories({ userId: "user_a", limit: 10 });
+    expect(calls[0].filters).toEqual(buildMem0EntityFilters("user_a"));
+    expect(memories).toHaveLength(1);
+    expect(memories[0].content).toMatch(/morning/i);
+
+    if (savedKey) process.env.MEM0_API_KEY = savedKey;
+    else delete process.env.MEM0_API_KEY;
+  });
+
   test("delete memory works", async () => {
     const stored = await storeMemory({
       userId: "user_a",
@@ -93,6 +153,13 @@ describe("mem0Service", () => {
 
   test("retrieval failure does not throw", async () => {
     resetMem0ServiceForTests();
+    setInMemoryStoreForTests(null);
+    setMem0ClientForTests({
+      search: async () => {
+        throw new Error("Mem0 unavailable");
+      },
+    });
+
     const memories = await retrieveRelevantMemories({
       userId: "user_a",
       query: "anything",
@@ -182,6 +249,27 @@ describe("memoryExtraction", () => {
 
   test("ignores generic task creation", () => {
     expect(isGenericTaskRequest("Add a task for laundry")).toBe(true);
+  });
+
+  test("recall questions are not treated as remember commands", () => {
+    const {
+      isExplicitRememberRequest,
+      isMemoryRecallRequest,
+      extractExplicitRememberContent,
+    } = require("../../src/memory/memoryExtraction");
+
+    expect(isMemoryRecallRequest("what do you remember about me?")).toBe(true);
+    expect(isMemoryRecallRequest("what do you know about me?")).toBe(true);
+    expect(isMemoryRecallRequest("list what you remember about me")).toBe(true);
+    expect(isExplicitRememberRequest("what do you remember about me?")).toBe(false);
+    expect(
+      extractExplicitRememberContent("what do you remember about me?")
+    ).toBeNull();
+  });
+
+  test("rejects junk remember fragments", () => {
+    const { extractExplicitRememberContent } = require("../../src/memory/memoryExtraction");
+    expect(extractExplicitRememberContent("remember about me")).toBeNull();
   });
 });
 

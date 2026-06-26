@@ -17,10 +17,49 @@ function isExplicitRememberCommand(text) {
   return isExplicitRememberRequest(text);
 }
 
+function isMemoryRecallRequest(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return false;
+
+  return (
+    /\bwhat\s+(?:do\s+)?(?:you\s+)?know\s+about\s+me\b/i.test(trimmed) ||
+    /\bwhat\s+(?:do\s+)?(?:you\s+)?remember\s+about\s+me\b/i.test(trimmed) ||
+    /\b(?:do|can)\s+you\s+remember\s+(?:anything\s+)?about\s+me\b/i.test(trimmed) ||
+    /\blist\s+(?:what\s+)?(?:you\s+)?remember(?:\s+about\s+me)?\b/i.test(trimmed) ||
+    /\bshow\s+(?:me\s+)?(?:what\s+)?(?:you\s+)?remember(?:\s+about\s+me)?\b/i.test(trimmed) ||
+    /\btell\s+me\s+what\s+you\s+(?:know|remember)\s+about\s+me\b/i.test(trimmed) ||
+    /\bwhat\s+(?:are\s+)?my\s+(?:stored\s+)?preferences\b/i.test(trimmed)
+  );
+}
+
+function isJunkRememberContent(body) {
+  const normalized = String(body ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^user\s+preference:\s*/i, "");
+
+  if (normalized.length < 4) return true;
+
+  const junkPhrases = new Set([
+    "what",
+    "me",
+    "about me",
+    "my preferences",
+    "my preference",
+    "anything about me",
+  ]);
+  if (junkPhrases.has(normalized)) return true;
+  if (/^(what|who|how|when|where|why)\b/.test(normalized)) return true;
+  if (/^about\s+me$/.test(normalized)) return true;
+
+  return false;
+}
+
 function isExplicitRememberRequest(text) {
   if (isForgetCommand(text)) return false;
+  if (isMemoryRecallRequest(text)) return false;
   return (
-    /\bremember\b/i.test(text) ||
+    /\bremember\s+(?:that\s+)?/i.test(text) ||
     /\bkeep\s+in\s+mind\b/i.test(text) ||
     /\bsave\s+this\s+preference\b/i.test(text)
   );
@@ -42,7 +81,7 @@ function extractExplicitRememberContent(text) {
     const m = trimmed.match(re);
     if (!m?.[1]) continue;
     const body = m[1].trim().replace(/^that\s+/i, "");
-    if (body.length < 3) continue;
+    if (body.length < 3 || isJunkRememberContent(body)) continue;
     const candidate = /^user\s+preference:/i.test(body)
       ? body
       : `User preference: ${body}`;
@@ -133,7 +172,12 @@ function extractPreferenceMemoriesFromText(text) {
 
 function shouldAttemptMem0Inference(text) {
   const trimmed = String(text ?? "").trim();
-  if (!trimmed || isGenericTaskRequest(trimmed) || isTransientState(trimmed)) {
+  if (
+    !trimmed ||
+    isGenericTaskRequest(trimmed) ||
+    isTransientState(trimmed) ||
+    isMemoryRecallRequest(trimmed)
+  ) {
     return false;
   }
   if (isExplicitRememberCommand(trimmed)) return true;
@@ -147,6 +191,8 @@ module.exports = {
   extractExplicitRememberContent,
   isExplicitRememberCommand,
   isExplicitRememberRequest,
+  isMemoryRecallRequest,
+  isJunkRememberContent,
   isForgetCommand,
   isGenericTaskRequest,
   isTransientState,

@@ -24,6 +24,7 @@ const {
   listMemories,
   deleteMemory,
   deleteMemoriesByQuery,
+  formatMemoryListSummary,
 } = require("../memory/mem0Service");
 const {
   formatCreatedTaskSummary,
@@ -863,16 +864,9 @@ async function runStoreMemory(userId, args) {
 
 async function runListMemories(userId, args) {
   const memories = await listMemories({ userId, limit: args.limit });
-  if (memories.length === 0) {
-    return success({
-      data: { memories: [] },
-      summary: "I don't have any stored preferences for you yet.",
-    });
-  }
-  const lines = memories.map((m) => `• ${m.content}`);
   return success({
     data: { memories },
-    summary: `Here's what I remember about your preferences:\n${lines.join("\n")}`,
+    summary: formatMemoryListSummary(memories),
   });
 }
 

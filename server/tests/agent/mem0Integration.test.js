@@ -116,4 +116,56 @@ describe("agent Mem0 integration", () => {
     expect(list.ok).toBe(true);
     expect(list.summary).toMatch(/morning/i);
   });
+
+  test("recall question lists memories without storing", async () => {
+    setCompleteAgentTurnForTests(async () => {
+      throw new Error("LLM should not run for memory recall");
+    });
+
+    await storeMemory({
+      userId: "user_1",
+      content: "User prefers 30-minute focus sessions.",
+    });
+
+    const res = await runLlmTurn({
+      userId: "user_1",
+      message: "what do you remember about me?",
+      tzOffsetMinutes: 0,
+    });
+
+    expect(res.toolResults[0].tool).toBe("list_memories");
+    expect(res.assistantMessage).toMatch(/30-minute/i);
+    expect(res.assistantMessage).not.toMatch(/Got it — I'll remember/i);
+  });
+
+  test("recall is isolated per user", async () => {
+    setCompleteAgentTurnForTests(async () => {
+      throw new Error("LLM should not run for memory recall");
+    });
+
+    await storeMemory({
+      userId: "user_a",
+      content: "User prefers 30-minute focus sessions.",
+    });
+    await storeMemory({
+      userId: "user_b",
+      content: "User prefers night study sessions.",
+    });
+
+    const a = await runLlmTurn({
+      userId: "user_a",
+      message: "what do you know about me?",
+      tzOffsetMinutes: 0,
+    });
+    const b = await runLlmTurn({
+      userId: "user_b",
+      message: "what do you know about me?",
+      tzOffsetMinutes: 0,
+    });
+
+    expect(a.assistantMessage).toMatch(/30-minute/i);
+    expect(a.assistantMessage).not.toMatch(/night/i);
+    expect(b.assistantMessage).toMatch(/night/i);
+    expect(b.assistantMessage).not.toMatch(/30-minute/i);
+  });
 });

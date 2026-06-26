@@ -2,10 +2,12 @@ const { validateMemoryContent } = require("./memoryContentSafety");
 const {
   extractPreferenceMemoriesFromText,
   shouldAttemptMem0Inference,
+  isMemoryRecallRequest,
 } = require("./memoryExtraction");
 
 const DEFAULT_LIMIT = 6;
 const DEFAULT_SCORE_THRESHOLD = 0.35;
+const MEM0_USER_PREFIX = "focusflow:";
 
 /** @type {import('mem0ai').default | null} */
 let clientSingleton = null;
@@ -30,6 +32,57 @@ function getDefaultLimit() {
   return Number.isFinite(raw) && raw > 0 ? Math.min(raw, 20) : DEFAULT_LIMIT;
 }
 
+function toMem0UserId(userId) {
+  const id = String(userId ?? "").trim();
+  if (!id) return "";
+  if (id.startsWith(MEM0_USER_PREFIX)) return id;
+  return `${MEM0_USER_PREFIX}${id}`;
+}
+
+function buildMem0EntityFilters(userId) {
+  const scoped = toMem0UserId(userId);
+  const legacy = String(userId ?? "").trim();
+  if (!scoped) return null;
+
+  if (legacy && legacy !== scoped) {
+    return {
+      OR: [{ user_id: scoped }, { user_id: legacy }],
+    };
+  }
+
+  return { user_id: scoped };
+}
+
+function memoryOwnerId(record) {
+  return (
+    record?.userId ??
+    record?.user_id ??
+    record?.metadata?.userId ??
+    record?.metadata?.user_id ??
+    null
+  );
+}
+
+function filterMemoriesForUser(records, userId) {
+  const scoped = toMem0UserId(userId);
+  const legacy = String(userId ?? "").trim();
+  if (!scoped) return [];
+
+  return (records ?? []).filter((record) => {
+    const owner = memoryOwnerId(record);
+    if (!owner) return false;
+    return owner === scoped || owner === legacy;
+  });
+}
+
+function formatMemoryListSummary(memories) {
+  if (!memories?.length) {
+    return "I don't have any stored preferences for you yet.";
+  }
+  const lines = memories.map((m) => `• ${m.content}`);
+  return `Here's what I remember about your preferences:\n${lines.join("\n")}`;
+}
+
 function getMem0Client() {
   if (clientOverride) return clientOverride;
   if (!process.env.MEM0_API_KEY?.trim()) return null;
@@ -48,11 +101,13 @@ function normalizeMemoryRecord(record) {
     record?.data?.memory ||
     record?.content ||
     "";
+  const owner = memoryOwnerId(record);
   return {
     id: String(record?.id ?? ""),
     content: String(content).trim(),
     score: typeof record?.score === "number" ? record.score : undefined,
     metadata: record?.metadata ?? null,
+    userId: owner ?? undefined,
   };
 }
 
@@ -98,14 +153,20 @@ async function retrieveRelevantMemories({ userId, query, limit = getDefaultLimit
     const client = getMem0Client();
     if (!client) return [];
 
+    const filters = buildMem0EntityFilters(userId);
+    if (!filters) return [];
+
     const response = await client.search(String(query ?? ""), {
-      filters: { user_id: userId },
+      filters,
       topK: limit,
     });
 
     const results = Array.isArray(response?.results) ? response.results : [];
     return filterByConfidence(
-      results.map(normalizeMemoryRecord).filter((m) => m.content)
+      filterMemoriesForUser(
+        results.map(normalizeMemoryRecord).filter((m) => m.content),
+        userId
+      )
     ).slice(0, limit);
   } catch (err) {
     console.warn("Mem0 retrieveRelevantMemories failed:", err.message);
@@ -143,9 +204,9 @@ async function storeMemory({ userId, content, metadata = {} }) {
     }
 
     const created = await client.add([{ role: "user", content: validation.text }], {
-      userId,
+      userId: toMem0UserId(userId),
       infer: false,
-      metadata: { source: "focusflow", ...metadata },
+      metadata: { source: "focusflow", focusflowUserId: userId, ...metadata },
     });
 
     const first = Array.isArray(created) ? created[0] : created;
@@ -168,16 +229,20 @@ async function listMemories({ userId, limit = getDefaultLimit() }) {
     const client = getMem0Client();
     if (!client) return [];
 
+    const filters = buildMem0EntityFilters(userId);
+    if (!filters) return [];
+
     const response = await client.getAll({
-      filters: { user_id: userId },
+      filters,
+      page: 1,
       pageSize: limit,
     });
 
     const results = Array.isArray(response?.results) ? response.results : [];
-    return results
-      .map(normalizeMemoryRecord)
-      .filter((m) => m.content)
-      .slice(0, limit);
+    return filterMemoriesForUser(
+      results.map(normalizeMemoryRecord).filter((m) => m.content),
+      userId
+    ).slice(0, limit);
   } catch (err) {
     console.warn("Mem0 listMemories failed:", err.message);
     return [];
@@ -206,7 +271,9 @@ async function deleteMemory({ userId, memoryId }) {
     }
 
     const existing = await client.get(memoryId);
-    if (existing?.userId && existing.userId !== userId) {
+    const owner = memoryOwnerId(existing);
+    const scoped = toMem0UserId(userId);
+    if (owner && owner !== scoped && owner !== userId) {
       return { ok: false, error: "Forbidden: memory belongs to another user." };
     }
 
@@ -260,10 +327,17 @@ async function maybeAutoExtractAndStore({
 }) {
   if (!userId || !isMem0Configured()) return;
 
+  if (isMemoryRecallRequest(userMessage)) return;
+
   const alreadyStored = toolResults.some(
     (tr) => tr.tool === "store_memory" && tr.ok
   );
   if (alreadyStored) return;
+
+  const alreadyListed = toolResults.some(
+    (tr) => tr.tool === "list_memories" && tr.ok
+  );
+  if (alreadyListed) return;
 
   const ruleMemories = extractPreferenceMemoriesFromText(userMessage);
   for (const content of ruleMemories) {
@@ -289,8 +363,9 @@ async function maybeAutoExtractAndStore({
         },
       ],
       {
-        userId,
+        userId: toMem0UserId(userId),
         infer: true,
+        metadata: { source: "focusflow", focusflowUserId: userId },
         customInstructions:
           "Extract only stable long-term preferences (study times, focus length, workload limits, subject struggles, day-of-week preferences). Do NOT store passwords, tokens, API keys, or one-off task requests. Do NOT store temporary states like being tired today.",
       }
@@ -317,7 +392,12 @@ function resetMem0ServiceForTests() {
 module.exports = {
   DEFAULT_LIMIT,
   DEFAULT_SCORE_THRESHOLD,
+  MEM0_USER_PREFIX,
   isMem0Configured,
+  toMem0UserId,
+  buildMem0EntityFilters,
+  filterMemoriesForUser,
+  formatMemoryListSummary,
   retrieveRelevantMemories,
   storeMemory,
   listMemories,
