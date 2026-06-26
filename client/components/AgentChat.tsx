@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { MessageCircle, X, Send, Loader2, GripHorizontal } from "lucide-react";
+import { Sparkles, X, Send, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useFocusTimer } from "@/context/FocusTimerContext";
 import { handleAgentClientActions } from "@/lib/agentClientActions";
@@ -56,10 +56,6 @@ function emitMutationsFromAgentResponse(res: {
   }
 }
 
-function clamp(val: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, val));
-}
-
 const PUBLIC_ROUTES = new Set([
   "/",
   "/login",
@@ -86,42 +82,9 @@ export default function AgentChat() {
     itemCount?: number;
     changeCount?: number;
   } | null>(null);
-  const [position, setPosition] = useState({ x: 16, y: 64 });
   const inputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const focusTimer = useFocusTimer();
-  const dragging = useRef(false);
-  const didDrag = useRef(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      if (!dragging.current) return;
-      didDrag.current = true;
-      const x = clamp(e.clientX - dragOffset.current.x, 0, window.innerWidth - 320);
-      const y = clamp(e.clientY - dragOffset.current.y, 0, window.innerHeight - 60);
-      setPosition({ x, y });
-    };
-    const onUp = () => {
-      dragging.current = false;
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-  }, []);
-
-  const onDragStart = (e: React.PointerEvent) => {
-    dragging.current = true;
-    const rect = containerRef.current?.getBoundingClientRect();
-    dragOffset.current = {
-      x: e.clientX - (rect?.left ?? position.x),
-      y: e.clientY - (rect?.top ?? position.y),
-    };
-    e.preventDefault();
-  };
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -190,121 +153,136 @@ export default function AgentChat() {
     });
   }, [sendMessage]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [open, messages, loading]);
+
   if (PUBLIC_ROUTES.has(pathname)) return null;
 
-  const onBubbleDragStart = (e: React.PointerEvent) => {
-    dragging.current = true;
-    didDrag.current = false;
-    dragOffset.current = {
-      x: e.clientX - position.x,
-      y: e.clientY - position.y,
-    };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    e.preventDefault();
-  };
-
-  const onBubbleClick = () => {
-    if (didDrag.current) return;
+  const openChat = () => {
     setOpen(true);
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
-  if (!open) {
-    return (
-      <div
-        ref={containerRef}
-        onPointerDown={onBubbleDragStart}
-        onClick={onBubbleClick}
-        style={{ left: position.x, top: position.y }}
-        className="fixed z-40 rounded-full bg-black p-3 text-white shadow-lg hover:bg-black/90 transition cursor-grab active:cursor-grabbing dark:bg-white dark:text-black dark:hover:bg-white/90"
-        role="button"
-        aria-label="Open agent chat"
-      >
-        <MessageCircle size={20} />
-      </div>
-    );
-  }
-
   return (
-    <div
-      ref={containerRef}
-      style={{ left: position.x, top: position.y }}
-      className="fixed z-40 w-80 max-h-[420px] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-[#2a303a] dark:bg-[#13161b]"
-    >
-      {/* Header — draggable */}
-      <div
-        onPointerDown={onDragStart}
-        className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-[#2a303a] cursor-grab active:cursor-grabbing select-none"
-      >
-        <div className="flex items-center gap-1.5">
-          <GripHorizontal size={14} className="text-gray-400" />
-          <span className="text-sm font-semibold dark:text-[#f5f7fb]">
-            FocusFlow Agent
-          </span>
-        </div>
+    <>
+      {/* Fixed pill — bottom-left, clear of page content and right-side focus timer */}
+      {!open && (
         <button
           type="button"
-          onClick={() => setOpen(false)}
-          className="rounded p-1 hover:bg-gray-100 dark:hover:bg-[#1c2028]"
-          aria-label="Close"
+          onClick={openChat}
+          className="fixed bottom-5 left-4 z-40 inline-flex items-center gap-2 rounded-full border border-[#0556d4]/40 bg-[#066afe] px-4 py-2.5 text-sm font-medium text-white shadow-[0_4px_20px_rgba(6,106,254,0.35)] transition hover:bg-[#0556d4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#066afe] sm:bottom-6 sm:left-6"
+          aria-label="Ask Oti"
         >
-          <X size={16} />
+          <Sparkles size={16} className="shrink-0 text-sky-200" aria-hidden />
+          <span>Ask Oti</span>
         </button>
-      </div>
+      )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-[200px] max-h-[300px]">
-        {messages.length === 0 && (
-          <p className="text-xs text-gray-400 dark:text-[#6b7280] mt-4 text-center">
-            Try: &quot;Start a 25 minute focus session&quot;
-          </p>
-        )}
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`text-sm px-3 py-2 rounded-lg max-w-[90%] whitespace-pre-wrap ${
-              m.role === "user"
-                ? "ml-auto bg-black text-white dark:bg-white dark:text-black"
-                : "mr-auto bg-gray-100 text-black dark:bg-[#1c2028] dark:text-[#f5f7fb]"
-            }`}
+      {/* Left-docked chat panel */}
+      {open && (
+        <aside
+          className="fixed left-0 top-[92px] z-40 flex h-[calc(100dvh-92px)] w-full max-w-[min(100vw,24rem)] flex-col border-r border-border bg-card shadow-2xl animate-in slide-in-from-left duration-200 md:top-[73px] md:h-[calc(100dvh-73px)]"
+          role="dialog"
+          aria-label="Oti chat"
+        >
+          {/* Header */}
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+            <div>
+              <p className="text-base font-semibold text-foreground">Oti</p>
+              <p className="text-xs text-muted-foreground">FocusFlow Agent</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-lg p-2 text-muted-foreground transition hover:bg-card-muted hover:text-foreground"
+              aria-label="Close chat"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Intro + messages */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {messages.length === 0 && (
+              <div className="shrink-0 border-b border-border bg-gradient-to-br from-[#066afe]/10 via-card to-card px-4 py-5">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#066afe] text-white shadow-md">
+                  <Sparkles size={22} className="text-sky-100" aria-hidden />
+                </div>
+                <p className="text-sm leading-relaxed text-foreground">
+                  I can help you plan tasks, run focus sessions, and stay on track
+                  with your goals.
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Try: &quot;Start a 25 minute focus session&quot;
+                </p>
+              </div>
+            )}
+
+            <div className="flex-1 space-y-3 px-4 py-4">
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`max-w-[92%] whitespace-pre-wrap rounded-xl px-3 py-2.5 text-sm ${
+                    m.role === "user"
+                      ? "ml-auto bg-[#066afe] text-white"
+                      : "mr-auto bg-card-muted text-foreground"
+                  }`}
+                >
+                  {m.role === "assistant" ? renderChatMessage(m.text) : m.text}
+                </div>
+              ))}
+              {loading && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 size={12} className="animate-spin" />
+                  Thinking...
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+          </div>
+
+          {/* Input */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendMessage(input);
+            }}
+            className="shrink-0 border-t border-border bg-card px-4 py-3"
           >
-            {m.role === "assistant" ? renderChatMessage(m.text) : m.text}
-          </div>
-        ))}
-        {loading && (
-          <div className="flex items-center gap-1 text-xs text-gray-400">
-            <Loader2 size={12} className="animate-spin" />
-            Thinking...
-          </div>
-        )}
-      </div>
-
-      {/* Input */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          sendMessage(input);
-        }}
-        className="flex items-center gap-2 px-3 py-2 border-t border-gray-200 dark:border-[#2a303a]"
-      >
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask the agent..."
-          className="flex-1 text-sm bg-transparent outline-none placeholder:text-gray-400 dark:text-[#f5f7fb] dark:placeholder:text-[#6b7280]"
-          disabled={loading}
-        />
-        <button
-          type="submit"
-          disabled={!input.trim() || loading}
-          className="rounded-full p-1.5 text-black hover:bg-gray-100 disabled:opacity-30 transition dark:text-[#f5f7fb] dark:hover:bg-[#1c2028]"
-          aria-label="Send"
-        >
-          <Send size={16} />
-        </button>
-      </form>
-    </div>
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-input px-3 py-2 shadow-sm focus-within:border-[#066afe]/50 focus-within:ring-2 focus-within:ring-[#066afe]/20">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask Oti a question"
+                className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                disabled={loading}
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || loading}
+                className="shrink-0 rounded-lg p-1.5 text-[#066afe] transition hover:bg-card-muted disabled:opacity-30"
+                aria-label="Send"
+              >
+                <Send size={16} />
+              </button>
+            </div>
+          </form>
+        </aside>
+      )}
+    </>
   );
 }
