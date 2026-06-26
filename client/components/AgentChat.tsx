@@ -85,6 +85,7 @@ export default function AgentChat() {
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const focusTimer = useFocusTimer();
+  const focusTimerActive = focusTimer.isActive;
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -177,12 +178,14 @@ export default function AgentChat() {
 
   return (
     <>
-      {/* Fixed pill — bottom-left, clear of page content and right-side focus timer */}
+      {/* Fixed pill — bottom-right; shifts up when focus timer is visible */}
       {!open && (
         <button
           type="button"
           onClick={openChat}
-          className="fixed bottom-5 left-4 z-40 inline-flex items-center gap-2 rounded-full border border-[#0556d4]/40 bg-[#066afe] px-4 py-2.5 text-sm font-medium text-white shadow-[0_4px_20px_rgba(6,106,254,0.35)] transition hover:bg-[#0556d4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#066afe] sm:bottom-6 sm:left-6"
+          className={`fixed z-40 inline-flex items-center gap-2 rounded-full border border-[#0556d4]/40 bg-[#066afe] px-4 py-2.5 text-sm font-medium text-white shadow-[0_4px_20px_rgba(6,106,254,0.35)] transition hover:bg-[#0556d4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#066afe] right-4 sm:right-6 ${
+            focusTimerActive ? "bottom-20 sm:bottom-[5.5rem]" : "bottom-5 sm:bottom-6"
+          }`}
           aria-label="Ask Oti"
         >
           <Sparkles size={16} className="shrink-0 text-sky-200" aria-hidden />
@@ -190,10 +193,10 @@ export default function AgentChat() {
         </button>
       )}
 
-      {/* Left-docked chat panel */}
+      {/* Right-docked chat panel */}
       {open && (
         <aside
-          className="fixed left-0 top-[92px] z-40 flex h-[calc(100dvh-92px)] w-full max-w-[min(100vw,24rem)] flex-col border-r border-border bg-card shadow-2xl animate-in slide-in-from-left duration-200 md:top-[73px] md:h-[calc(100dvh-73px)]"
+          className="fixed right-0 top-[92px] z-40 flex h-[calc(100dvh-92px)] w-full max-w-[min(100vw,24rem)] flex-col border-l border-border bg-card shadow-2xl animate-in slide-in-from-right duration-200 md:top-[73px] md:h-[calc(100dvh-73px)]"
           role="dialog"
           aria-label="Oti chat"
         >
