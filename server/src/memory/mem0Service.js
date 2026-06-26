@@ -3,11 +3,16 @@ const {
   extractPreferenceMemoriesFromText,
   shouldAttemptMem0Inference,
   isMemoryRecallRequest,
+  isExplicitRememberRequest,
+  resolveRememberStoragePlan,
 } = require("./memoryExtraction");
 
 const DEFAULT_LIMIT = 6;
 const DEFAULT_SCORE_THRESHOLD = 0.35;
 const MEM0_USER_PREFIX = "focusflow:";
+
+const EXPLICIT_REMEMBER_INFER_INSTRUCTIONS =
+  "The user asked to remember a long-term personal preference. Extract only stable preference facts (study habits, focus length, schedule limits, subject struggles). Do NOT store question words, filler phrases like 'about me', passwords, API keys, one-off task requests, or temporary states like being tired today.";
 
 /** @type {import('mem0ai').default | null} */
 let clientSingleton = null;
@@ -218,6 +223,119 @@ async function storeMemory({ userId, content, metadata = {} }) {
   }
 }
 
+async function storeMemoryInferred({ userId, userMessage, metadata = {} }) {
+  const message = String(userMessage ?? "").trim();
+  if (!message) {
+    return { ok: false, error: "Memory message cannot be empty." };
+  }
+  if (!userId) {
+    return { ok: false, error: "Missing user id for memory storage." };
+  }
+
+  try {
+    if (inMemoryStore) {
+      const ruleMemories = extractPreferenceMemoriesFromText(message);
+      const content =
+        ruleMemories[0] ??
+        `User preference: ${message.replace(/^(?:please\s+)?(?:remember|keep in mind)(?:\s+that)?\s*/i, "").trim()}`;
+      const validation = validateMemoryContent(content);
+      if (!validation.ok) {
+        return { ok: false, error: validation.error };
+      }
+      const row = {
+        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        content: validation.text,
+        score: 1,
+        metadata: { source: "focusflow", storeMode: "infer", ...metadata },
+      };
+      const list = inMemoryStore.get(userId) ?? [];
+      list.push(row);
+      inMemoryStore.set(userId, list);
+      return { ok: true, memory: row, mode: "infer", pending: false };
+    }
+
+    const client = getMem0Client();
+    if (!client) {
+      return { ok: false, error: "Mem0 is not configured." };
+    }
+
+    const response = await client.add([{ role: "user", content: message }], {
+      userId: toMem0UserId(userId),
+      infer: true,
+      metadata: {
+        source: "focusflow",
+        focusflowUserId: userId,
+        storeMode: "infer",
+        ...metadata,
+      },
+      customInstructions: EXPLICIT_REMEMBER_INFER_INSTRUCTIONS,
+    });
+
+    if (response?.status === "PENDING" || response?.eventId) {
+      return {
+        ok: true,
+        memory: {
+          id: String(response.eventId ?? ""),
+          content: "",
+        },
+        mode: "infer",
+        pending: true,
+      };
+    }
+
+    const results = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.results)
+        ? response.results
+        : [response];
+    const first = results.find((r) => normalizeMemoryRecord(r).content) ?? results[0];
+    const memory = normalizeMemoryRecord(first);
+    return {
+      ok: true,
+      memory,
+      mode: "infer",
+      pending: !memory.content,
+    };
+  } catch (err) {
+    console.warn("Mem0 storeMemoryInferred failed:", err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+function rememberConfirmationMessage(result) {
+  if (!result.ok) return result.error || "I couldn't save that preference.";
+  if (result.pending) return "Got it — I'll remember that preference.";
+  const content = result.memory?.content?.trim();
+  return content
+    ? `Got it — I'll remember: ${content}`
+    : "Got it — I'll remember that preference.";
+}
+
+/**
+ * Hybrid explicit remember: regex literal when possible, Mem0 infer otherwise.
+ */
+async function rememberUserPreference({ userId, message }) {
+  const plan = resolveRememberStoragePlan(message);
+  if (plan.mode === "skip") {
+    return { ok: false, skipped: true };
+  }
+
+  if (plan.mode === "literal") {
+    const result = await storeMemory({
+      userId,
+      content: plan.content,
+      metadata: { source: "explicit_remember", storeMode: "literal" },
+    });
+    return { ...result, mode: "literal", pending: false };
+  }
+
+  return storeMemoryInferred({
+    userId,
+    userMessage: plan.message,
+    metadata: { source: "explicit_remember" },
+  });
+}
+
 async function listMemories({ userId, limit = getDefaultLimit() }) {
   if (!userId) return [];
 
@@ -329,6 +447,8 @@ async function maybeAutoExtractAndStore({
 
   if (isMemoryRecallRequest(userMessage)) return;
 
+  if (isExplicitRememberRequest(userMessage)) return;
+
   const alreadyStored = toolResults.some(
     (tr) => tr.tool === "store_memory" && tr.ok
   );
@@ -400,6 +520,9 @@ module.exports = {
   formatMemoryListSummary,
   retrieveRelevantMemories,
   storeMemory,
+  storeMemoryInferred,
+  rememberUserPreference,
+  rememberConfirmationMessage,
   listMemories,
   deleteMemory,
   deleteMemoriesByQuery,

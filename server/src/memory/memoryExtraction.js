@@ -72,8 +72,9 @@ function extractExplicitRememberContent(text) {
   const patterns = [
     /\bremember\s+that\s+(.+?)(?:[.!?]|$)/i,
     /\bplease\s+remember\s+(?:that\s+)?(.+?)(?:[.!?]|$)/i,
-    /\bremember\s+(.+?)(?:[.!?]|$)/i,
     /\bkeep\s+in\s+mind\s+that\s+(.+?)(?:[.!?]|$)/i,
+    /\bsave\s+this\s+preference[:\s]+(.+?)(?:[.!?]|$)/i,
+    /\bremember\s+(.+?)(?:[.!?]|$)/i,
     /\bkeep\s+in\s+mind\s+(.+?)(?:[.!?]|$)/i,
   ];
 
@@ -89,6 +90,24 @@ function extractExplicitRememberContent(text) {
   }
 
   return null;
+}
+
+/**
+ * Routes explicit remember commands: regex literal store vs Mem0 infer extraction.
+ * @returns {{ mode: 'skip' } | { mode: 'literal', content: string } | { mode: 'infer', message: string }}
+ */
+function resolveRememberStoragePlan(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!isExplicitRememberRequest(trimmed)) {
+    return { mode: "skip" };
+  }
+
+  const literal = extractExplicitRememberContent(trimmed);
+  if (literal) {
+    return { mode: "literal", content: literal };
+  }
+
+  return { mode: "infer", message: trimmed };
 }
 
 function isForgetCommand(text) {
@@ -189,6 +208,7 @@ function shouldAttemptMem0Inference(text) {
 module.exports = {
   extractPreferenceMemoriesFromText,
   extractExplicitRememberContent,
+  resolveRememberStoragePlan,
   isExplicitRememberCommand,
   isExplicitRememberRequest,
   isMemoryRecallRequest,

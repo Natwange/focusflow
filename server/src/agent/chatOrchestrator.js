@@ -16,9 +16,15 @@ const {
   isAffirmativeConfirmation,
   pendingConfirmationToToolCall,
 } = require("./pendingConfirmationResolver");
-const { maybeAutoExtractAndStore, storeMemory, listMemories, isMem0Configured, formatMemoryListSummary } = require("../memory/mem0Service");
 const {
-  extractExplicitRememberContent,
+  maybeAutoExtractAndStore,
+  listMemories,
+  isMem0Configured,
+  formatMemoryListSummary,
+  rememberUserPreference,
+  rememberConfirmationMessage,
+} = require("../memory/mem0Service");
+const {
   isExplicitRememberRequest,
   isMemoryRecallRequest,
 } = require("../memory/memoryExtraction");
@@ -375,9 +381,6 @@ async function runMemoryRecallIfNeeded({ userId, message }) {
 async function runExplicitRememberIfNeeded({ userId, message }) {
   if (!isExplicitRememberRequest(message)) return null;
 
-  const content = extractExplicitRememberContent(message);
-  if (!content) return null;
-
   if (!isMem0Configured()) {
     return withMutations({
       assistantMessage:
@@ -388,31 +391,31 @@ async function runExplicitRememberIfNeeded({ userId, message }) {
     });
   }
 
-  const result = await storeMemory({
-    userId,
-    content,
-    metadata: { source: "explicit_remember" },
-  });
+  const result = await rememberUserPreference({ userId, message });
+  if (result.skipped) return null;
+
+  const toolArgs =
+    result.mode === "infer"
+      ? { infer: true, message }
+      : { content: result.memory?.content ?? "" };
 
   const toolResults = [
     {
       tool: "store_memory",
-      args: { content },
+      args: toolArgs,
       ok: result.ok,
       result: result.ok
         ? {
             ok: true,
-            summary: `Saved preference: "${result.memory.content}"`,
-            data: { memory: result.memory },
+            summary: rememberConfirmationMessage(result),
+            data: { memory: result.memory, mode: result.mode },
           }
         : { ok: false, summary: result.error, error: result.error },
     },
   ];
 
   return withMutations({
-    assistantMessage: result.ok
-      ? `Got it — I'll remember: ${result.memory.content}`
-      : result.error || "I couldn't save that preference.",
+    assistantMessage: rememberConfirmationMessage(result),
     toolResults,
     pendingConfirmation: null,
     clientActions: collectClientActions(toolResults),

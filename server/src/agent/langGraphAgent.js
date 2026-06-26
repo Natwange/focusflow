@@ -3,9 +3,9 @@ const { completeAgentTurn } = require("./llmClient");
 const { isV1ToolName, parseToolArgs } = require("./tools");
 const { listTasksArgsForTodayIntent, isCreateTaskRetryMessage, findLastUserCreateTaskArgs } = require("./ruleParser");
 const {
-  extractExplicitRememberContent,
   isExplicitRememberRequest,
   isMemoryRecallRequest,
+  resolveRememberStoragePlan,
 } = require("../memory/memoryExtraction");
 const { isMem0Configured } = require("../memory/mem0Service");
 
@@ -121,8 +121,8 @@ async function resolvePendingConfirmationNode(state) {
   }
 
   if (isExplicitRememberRequest(state.message)) {
-    const content = extractExplicitRememberContent(state.message);
-    if (content) {
+    const plan = resolveRememberStoragePlan(state.message);
+    if (plan.mode !== "skip") {
       if (!isMem0Configured()) {
         return {
           assistantMessage: MEM0_NOT_CONFIGURED_MESSAGE,
@@ -132,7 +132,10 @@ async function resolvePendingConfirmationNode(state) {
           nextStep: "finalize",
         };
       }
-      const toolArgs = { content };
+      const toolArgs =
+        plan.mode === "infer"
+          ? { infer: true, message: plan.message }
+          : { content: plan.content };
       return {
         directToolCall: { toolName: "store_memory", toolArgs },
         toolName: "store_memory",

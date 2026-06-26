@@ -200,9 +200,15 @@ const toolArgSchemas = {
     limit: z.coerce.number().int().min(1).max(20).optional(),
   }),
 
-  store_memory: z.object({
-    content: z.string().trim().min(1).max(500),
-  }),
+  store_memory: z
+    .object({
+      content: z.string().trim().min(1).max(500).optional(),
+      infer: z.boolean().optional(),
+      message: z.string().trim().min(1).max(2000).optional(),
+    })
+    .refine((d) => Boolean(d.content) || (d.infer && d.message), {
+      message: "Provide content for a literal save, or infer:true with message.",
+    }),
 
   list_memories: z.object({
     limit: z.coerce.number().int().min(1).max(50).optional(),

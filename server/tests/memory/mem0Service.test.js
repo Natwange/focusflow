@@ -22,6 +22,8 @@ const {
   toMem0UserId,
   buildMem0EntityFilters,
   filterMemoriesForUser,
+  rememberUserPreference,
+  storeMemoryInferred,
 } = require("../../src/memory/mem0Service");
 
 describe("mem0Service", () => {
@@ -224,6 +226,39 @@ describe("mem0Service", () => {
     });
     expect(await listMemories({ userId: "user_a" })).toHaveLength(0);
   });
+
+  test("rememberUserPreference uses literal path for simple phrases", async () => {
+    const result = await rememberUserPreference({
+      userId: "user_a",
+      message: "Remember that I prefer 45-minute focus sessions.",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe("literal");
+    expect(result.memory.content).toMatch(/45-minute/i);
+  });
+
+  test("rememberUserPreference uses infer path when regex cannot extract", async () => {
+    const inferCalls = [];
+    resetMem0ServiceForTests();
+    setMem0ClientForTests({
+      add: async (messages, options) => {
+        inferCalls.push({ messages, options });
+        return { status: "PENDING", eventId: "evt_1" };
+      },
+    });
+
+    const result = await rememberUserPreference({
+      userId: "user_a",
+      message: "save this preference",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe("infer");
+    expect(result.pending).toBe(true);
+    expect(inferCalls).toHaveLength(1);
+    expect(inferCalls[0].options.infer).toBe(true);
+    expect(inferCalls[0].messages[0].content).toMatch(/save this preference/i);
+  });
 });
 
 describe("memoryExtraction", () => {
@@ -270,6 +305,21 @@ describe("memoryExtraction", () => {
   test("rejects junk remember fragments", () => {
     const { extractExplicitRememberContent } = require("../../src/memory/memoryExtraction");
     expect(extractExplicitRememberContent("remember about me")).toBeNull();
+  });
+
+  test("resolveRememberStoragePlan uses infer when regex cannot extract", () => {
+    const { resolveRememberStoragePlan } = require("../../src/memory/memoryExtraction");
+    const plan = resolveRememberStoragePlan("save this preference");
+    expect(plan.mode).toBe("infer");
+  });
+
+  test("resolveRememberStoragePlan uses literal for simple remember-that", () => {
+    const { resolveRememberStoragePlan } = require("../../src/memory/memoryExtraction");
+    const plan = resolveRememberStoragePlan(
+      "Remember that I like 30-minute focus sessions."
+    );
+    expect(plan.mode).toBe("literal");
+    expect(plan.content).toMatch(/30-minute/i);
   });
 });
 

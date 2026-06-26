@@ -25,6 +25,8 @@ const {
   deleteMemory,
   deleteMemoriesByQuery,
   formatMemoryListSummary,
+  storeMemoryInferred,
+  rememberConfirmationMessage,
 } = require("../memory/mem0Service");
 const {
   formatCreatedTaskSummary,
@@ -848,16 +850,31 @@ async function runRetrieveMemory(userId, args) {
 }
 
 async function runStoreMemory(userId, args) {
+  if (args.infer) {
+    const result = await storeMemoryInferred({
+      userId,
+      userMessage: args.message ?? args.content ?? "",
+      metadata: { source: "agent_tool" },
+    });
+    if (!result.ok) {
+      return failure(result.error, { summary: result.error });
+    }
+    return success({
+      data: { memory: result.memory, mode: result.mode },
+      summary: rememberConfirmationMessage(result),
+    });
+  }
+
   const result = await storeMemory({
     userId,
     content: args.content,
-    metadata: { source: "agent_tool" },
+    metadata: { source: "agent_tool", storeMode: "literal" },
   });
   if (!result.ok) {
     return failure(result.error, { summary: result.error });
   }
   return success({
-    data: { memory: result.memory },
+    data: { memory: result.memory, mode: "literal" },
     summary: `Saved preference: "${result.memory.content}"`,
   });
 }
