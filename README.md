@@ -1,93 +1,117 @@
 # FocusFlow
 
-FocusFlow is a full-stack productivity app that helps users break goals into actionable tasks, track focus sessions, and reflect through journal notes and a lightweight daily reflection flow. The project emphasizes practical product engineering and secure backend design.
+FocusFlow is a full-stack productivity app that helps users break goals into actionable tasks, track focus sessions, and stay on track with an AI assistant. The project emphasizes practical product engineering, secure backend design, and tool-backed agent actions (not chat-only responses).
 
 ## Live app
 
-**Production (Render):** [https://focusflow-client.onrender.com/](https://focusflow-client.onrender.com/)
+| Service | URL |
+|--------|-----|
+| **Web app** | [https://focusflow-client.onrender.com/](https://focusflow-client.onrender.com/) |
+| **API** | [https://focusflow-server-y490.onrender.com/](https://focusflow-server-y490.onrender.com/) |
 
-## Project Overview
+Health check: `GET https://focusflow-server-y490.onrender.com/health` → `{ status, mem0, composio, authCookies, ... }`.
+
+## Project overview
 
 FocusFlow combines:
-- goal planning with deadline-aware task generation, unit-scoped chunks (lessons/chapters), and optional goal-agent insights (progress evaluation, failure hints, rebalance previews)
-- task management with priorities, due dates, status, and calendar-style day/week/month views
-- focus session logging and streak analytics
-- journaling with a daily reflection prompt (local draft) plus full-page notes with autosave
-- analytics for productivity trends and activity-pattern summaries
-- secure cookie-based authentication
 
-## Core Features
+- **Goal planning** — deadline-aware task generation, unit-scoped chunks (lessons/chapters), weekday caps, rebalance/adjustment previews, and goal-agent insights
+- **Task management** — priorities, due dates, scheduled time blocks, day/week/month views, overdue labeling
+- **Focus sessions** — Pomodoro-style timer with a global widget, session logging, streaks, and analytics
+- **Oti (AI agent)** — floating “Ask Oti” chat that calls validated backend tools (tasks, goals, focus, memory, integrations)
+- **Long-term memory (Mem0)** — per-user preferences (study times, focus length, workload limits) scoped by user id
+- **External integrations (Composio)** — Gmail, Google Calendar, and Notion via OAuth (agent tools; connect flow on API)
+- **Journal & reflection** — full notes with autosave plus a daily reflection draft
+- **Analytics** — productivity trends and activity-pattern insights
+- **Secure auth** — HttpOnly cookie sessions with refresh rotation, idle timeout, and optional same-origin BFF proxy
 
-- Account system: register, login, refresh, logout, password change, **forgot password** (email link), **email verification** after signup
-- Goals: create/update/delete; plan preview/confirm and rebalance flows; optional **max units per day** and **available weekdays**; linked tasks store **unit ranges** (`unitStart`–`unitEnd`) so completion progress is measured in goal units (e.g. lessons), not only the number of tasks
-- Goal agent: preview endpoint combines evaluation, failure-style signals, and rebalance guidance; users can **apply agent rebalance**; results are stored as **`AgentRun`** rows for history and analytics
-- Tasks: create/update/delete with priority, due date, and status (`todo` / `doing` / `done`); UI grouped by day, week, or month
-- Journal: note list with **Today’s Reflection** (optional prompts, per-day draft in `localStorage`) plus create/read/update/delete notes with font style preferences
-- Focus sessions: log sessions, summarize daily time and streak
-- Analytics: productivity metrics and charts; **`GET /analytics/activity-patterns`** drives habit-focused insights on the analytics page; dashboard-oriented aggregates where exposed
-- Dashboard: shortcuts into goals (planner), focus, and other primary flows
+## Core features
 
-## Tech Stack
+### Productivity
 
-- **Frontend:** Next.js (App Router), React, TypeScript, Tailwind CSS
-- **Backend:** Node.js, Express
-- **Database:** PostgreSQL with Prisma ORM
-- **Auth/Security:** JWT in HttpOnly cookies, refresh token rotation, helmet, CORS, rate limiting, Zod, sanitize-html
-- **Testing:** Jest + Supertest
+- **Dashboard** — today’s tasks, streak, agent suggestions, shortcuts, and a “Today’s Plan” overlay
+- **Goals** — create/update/delete; plan preview/confirm; rebalance and adjustment flows; **OVERDUE** badges on past-due plan sections; linked tasks store **unit ranges** (`unitStart`–`unitEnd`)
+- **Goal agent** — evaluation, failure hints, rebalance previews; **apply rebalance/adjustment** with confirmation; history stored as **`AgentRun`** rows
+- **Tasks** — `todo` / `doing` / `done`; calendar day timeline with scheduled blocks; overdue indicators
+- **Focus** — start/pause/stop sessions; global timer widget (bottom-left); sessions logged for analytics
+- **Journal** — note list, Today’s Reflection (local draft), rich note editor with font styles
+- **Analytics** — charts and `GET /analytics/activity-patterns` habit insights
 
-**UI:** Shared light-gray app canvas (`.ff-page` in `client/app/globals.css`) and white cards with soft borders/shadows on primary pages (dashboard, goals, journal, tasks, analytics, auth).
+### Oti (AI agent)
 
-## Architecture Overview
+- **UI** — fixed “Ask Oti” pill (bottom-right); right-docked chat panel; blurs with modals (Settings, Today’s Plan)
+- **Backend** — `POST /agent/chat` with LLM tool-calling (OpenAI or Anthropic); rule-based fallbacks when unconfigured
+- **Tools** — list/create/update/complete/delete tasks; goals and plan confirm/rebalance/adjust; focus suggestions; proactive suggestions; adaptive recommendations; Mem0 remember/recall/forget
+- **Integrations tools** — calendar events, Gmail send/draft, Notion pages/goal export (require Composio connection)
+- **Orchestrator** — `AGENT_ORCHESTRATOR=custom` (default) or `langgraph` for LangGraph-based flow
+- **Session isolation** — chat state clears on logout and when the signed-in user changes
 
-- `client/` - Next.js UI and page routes
-- `client/app/api/bff/[[...path]]/route.ts` - optional **same-origin API proxy** (server-side forward to Express). Use in production when the web app and API are on different hosts so auth cookies stay **first-party** on the Next.js domain (fixes strict mobile browsers blocking cross-site cookies).
-- `server/prisma.config.ts` - Prisma CLI config (migrations): prefers **`DATABASE_URL_DIRECT`** when set, otherwise **`DATABASE_URL`** (helpful with Supabase pooler + direct URLs).
-- `server/src/app.js` - Express app composition (middleware + routes)
-- `server/src/index.js` - server bootstrap/listener startup
-- `server/src/routes/` - API route modules (`auth`, `goals`, `tasks`, `journal`, `focus`, `analytics`, `activity`)
-- `server/src/lib/` - shared logic (auth sessions, **`buildPlan`** planning, **`evaluateGoalProgress`** / **`goalAgentOrchestrator`**, rebalance helpers, **`userActivityPatternAnalyzer`**, ownership checks, sanitization, audit logging)
-- `server/tests/` - unit and integration/security test suites
+### Account & settings
 
-## Security Improvements
+- Register, login, refresh, logout, password change, forgot password, email verification
+- **Settings modal** — account (email, password, sign out) and appearance (light / dark / system)
+- **Session inactivity** — 60-minute idle warning, then auto sign-out (paused during active focus sessions)
 
-- **HttpOnly cookie auth:** access and refresh tokens are set in HttpOnly cookies
-- **Refresh token rotation:** refresh token is rotated on each valid refresh
-- **Protected routes:** middleware-enforced auth on user data endpoints
-- **Zod validation:** centralized request validation for auth/tasks/goals/journal inputs
-- **Ownership checks:** user-scoped resource access controls for task/goal/journal updates/deletes
-- **Rate limiting:** stricter limits on `/auth/login`, `/auth/register`, `/auth/refresh`
-- **Sanitization:** user-generated text sanitized before persistence
-- **Audit logging:** JSON audit events for login/logout/refresh/password-change actions
+## Tech stack
+
+| Layer | Stack |
+|-------|--------|
+| **Frontend** | Next.js 16 (App Router), React 18, TypeScript, Tailwind CSS v4 |
+| **Backend** | Node.js 20+, Express 5 |
+| **Database** | PostgreSQL, Prisma 7 |
+| **Auth** | JWT in HttpOnly cookies, refresh token rotation, helmet, CORS, rate limiting, Zod, sanitize-html |
+| **Agent** | OpenAI and/or Anthropic SDKs; optional LangGraph; rule-based parser for common intents |
+| **Memory** | [Mem0](https://mem0.ai) (`mem0ai`) — namespaced per FocusFlow user |
+| **Integrations** | [Composio](https://composio.dev) — Gmail, Google Calendar, Notion |
+| **Email** | Resend (password reset + verification) |
+| **Testing** | Jest + Supertest |
+
+**UI:** Shared app canvas (`.ff-page`), card-based layouts, dark mode via `ThemeProvider` and `localStorage`.
+
+## Architecture
+
+```
+focusflow/
+├── client/                 # Next.js UI
+│   ├── app/                  # App Router pages + /api/bff proxy + /api/config
+│   ├── components/           # AgentChat, Navbar, settings, analytics, focus timer
+│   └── lib/                  # api, agent events, calendar dates, focus timer storage
+├── server/
+│   ├── prisma/               # schema + migrations
+│   └── src/
+│       ├── agent/            # chat orchestrator, LLM client, tools, rule parser
+│       ├── memory/           # Mem0 service + extraction
+│       ├── integrations/     # Composio client, OAuth, tool runners
+│       ├── routes/           # auth, goals, tasks, journal, focus, analytics, agent, integrations
+│       └── lib/              # planning, goal agent, auth, ownership, sanitization
+└── render.yaml               # Render Blueprint (API service)
+```
+
+**API routing (production):**
+
+- **Direct API** — browser calls Express on a separate host (`NEXT_PUBLIC_API_URL`). May need `COOKIE_SAME_SITE=none` on mobile.
+- **BFF proxy** — browser calls same-origin `/api/bff/*`; Next forwards to Express (`BACKEND_URL`). Cookies stay first-party (recommended for split Render hosts).
+- **Hybrid auth** — optional direct API for authenticated routes with runtime config from `GET /api/config` (`HYBRID_AUTH_ROUTING`, `BACKEND_URL`).
+
+## Security
+
+- HttpOnly cookie auth; refresh token rotation
+- Protected routes with ownership checks on tasks, goals, journal, agent, integrations
+- Zod validation on API inputs
+- Per-email auth rate limits (register, forgot password, refresh)
+- Sanitized user-generated text; JSON audit events for auth actions
+- Composio connect state signed with `JWT_SECRET`; sensitive values redacted in logs
 
 ## Testing
 
-Current automated coverage includes:
-- **Unit tests**
-  - Goal planning algorithm (`buildPlan`) behavior and edge cases
-  - Goal progress evaluation (`evaluationEngine`), rebalance helpers, and related analyzers where covered
-- **Integration tests**
-  - Auth + `/me` behavior with cookie flow
-  - Task validation and ownership boundaries
-  - Goal routes (e.g. agent preview/run logging, apply rebalance) where present under `server/tests/integration/`
-- **Auth/Security tests**
-  - Login success/failure + cookie assertions
-  - Refresh flow success/failure scenarios
-  - Rate limiting assertions
-- **Goal planning tests**
-  - distribution correctness
-  - deadline alignment
-  - short/long-range edge cases
-  - deterministic output
-  - invalid input handling
-
-Run backend tests:
+Backend tests cover goal planning, agent tools, Mem0, Composio mocks, auth/security flows, and integration routes.
 
 ```bash
 cd server
 npm test
 ```
 
-## Run Locally
+## Run locally
 
 ### Prerequisites
 
@@ -98,57 +122,98 @@ npm test
 ### 1) Install dependencies
 
 ```bash
-cd server
-npm install
+cd server && npm install
+cd ../client && npm install
 ```
 
-```bash
-cd client
-npm install
-```
+### 2) Environment variables
 
-### 2) Configure environment variables
-
-Create `server/.env` (use your own real values):
+**`server/.env`** (required):
 
 ```env
 DATABASE_URL="postgresql://<user>:<password>@<host>:<port>/<db>"
-# Optional (Supabase / pooler): use a direct or session URL for `prisma migrate` while the app uses a pooler URL above
-# DATABASE_URL_DIRECT="postgresql://..."
 JWT_SECRET="<long-random-secret>"
 CLIENT_ORIGIN="http://localhost:3000"
 JWT_EXPIRES_IN="7d"
-# Optional
-# JWT_ACCESS_EXPIRES_IN="15m"
-# JWT_REFRESH_EXPIRES_IN="7d"
-# Auth rate limits (per-email buckets — safe behind BFF / Render):
-# LOGIN_RATE_LIMIT_MAX="100"          # failed logins per email / 15 min (default 100)
-# REGISTER_RATE_LIMIT_MAX="50"        # sign-up attempts per email / hour (default 50)
-# FORGOT_PASSWORD_RATE_LIMIT_MAX="20"
-# AUTH_REFRESH_RATE_LIMIT_MAX="120"
-# DISABLE_AUTH_RATE_LIMIT="1"         # emergency only — disables all auth rate limits
-# NEVER set AUTH_RATE_LIMIT_MAX="8" on production — it breaks login for all visitors.
-# PORT="4000"
-# TRUST_PROXY="1"
-# COOKIE_SAME_SITE="none"   # only when web + API are on different origins in production (see Deploying)
-#
-# Email (Resend — password reset + verification links)
-# RESEND_API_KEY="re_..."   # https://resend.com/api-keys — required in production to actually send mail
-# EMAIL_FROM="FocusFlow <noreply@yourdomain.com>"   # must use a domain you verify in Resend (dev default: onboarding@resend.dev)
-# PUBLIC_APP_URL="http://localhost:3000"   # exact URL of the Next.js site (used in email links). In production: https://your-frontend-host
 ```
 
-Create `client/.env.local`:
+**Optional — database (Supabase / pooler):**
 
 ```env
-# Local: talk to Express directly
-NEXT_PUBLIC_API_URL="http://localhost:4000"
-# Production (optional BFF — see Deploying): same-origin proxy on the Next host, e.g.
-# NEXT_PUBLIC_API_URL="https://your-next-host.onrender.com/api/bff"
-# Plus on the Next service only (server-side): BACKEND_URL="https://your-api-host.onrender.com"
+# DATABASE_URL_DIRECT="postgresql://..."   # for prisma migrate; see server/prisma.config.ts
 ```
 
-### 3) Run DB migrations
+**Optional — email (Resend):**
+
+```env
+RESEND_API_KEY="re_..."
+EMAIL_FROM="FocusFlow <noreply@yourdomain.com>"
+PUBLIC_APP_URL="http://localhost:3000"
+```
+
+**Optional — Oti agent (at least one LLM key):**
+
+```env
+OPENAI_API_KEY="sk-..."
+# ANTHROPIC_API_KEY="..." or CLAUDE_API_KEY="..."
+# AGENT_PROVIDER="openai" | "anthropic"   # auto-detected if omitted
+# AGENT_MODEL="gpt-4o-mini"
+# AGENT_ORCHESTRATOR="custom" | "langgraph"
+```
+
+**Optional — Mem0 long-term memory:**
+
+```env
+MEM0_API_KEY="..."
+# MEM0_MEMORY_LIMIT="6"
+# MEM0_MEMORY_THRESHOLD="0.35"
+```
+
+**Optional — Composio integrations:**
+
+```env
+COMPOSIO_API_KEY="..."
+PUBLIC_API_URL="http://localhost:4000"    # OAuth callback base (production: your API HTTPS URL)
+COMPOSIO_AUTH_CONFIG_GMAIL="..."
+COMPOSIO_AUTH_CONFIG_GOOGLECALENDAR="..."
+COMPOSIO_AUTH_CONFIG_NOTION="..."
+# COMPOSIO_BASE_URL="https://backend.composio.dev"
+```
+
+**Optional — auth / cookies / limits:**
+
+```env
+# JWT_ACCESS_EXPIRES_IN="15m"
+# JWT_REFRESH_EXPIRES_IN="7d"
+# TRUST_PROXY="1"
+# COOKIE_SAME_SITE="none"          # cross-origin web + API in production
+# DISABLE_AUTH_RATE_LIMIT="1"      # emergency only
+# REGISTER_RATE_LIMIT_MAX="50"
+# FORGOT_PASSWORD_RATE_LIMIT_MAX="20"
+```
+
+**`client/.env.local`:**
+
+```env
+NEXT_PUBLIC_API_URL="http://localhost:4000"
+```
+
+**Production BFF (same-origin cookies):**
+
+```env
+NEXT_PUBLIC_API_URL="https://your-next-host.onrender.com/api/bff"
+BACKEND_URL="https://your-api-host.onrender.com"
+```
+
+**Production hybrid direct API (optional):**
+
+```env
+NEXT_PUBLIC_API_URL="https://your-next-host.onrender.com/api/bff"
+NEXT_PUBLIC_DIRECT_API_URL="https://your-api-host.onrender.com"
+HYBRID_AUTH_ROUTING="1"
+```
+
+### 3) Run migrations
 
 ```bash
 cd server
@@ -158,95 +223,53 @@ npx prisma migrate dev
 ### 4) Start apps
 
 ```bash
-cd server
-npm run dev
-```
+# terminal 1
+cd server && npm run dev
 
-```bash
-cd client
-npm run dev
+# terminal 2
+cd client && npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
 ## Deploying
 
-FocusFlow is **two deployables** (Next.js `client/` + Express `server/`) plus **PostgreSQL**. The current production setup uses **[Supabase](https://supabase.com)** for the database and **[Render](https://render.com)** for both the web app and the API (each as its own Web Service).
+FocusFlow is **two deployables** (Next.js + Express) plus **PostgreSQL**. Production uses **Supabase** (database) and **Render** (web + API).
 
-Other stacks (e.g. Vercel + Railway) work too; env names stay the same.
+### Database
 
-### Database (Supabase or any Postgres)
+1. Set **`DATABASE_URL`** on the API service.
+2. Use **`DATABASE_URL_DIRECT`** for migrations if the app uses a pooler URL (`server/prisma.config.ts`).
+3. Run migrations: `npx prisma migrate deploy` (also in Render build via `render.yaml`).
 
-1. Create a database and set **`DATABASE_URL`** on the API service (URI from the host, usually with `sslmode=require` or equivalent).
-2. **Supabase tip:** you may use a **pooler** URL for the app and a **direct / session** URL for migrations. This repo supports **`DATABASE_URL_DIRECT`**: Prisma CLI (`migrate`) prefers it when set (see `server/prisma.config.ts`). The runtime app still uses **`DATABASE_URL`** via `server/src/lib/prisma.js`.
-3. Migrations run on API startup: `npm start` in `server/` runs **`prisma migrate deploy`** then **`node src/index.js`**. You can also run manually from `server/`:
+### API (Render — `server/`)
 
-```bash
-npx prisma migrate deploy
-```
+- **Build:** `npm install --legacy-peer-deps && npm run build && npx prisma migrate deploy`
+- **Start:** `npm start`
+- **Required:** `DATABASE_URL`, `JWT_SECRET`, `CLIENT_ORIGIN` (exact frontend URL, no trailing slash)
+- **Recommended:** `TRUST_PROXY=1`, `PUBLIC_API_URL` (API public HTTPS URL for Composio OAuth)
+- **Split hosts:** `COOKIE_SAME_SITE=none` unless using the BFF proxy
 
-4. **`prisma generate`** runs during API `npm run build` (no DB connection required for generate).
+### Frontend (Render — `client/`)
 
-**If deploy logs show Prisma `P1000` (authentication failed):** the username/password in **`DATABASE_URL`** (or **`DATABASE_URL_DIRECT`**) does not match the database — reset the DB password in Supabase, copy a fresh URI, URL-encode special characters in the password if you hand-edit the string, update Render env, redeploy.
-
-A root **`render.yaml`** is included for Render Blueprints; you can still configure two Web Services manually in the dashboard (typical for this repo).
-
-### API (Express) — e.g. Render service `focusflow-server`
-
-- **Root Directory:** `server`
-- **Build Command:** `npm install && npm run build`
-- **Start Command:** `npm start`
-- **`NODE_ENV=production`**
-- **`JWT_SECRET`**: long random string (required).
-- **`CLIENT_ORIGIN`**: your **exact** live web origin, e.g. `https://focusflow-client.onrender.com` (no trailing slash). Multiple origins: comma-separated.
-- **`TRUST_PROXY=1`** behind Render’s proxy.
-- **Different hostnames for web + API:** set **`COOKIE_SAME_SITE=none`** so HttpOnly cookies work on credentialed cross-origin `fetch` (HTTPS only). If you use the **BFF proxy** below, the browser only talks to the Next origin for API calls and you can rely on first-party cookies instead (recommended for mobile Safari/Chrome).
-
-The process listens on **`0.0.0.0`** and **`PORT`** from the platform (e.g. `10000` on Render). Your **public** URL is the Render HTTPS hostname — not `http://0.0.0.0:PORT`.
-
-### Frontend (Next.js) — e.g. Render service `focusflow-client`
-
-- **Root Directory:** `client`
-- **Build Command:** `npm install && npm run build`
-- **Start Command:** `npm start`
-
-**Option A — Direct API URL (simplest, can break on some mobile browsers when API is another site):**
-
-```env
-NEXT_PUBLIC_API_URL="https://your-api.onrender.com"
-```
-
-**Option B — Same-origin BFF (recommended when web and API are two Render URLs):**
-
-Set on the **Next** service:
-
-```env
-NEXT_PUBLIC_API_URL="https://your-next-host.onrender.com/api/bff"
-BACKEND_URL="https://your-api-host.onrender.com"
-```
-
-`BACKEND_URL` is **server-only** (not `NEXT_PUBLIC_*`). The route at `client/app/api/bff/[[...path]]/route.ts` forwards requests and rewrites `Set-Cookie` so session cookies are stored on the **web** domain.
+- **Build:** `npm install && npm run build`
+- **Start:** `npm start`
+- Prefer **BFF** (`NEXT_PUBLIC_API_URL=.../api/bff` + `BACKEND_URL`) for reliable cookies on mobile
 
 ### Smoke checks
 
-- `GET https://<api-host>/health` → JSON `{ "status": "ok", ... }`.
-- From the live site: sign up / log in, open dashboard. If you get sent back to login after a “successful” login, check **`CLIENT_ORIGIN`**, cookie env vars, and consider **Option B (BFF)** above.
+- `GET /health` — `mem0.configured` and `composio.configured` reflect optional keys
+- Sign up / log in from the live site; dashboard loads with streak and tasks
+- Open Oti, ask “what are my tasks today?” — agent responds with tool-backed data
 
 ## Screenshots
 
-_Note to self: Add screenshots/gifs here_
-- Dashboard
-- Goals planner (saved plans, agent insight, rebalance)
-- Tasks (day / week / month)
-- Journal (reflection + notes)
-- Journal note editor
-- Analytics (productivity + activity patterns)
+_Add screenshots/gifs here: dashboard, goals planner, tasks timeline, Oti chat, focus timer, analytics, journal._
 
-## Future Improvements
+## Roadmap
 
-- Add CI test pipeline and coverage reporting
-- Add centralized structured logging sink (Datadog/ELK) beyond console
-- Expand e2e tests for key user journeys
-- Add role/permission model for shared workspaces
-- Optional server-backed persistence for daily reflections (or one-tap “save as note”)
-- Extend goal agent with external LLM tooling when product requirements stabilize
+- Settings UI for Composio connect (Gmail, Calendar, Notion)
+- Cross-tab session sync for Oti chat reset on account switch
+- CI pipeline with automated test runs
+- E2E tests for login, goals, and agent flows
+- Optional server-backed daily reflection persistence
