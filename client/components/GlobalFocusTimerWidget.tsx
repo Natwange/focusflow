@@ -16,7 +16,7 @@ export default function GlobalFocusTimerWidget() {
   if (!isActive) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex items-center gap-2 rounded-full border border-gray-300 bg-white/95 backdrop-blur shadow-lg px-4 py-2 text-sm font-medium dark:border-[#2a303a] dark:bg-[#171a20]/95 dark:text-[#f5f7fb]">
+    <div className="fixed bottom-4 left-4 z-40 flex items-center gap-2 rounded-full border border-gray-300 bg-white/95 backdrop-blur shadow-lg px-4 py-2 text-sm font-medium dark:border-[#2a303a] dark:bg-[#171a20]/95 dark:text-[#f5f7fb] sm:bottom-6 sm:left-6">
       <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
       <span className="tabular-nums font-bold tracking-tight">
         {formatTime(timeLeft)}

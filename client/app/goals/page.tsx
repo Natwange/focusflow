@@ -5,6 +5,7 @@ import Image from "next/image";
 import { api } from "@/lib/api";
 import { onAgentMutation, emitAgentMutation } from "@/lib/agentEvents";
 import { sumCompletedUnits } from "@/lib/goalTaskUnits";
+import { taskDueCalendarDayKey } from "@/lib/calendarDueDate";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ChevronDown, Pencil, Trash2, RefreshCw, X } from "lucide-react";
 
@@ -1279,7 +1280,22 @@ export default function GoalsPage() {
                           {tasksSorted.length === 0 ? (
                             <li className="text-sm text-gray-500">No tasks in this plan.</li>
                           ) : (
-                            tasksSorted.map((t) => (
+                            tasksSorted.map((t) => {
+                              const dueKey = t.dueDate
+                                ? taskDueCalendarDayKey(t.dueDate)
+                                : null;
+                              const isOverdue =
+                                t.status !== "done" &&
+                                dueKey != null &&
+                                dueKey < todayKey;
+                              const statusLabel =
+                                t.status === "done"
+                                  ? "done"
+                                  : isOverdue
+                                    ? "overdue"
+                                    : t.status;
+
+                              return (
                               <li
                                 key={t.id}
                                 className={`flex items-center justify-between gap-3 rounded-lg border border-gray-200/90 px-3 py-2 ${
@@ -1302,13 +1318,16 @@ export default function GoalsPage() {
                                   className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${
                                     t.status === "done"
                                       ? "bg-green-100 text-green-700"
-                                      : "bg-gray-200 text-gray-700"
+                                      : isOverdue
+                                        ? "bg-red-100 text-red-700"
+                                        : "bg-gray-200 text-gray-700"
                                   }`}
                                 >
-                                  {t.status}
+                                  {statusLabel}
                                 </span>
                               </li>
-                            ))
+                            );
+                            })
                           )}
                         </ul>
                       </div>

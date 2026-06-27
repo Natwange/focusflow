@@ -86,7 +86,6 @@ export default function AgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeUserIdRef = useRef<string | null>(null);
   const focusTimer = useFocusTimer();
-  const focusTimerActive = focusTimer.isActive;
 
   const resetChatSession = useCallback(() => {
     setOpen(false);
@@ -224,14 +223,12 @@ export default function AgentChat() {
 
   return (
     <>
-      {/* Fixed pill — bottom-right; shifts up when focus timer is visible */}
+      {/* Fixed pill — bottom-right */}
       {!open && (
         <button
           type="button"
           onClick={openChat}
-          className={`fixed z-40 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black px-4 py-2.5 text-sm font-medium text-white shadow-lg transition hover:bg-black/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground dark:border-white/20 dark:bg-white dark:text-[#0b0c0f] dark:hover:bg-white/90 dark:shadow-[0_4px_20px_rgba(255,255,255,0.08)] right-4 sm:right-6 ${
-            focusTimerActive ? "bottom-20 sm:bottom-[5.5rem]" : "bottom-5 sm:bottom-6"
-          }`}
+          className="fixed bottom-5 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black px-4 py-2.5 text-sm font-medium text-white shadow-lg transition hover:bg-black/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground dark:border-white/20 dark:bg-white dark:text-[#0b0c0f] dark:hover:bg-white/90 dark:shadow-[0_4px_20px_rgba(255,255,255,0.08)] sm:bottom-6 sm:right-6"
           aria-label="Ask Oti"
         >
           <Sparkles size={16} className="shrink-0 text-white/70 dark:text-[#0b0c0f]/60" aria-hidden />
