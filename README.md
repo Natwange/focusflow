@@ -40,7 +40,7 @@ FocusFlow combines:
 ### Oti (AI agent)
 
 - **UI** — fixed “Ask Oti” pill (bottom-right); right-docked chat panel; blurs with modals (Settings, Today’s Plan)
-- **Backend** — `POST /agent/chat` with LLM tool-calling (OpenAI or Anthropic); rule-based fallbacks when unconfigured
+- **Backend** — `POST /agent/chat` with LLM tool-calling (Anthropic); rule-based fallbacks when unconfigured
 - **Tools** — list/create/update/complete/delete tasks; goals and plan confirm/rebalance/adjust; focus suggestions; proactive suggestions; adaptive recommendations; Mem0 remember/recall/forget
 - **Integrations tools** — calendar events, Gmail send/draft, Notion pages/goal export (require Composio connection)
 - **Orchestrator** — `AGENT_ORCHESTRATOR=custom` (default) or `langgraph` for LangGraph-based flow
@@ -60,7 +60,7 @@ FocusFlow combines:
 | **Backend** | Node.js 20+, Express 5 |
 | **Database** | PostgreSQL, Prisma 7 |
 | **Auth** | JWT in HttpOnly cookies, refresh token rotation, helmet, CORS, rate limiting, Zod, sanitize-html |
-| **Agent** | OpenAI and/or Anthropic SDKs; optional LangGraph; rule-based parser for common intents |
+| **Agent** | Anthropic SDKs; optional LangGraph; rule-based parser for common intents |
 | **Memory** | [Mem0](https://mem0.ai) (`mem0ai`) — namespaced per FocusFlow user |
 | **Integrations** | [Composio](https://composio.dev) — Gmail, Google Calendar, Notion |
 | **Email** | Resend (password reset + verification) |
