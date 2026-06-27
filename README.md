@@ -264,7 +264,13 @@ FocusFlow is **two deployables** (Next.js + Express) plus **PostgreSQL**. Produc
 
 ## Screenshots
 
-_Add screenshots/gifs here: dashboard, goals planner, tasks timeline, Oti chat, focus timer, analytics, journal._
+<img width="956" height="440" alt="image" src="https://github.com/user-attachments/assets/bb087a69-f09f-4ea0-807f-bfe58e8f46d7" />
+<img width="959" height="446" alt="image" src="https://github.com/user-attachments/assets/8869baef-cdde-411f-96a4-4d0970c7a139" />
+<img width="961" height="440" alt="image" src="https://github.com/user-attachments/assets/b09116d0-6dee-44c0-8603-9da1e839d827" />
+<img width="947" height="438" alt="image" src="https://github.com/user-attachments/assets/4b91e815-8065-4e00-8421-c4a366ebd371" />
+<img width="950" height="439" alt="image" src="https://github.com/user-attachments/assets/6f56f794-0465-455d-8c88-1bb10353c895" />
+<img width="949" height="416" alt="image" src="https://github.com/user-attachments/assets/bbce4992-3f48-4990-9d6c-1e2657b25223" />
+<img width="946" height="437" alt="image" src="https://github.com/user-attachments/assets/6bd50bb9-b703-4ed4-9183-b622951c8d6b" />
 
 ## Roadmap
 
