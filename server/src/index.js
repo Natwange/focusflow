@@ -1,4 +1,6 @@
-require("dotenv").config();
+// Instrument first so Sentry can patch Express/http before they load.
+require("./instrument");
+
 const { createApp } = require("./app");
 const PORT = process.env.PORT || 4000;
 const app = createApp();

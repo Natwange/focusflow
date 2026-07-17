@@ -1,3 +1,4 @@
+const { Sentry } = require("./instrument");
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
@@ -101,7 +102,6 @@ function createApp() {
       return res.status(500).json({ error: prismaErrorMessage(err) });
     }
   });
-
   app.patch("/me/password", auth, async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
@@ -146,6 +146,16 @@ function createApp() {
       return res.status(500).json({ error: prismaErrorMessage(err) });
     }
   });
+
+  // Dev/test only — remove or gate behind auth before relying on this in production.
+  if (process.env.NODE_ENV !== "production") {
+    app.get("/debug-sentry", () => {
+      throw new Error("Test error from /debug-sentry");
+    });
+  }
+
+  // Must come AFTER all routes so Express error middleware can catch them.
+  Sentry.setupExpressErrorHandler(app);
 
   app.use((err, req, res, next) => {
     console.error("Unhandled error:", err);
