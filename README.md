@@ -40,7 +40,7 @@ FocusFlow combines:
 ### Oti (AI agent)
 
 - **UI** — fixed “Ask Oti” pill (bottom-right); right-docked chat panel; blurs with modals (Settings, Today’s Plan)
-- **Backend** — `POST /agent/chat` with LLM tool-calling (OpenAI or Anthropic); rule-based fallbacks when unconfigured
+- **Backend** — `POST /agent/chat` with LLM tool-calling (Anthropic); rule-based fallbacks when unconfigured
 - **Tools** — list/create/update/complete/delete tasks; goals and plan confirm/rebalance/adjust; focus suggestions; proactive suggestions; adaptive recommendations; Mem0 remember/recall/forget
 - **Integrations tools** — calendar events, Gmail send/draft, Notion pages/goal export (require Composio connection)
 - **Orchestrator** — `AGENT_ORCHESTRATOR=custom` (default) or `langgraph` for LangGraph-based flow
@@ -60,7 +60,7 @@ FocusFlow combines:
 | **Backend** | Node.js 20+, Express 5 |
 | **Database** | PostgreSQL, Prisma 7 |
 | **Auth** | JWT in HttpOnly cookies, refresh token rotation, helmet, CORS, rate limiting, Zod, sanitize-html |
-| **Agent** | OpenAI and/or Anthropic SDKs; optional LangGraph; rule-based parser for common intents |
+| **Agent** | Anthropic SDKs; optional LangGraph; rule-based parser for common intents |
 | **Memory** | [Mem0](https://mem0.ai) (`mem0ai`) — namespaced per FocusFlow user |
 | **Integrations** | [Composio](https://composio.dev) — Gmail, Google Calendar, Notion |
 | **Email** | Resend (password reset + verification) |
@@ -264,7 +264,13 @@ FocusFlow is **two deployables** (Next.js + Express) plus **PostgreSQL**. Produc
 
 ## Screenshots
 
-_Add screenshots/gifs here: dashboard, goals planner, tasks timeline, Oti chat, focus timer, analytics, journal._
+<img width="956" height="440" alt="image" src="https://github.com/user-attachments/assets/bb087a69-f09f-4ea0-807f-bfe58e8f46d7" />
+<img width="959" height="446" alt="image" src="https://github.com/user-attachments/assets/8869baef-cdde-411f-96a4-4d0970c7a139" />
+<img width="961" height="440" alt="image" src="https://github.com/user-attachments/assets/b09116d0-6dee-44c0-8603-9da1e839d827" />
+<img width="947" height="438" alt="image" src="https://github.com/user-attachments/assets/4b91e815-8065-4e00-8421-c4a366ebd371" />
+<img width="950" height="439" alt="image" src="https://github.com/user-attachments/assets/6f56f794-0465-455d-8c88-1bb10353c895" />
+<img width="949" height="416" alt="image" src="https://github.com/user-attachments/assets/bbce4992-3f48-4990-9d6c-1e2657b25223" />
+<img width="946" height="437" alt="image" src="https://github.com/user-attachments/assets/6bd50bb9-b703-4ed4-9183-b622951c8d6b" />
 
 ## Roadmap
 
