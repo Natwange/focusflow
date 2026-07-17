@@ -107,8 +107,8 @@ export default function SignupPage() {
         "Account created. Check your email for a verification link. Redirecting to sign in…"
       );
       setTimeout(() => router.push("/login?registered=1"), 600);
-    } catch (e: any) {
-      setErr(e.message || "Signup failed.");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Signup failed.");
     } finally {
       setLoading(false);
     }

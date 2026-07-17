@@ -23,9 +23,12 @@ function cx(...classes: Array<string | false | undefined | null>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function useDebouncedCallback<T extends (...args: any[]) => void>(cb: T, delay = 600) {
+function useDebouncedCallback<Args extends unknown[]>(
+  cb: (...args: Args) => void,
+  delay = 600
+) {
   const timer = useRef<number | null>(null);
-  return (...args: Parameters<T>) => {
+  return (...args: Args) => {
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => cb(...args), delay);
   };

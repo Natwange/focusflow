@@ -36,11 +36,14 @@ export function SessionInactivityMonitor() {
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastThrottleRef = useRef(0);
-  const lastActivityAtRef = useRef(Date.now());
+  const lastActivityAtRef = useRef(0);
   const logoutAtRef = useRef<number | null>(null);
   const performLogoutRef = useRef<() => Promise<void>>(async () => {});
   const showWarningRef = useRef(false);
-  showWarningRef.current = showWarning;
+
+  useEffect(() => {
+    showWarningRef.current = showWarning;
+  }, [showWarning]);
 
   const clearTimers = useCallback(() => {
     if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
@@ -65,7 +68,9 @@ export function SessionInactivityMonitor() {
     router.refresh();
   }, [clearTimers, router]);
 
-  performLogoutRef.current = performLogout;
+  useEffect(() => {
+    performLogoutRef.current = performLogout;
+  }, [performLogout]);
 
   const beginWarningCountdown = useCallback(
     (remainingMs: number) => {

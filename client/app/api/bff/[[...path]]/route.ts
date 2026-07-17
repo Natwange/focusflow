@@ -121,7 +121,7 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
 
   const upstream = await fetch(targetUrl, init);
   let body: BodyInit = await upstream.arrayBuffer();
-  let status = upstream.status;
+  const status = upstream.status;
   let outCt = upstream.headers.get("content-type") ?? "";
 
   // Plain-text upstream errors are hard to parse in the SPA — normalize to JSON.

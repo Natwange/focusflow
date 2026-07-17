@@ -224,12 +224,12 @@ export default function TasksPage() {
       const data = await api(
         `/tasks?startDate=${start.toISOString()}&endDate=${end.toISOString()}&includeOverdue=${includeOverdue}&tzOffsetMinutes=${tzOffsetMinutes}`
       );
-      let nextTasks: Task[] = Array.isArray(data) ? data : [];
+      const nextTasks: Task[] = Array.isArray(data) ? data : [];
 
       setTasks(nextTasks);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setTasks([]);
-      setError(e?.message || "Failed to load tasks");
+      setError(e instanceof Error ? e.message : "Failed to load tasks");
     } finally {
       setLoading(false);
     }
@@ -287,8 +287,8 @@ export default function TasksPage() {
       setNewDueDate(toISODate(new Date()));
       setNewStartTime("");
       setNewEndTime("");
-    } catch (e: any) {
-      setError(e?.message || "Failed to create task");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to create task");
     } finally {
       setCreateLoading(false);
     }
@@ -304,8 +304,8 @@ export default function TasksPage() {
       setTasks((prev) =>
         prev.map((t) => (t.id === id ? { ...t, ...updated } : t))
       );
-    } catch (e: any) {
-      setError(e?.message || "Failed to update");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to update");
     } finally {
       setStatusLoading(null);
     }
@@ -317,8 +317,8 @@ export default function TasksPage() {
         method: "DELETE",
       });
       setTasks((prev) => prev.filter((t) => t.id !== id));
-    } catch (e: any) {
-      setError(e?.message || "Failed to delete");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete");
     }
   };
 
@@ -338,8 +338,8 @@ export default function TasksPage() {
         body: JSON.stringify(updates),
       });
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updated } : t)));
-    } catch (e: any) {
-      setError(e?.message || "Failed to update task");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to update task");
     }
   };
 

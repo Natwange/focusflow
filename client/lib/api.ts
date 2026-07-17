@@ -113,7 +113,11 @@ async function refreshSessionOnce(): Promise<boolean> {
   return refreshInFlight;
 }
 
-export async function api(path: string, opts: RequestInit = {}): Promise<any> {
+// JSON helper used across the app; callers narrow the shape at the use site.
+export async function api(path: string, opts: RequestInit = {}): Promise<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped API envelope
+  any
+> {
   return apiOnce(path, opts, false, false);
 }
 
@@ -122,6 +126,7 @@ async function apiOnce(
   opts: RequestInit,
   isUnauthorizedRetry: boolean,
   isLoginTransientRetry: boolean
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped API envelope
 ): Promise<any> {
   await ensureApiRoutingConfig();
 
@@ -174,6 +179,7 @@ async function apiOnce(
   });
 
   const text = await res.text();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- JSON body may be object or string
   let data: any = null;
   try {
     data = text ? JSON.parse(text) : null;

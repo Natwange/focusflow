@@ -36,8 +36,16 @@ const PRIORITY_COLORS: Record<TaskPriority, string> = {
   urgent: "bg-red-100 text-red-700",
 };
 
+type GoalSummary = {
+  id: string;
+  title: string;
+  totalUnits?: number;
+  deadline?: string;
+  unitName?: string;
+};
+
 export default function DashboardPage() {
-  const [goals, setGoals] = useState<any[]>([]);
+  const [goals, setGoals] = useState<GoalSummary[]>([]);
   const [goalsError, setGoalsError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);

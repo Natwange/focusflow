@@ -102,9 +102,9 @@ export default function LoginPage() {
 
       // After a successful login, send the user to the main dashboard
       router.push("/dashboard");
-    } catch (e: any) {
+    } catch (e: unknown) {
       // If the server or network fails, show a friendly message above the button
-      setErr(e?.message || "Login failed");
+      setErr(e instanceof Error ? e.message : "Login failed");
     } finally {
       // Always turn off the loading state, whether the request succeeded or failed
       setLoading(false);

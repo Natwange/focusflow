@@ -62,9 +62,9 @@ export default function JournalPage() {
       try {
         const data = await api("/journal/notes");
         setNotes(Array.isArray(data) ? data : []);
-      } catch (e: any) {
+      } catch (e: unknown) {
         setNotes([]);
-        const msg = e?.message || String(e);
+        const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes("NEXT_PUBLIC_API_URL")) {
           setLoadError("API URL not set. Add NEXT_PUBLIC_API_URL=http://localhost:4000 to client/.env.local");
         } else if (msg === "Authentication required") {
@@ -92,8 +92,8 @@ export default function JournalPage() {
       });
       setNotes((prev) => [newNote, ...prev]);
       window.location.href = `/journal/${encodeURIComponent(newNote.id)}`;
-    } catch (e: any) {
-      setCreateNoteError(e?.message || "Failed to create note.");
+    } catch (e: unknown) {
+      setCreateNoteError(e instanceof Error ? e.message : "Failed to create note.");
     } finally {
       setCreateNoteLoading(false);
     }
