@@ -148,7 +148,7 @@ function createApp() {
   });
 
   // Dev/test only — remove or gate behind auth before relying on this in production.
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.ENABLE_DEBUG_SENTRY === "true") {
     app.get("/debug-sentry", () => {
       throw new Error("Test error from /debug-sentry");
     });
