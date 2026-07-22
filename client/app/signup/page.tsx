@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { MaintenanceNotice } from "@/components/MaintenanceNotice";
 import { api } from "@/lib/api";
 import { isReasonableEmail, normalizeEmail } from "@/lib/emailValidation";
 
@@ -127,6 +128,8 @@ export default function SignupPage() {
             <p className="mt-1 text-sm text-black/45">
               Keep it simple. Build consistency.
             </p>
+
+            <MaintenanceNotice className="mt-4" />
 
             <form onSubmit={onSubmit} className="mt-6 space-y-4">
               <div className="space-y-2">

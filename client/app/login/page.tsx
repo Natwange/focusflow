@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { MaintenanceNotice } from "@/components/MaintenanceNotice";
 import { api } from "@/lib/api";
 import { normalizeEmail } from "@/lib/emailValidation";
 
@@ -126,6 +127,8 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-black/55">
             Stay consistent. Finish what you start.
           </p>
+
+          <MaintenanceNotice className="mt-4" />
 
           {registeredOk && (
             <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">

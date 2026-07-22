@@ -133,7 +133,6 @@ router.post(
   "/login",
   validateBody(loginBodySchema),
   async (req, res) => {
-    throw new Error("FOCUSFLOW_OUTAGE_TEST: login temporarily disabled for Breadcrumbs drill");
   try {
     if (!requireJwtSecret(res)) return;
 

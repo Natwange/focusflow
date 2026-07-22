@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { MaintenanceNotice } from "@/components/MaintenanceNotice";
 import { api } from "@/lib/api";
 
 export default function HomePage() {
@@ -50,6 +51,8 @@ export default function HomePage() {
               </Link>
             </nav>
           </header>
+
+          <MaintenanceNotice className="mt-6" />
 
           <section className="pt-10 md:pt-12">
             <div className="space-y-6 min-w-0">
