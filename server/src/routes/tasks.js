@@ -54,6 +54,9 @@ router.post("/", validateBody(taskCreateBodySchema), async (req, res) => {
 // Query: status, goalId, startDate, endDate (ISO strings; filter by dueDate inclusive)
 router.get("/", async (req, res) => {
   try {
+    // DRILL 1 (Breadcrumbs): obvious failure — remove this throw when the drill is done
+    throw new Error("FOCUSFLOW_OUTAGE_TEST: tasks list temporarily disabled for Breadcrumbs drill");
+
     const userId = req.user.id;
     const { status, goalId, startDate, endDate, includeOverdue, tzOffsetMinutes } =
       req.query;
@@ -94,7 +97,11 @@ router.get("/", async (req, res) => {
     return res.json(filtered);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: "Internal server error" });
+    const message =
+      err?.message?.includes("FOCUSFLOW_OUTAGE_TEST")
+        ? err.message
+        : "Internal server error";
+    return res.status(500).json({ error: message });
   }
 });
 
